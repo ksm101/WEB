@@ -5,7 +5,6 @@
     <meta name="viewport" content='width=device-width, height=device-height, initial-scale=1.0, minimum-scale=1.0, user-scalable=no, shrink-to-fit=yes'>
     <title>Unity WebGL Player | My project</title>
     <link rel="stylesheet" href="TemplateData/style.css">
-
     <style>
         html{
             height: -webkit-fill-available;
@@ -35,6 +34,12 @@
 </head>
 <body>
     <!--IMAGETARGETS-->
+		<imagetarget id='bear' src='targets/bear.png'></imagetarget>
+		<imagetarget id='bfly' src='targets/bfly.png'></imagetarget>
+		<imagetarget id='flower' src='targets/flower.png'></imagetarget>
+		<imagetarget id='lady' src='targets/lady.png'></imagetarget>
+		<imagetarget id='reel' src='targets/reel.png'></imagetarget>
+		<imagetarget id='rmn' src='targets/rmn.png'></imagetarget>
 
     <video id="webcam-video" muted autoplay playsinline style="width:1px;position:absolute"></video>
     <canvas id="video-canvas" style="width:100%; height:100%; object-fit:cover; position:absolute"></canvas>
@@ -76,7 +81,6 @@
     <script src="Build/WebGLDEMO.loader.js"></script>
     <script>
             var initialize = async() =>{
-
                 var unityCanvas = document.querySelector("#unity-canvas");
                 var videoCanvas = document.querySelector("#video-canvas");
                 window.arCamera = new ARCamera(unityCanvas, videoCanvas);
@@ -93,13 +97,9 @@
                 
                 await LoadWebcams();
                 document.getElementById("startARButton").style.display = "block";
-
                 window.permissionsGranted = IsCameraPermissionGranted();
-
             }
-
             initialize();
-
             var container = document.querySelector("#unity-container");
             var canvas = document.querySelector("#unity-canvas");
             var loadingBar = document.querySelector("#unity-loading-bar");
@@ -128,21 +128,18 @@
                     window.unityInstance = unityInstance;
                     if(window.permissionsGranted)
                         RequestWebcam();
-
                     loadingBar.style.display = "none";
                 });
                 loadingBar.style.display = "block";
             }
             //Set Facing Mode here ('environment', 'user', '')
 		window.unityFacingMode = "environment"
-
             window.WEBCAM_SETTINGS = {
                 video: {
                     facingMode: unityFacingMode,
                 },
                 audio: false
             };
-
             window.requestingForPermissions = false;
             async function RequestWebcam(){
                 window.requestingForPermissions = true;
@@ -150,7 +147,6 @@
                     window.webcamStream = await navigator.mediaDevices.getUserMedia(window.WEBCAM_SETTINGS);
                     console.log("Webcam access granted");
                     requestingForPermissions = false;
-
                     // Immediately stop the stream to release the camera
                     StopWebcam();
                 }
@@ -161,25 +157,19 @@
                     window.requestingForPermissions = false;
                 }           
             }
-
             function StopWebcam(){
                 console.log("stopping camera");
                 window.webcamStream.getTracks().forEach(track => track.stop());    
             }
-
             async function StartWebcam(){
                 console.log("StartWebcam")
-
                 window.webcamStream = await navigator.mediaDevices.getUserMedia(window.WEBCAM_SETTINGS);
-
                 while (window.requestingForPermissions) {
                     // Wait until requestingForPermissions becomes true.
                     console.log("Waiting for permissions...");
                     await new Promise(resolve => setTimeout(resolve, 100)); // Adjust the delay time as needed.
                 }
-
                 console.log("Got Permissions");
-
                 if(window.webcamStream)
                 {
                     const video = document.querySelector("#webcam-video");
@@ -187,7 +177,6 @@
                     try {
                         await arCamera.startWebcam(video);
                         console.log("Webcam started successfully");
-
                         window.unityInstance.SendMessage('ARCamera', 'OnStartWebcamSuccess');
                     }
                     catch(err){
@@ -200,7 +189,6 @@
                     window.unityInstance.SendMessage('ARCamera', 'OnStartWebcamFail');
                 }  
             }
-
             async function LoadWebcams(){
                 let camDevices = [];
                 // let backCams = [];
@@ -208,7 +196,6 @@
                 var ctr = 0;
                 devices.forEach(mediaDevice => {
                     if (mediaDevice.kind === 'videoinput') {
-
                         if(window.unityFacingMode == 'environment' && !mediaDevice.label.includes('facing front')){
                             //back cam only
                             camDevices.push(mediaDevice);
@@ -252,11 +239,9 @@
                 //console.log(window.WEBCAM_SETTINGS);
                 iTracker.WEBCAM_NAME = select.options[select.selectedIndex].innerHTML;
             }
-
             async function FlipCam(){
                 arCamera.stopWebcam();
                 window.WEBCAM_SETTINGS.video.deviceId = '';
-
                 if(window.WEBCAM_SETTINGS.video.facingMode == 'user'){
                     window.WEBCAM_SETTINGS.video.facingMode = 'environment';
                     arCamera.setFlipped(false);
@@ -266,19 +251,15 @@
                     arCamera.setFlipped(true);
                 }
                 window.webcamStream = await navigator.mediaDevices.getUserMedia(window.WEBCAM_SETTINGS);
-
                 const video = document.querySelector("#webcam-video");
                 video.srcObject = webcamStream;
-
                 await arCamera.startWebcam(video);
             }
-
             async function IsCameraPermissionGranted() {
                 if (!navigator.permissions || !navigator.mediaDevices) {
                     console.log("Permissions API or mediaDevices not supported.");
                     return false;
                 }
-
                 try {
                     // Query the status of the camera permission
                     const permissionStatus = await navigator.permissions.query({ name: "camera" });
@@ -297,31 +278,26 @@
                     return false;
                 }
             }
-
             function ShowError(error){
                 document.getElementById("errorDiv").style.display = "flex";
                 document.getElementById("errorText").innerHTML = error;
             }
-
             function ShowScreenshot(dataUrl){
                 document.getElementById("screenshotDiv").style.display = "flex";
                 document.getElementById("screenshotImg").src = dataUrl;
                 document.getElementById("screenshotImg").style.width = "80vw";
                 document.getElementById("screenshotImg").style.height = 80 / window.innerWidth * window.innerHeight + "vw";
             }
-
             function ShowConfirmUrl(url){
                 document.getElementById("confirmUrlDiv").style.display = "flex";
                 window.newUrlString = url;
                 document.getElementById("confirmUrlText").innerText = "Are you sure you want to visit " + url;                
             }
-
             window.ITRACKER_GLOBALS = {
                 //place global settings here
                 INTERNAL_SMOOTHFACTOR_POS: .075,
             }
             
-
     </script>
 </body>
 </html>
