@@ -267,7 +267,7 @@ const ED = {
   dash: { r: 11, hp: 30,   sp: 50,  dmg: 8,  xp: 3,   sides: -1, col: '#ff9db8', mass: 1.3 },
   pent: { r: 17, hp: 80,   sp: 40,  dmg: 9,  xp: 5,   sides: 5,  col: '#e85dff', mass: 3.2 },
   big:  { r: 24, hp: 420,  sp: 34,  dmg: 15, xp: 20,  sides: 8,  col: '#ff5a5a', mass: 8 },
-  boss: { r: 40, hp: 3200, sp: 22,  dmg: 25, xp: 120, sides: 6,  col: '#ff2a4a', mass: 40 }
+  boss: { r: 40, hp: 2000, sp: 22,  dmg: 25, xp: 120, sides: 6,  col: '#ff2a4a', mass: 40 }
 };
 const WD = {
   gun: { name: '主砲', col: '#3cf2ff', sh: 3, evo: 'rate', evoName: '光束砲', evoDesc: '子彈化為一道持續貫穿的光束',
@@ -758,7 +758,7 @@ function updateEnemies(dt) {
     if (nd < minD) {
       e.x = CX + (e.x - CX) / nd * minD; e.y = CY + (e.y - CY) / nd * minD;
       if (e.hitCD <= 0 && state === 'play') {
-        e.hitCD = 0.8; hurtCore(e);
+        e.hitCD = e.type === 'boss' ? 1.5 : 0.8; hurtCore(e);
         if (e.type === 'dot') { e.dead = true; shatter(e.x, e.y, e.r, e.col, 4, -ux, -uy, 1); continue; }
         const k = 520 / Math.sqrt(e.mass);
         e.kx = -ux * k; e.ky = -uy * k;
