@@ -8,13 +8,13 @@
 <meta name="theme-color" content="#07080f">
 <title>核心守衛 CORE HOLD</title>
 <style>
-  html,body{margin:0;height:100%;background:#07080f;overflow:hidden;touch-action:none;
+  html,body{margin:0;height:100%;background:#07080f;color-scheme:dark;overflow:hidden;touch-action:none;
     -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
     font-family:system-ui,-apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;color:#fff}
-  #wrap{position:fixed;inset:0;display:flex;justify-content:center;align-items:center}
+  #wrap{position:fixed;left:0;right:0;top:env(safe-area-inset-top,0px);bottom:env(safe-area-inset-bottom,0px);display:flex;justify-content:center;align-items:center}
   #game{position:relative;overflow:hidden;background:#07080f}
   canvas{display:block;touch-action:none}
-  .btn-top{position:absolute;top:calc(10px + env(safe-area-inset-top));width:36px;height:36px;border-radius:8px;
+  .btn-top{position:absolute;top:10px;width:36px;height:36px;border-radius:8px;
     border:1.5px solid rgba(255,255,255,.25);background:rgba(10,12,24,.6);color:#fff;font:700 15px/1 system-ui;
     display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;z-index:5}
   #bMute{right:10px} #bPause{right:52px}
@@ -120,7 +120,7 @@ const LW = 420;
 let LH = 800, SCALE = 1, CX = 210, CY = 680;
 const OD_BTN = { x: 0, y: 0, r: 32 };
 function resize() {
-  const iw = window.innerWidth, ih = window.innerHeight;
+  const wr = $('wrap'), iw = wr.clientWidth || window.innerWidth, ih = wr.clientHeight || window.innerHeight;
   const gw = Math.min(iw, Math.round(ih * 0.62));
   game.style.width = gw + 'px'; game.style.height = ih + 'px';
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
