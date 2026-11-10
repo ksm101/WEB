@@ -7,6 +7,8 @@ const os = require('os');
 const path = require('path');
 const WebSocket = require('ws');
 const { start } = require('../server.js');
+const Sim = require('../sim.js');
+const Story = require('../story.js');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function client(port, cred) {
@@ -38,9 +40,17 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   let step = 0; const ok = msg => console.log(`ok ${++step} - ${msg}`);
 
   assert.strictEqual(JSON.parse((await get(port, '/health')).body).embertide, 1);
-  assert.match((await get(port, '/')).body, /<title>燼潮/); assert.match((await get(port, '/sim.js')).body, /createRun/);
+  assert.match((await get(port, '/')).body, /<title>燼潮/); assert.match((await get(port, '/sim.js')).body, /createRun/); assert.match((await get(port, '/story.js')).body, /SCENES/);
   for (const p of ['/server.js', '/store.js', '/data/accounts.json', '/data/secret', '/../package.json']) assert.strictEqual((await get(port, p)).status, 404, p);
   ok('serves the page, sim.js and /health; server code and account data are not reachable');
+
+  // story content: one scene per main quest, in the same order, every speaker known, lines short enough for a phone
+  assert.deepStrictEqual(Story.ORDER, ['prologue'].concat(Sim.MAIN_IDS)); assert.deepStrictEqual(Object.keys(Story.SCENES).sort(), Story.ORDER.slice().sort());
+  for (const id of Story.ORDER) {
+    const sc = Story.SCENES[id]; assert.ok(sc.title && sc.lines.length >= 3 && sc.lines.length <= 6, id);
+    for (const [who, text] of sc.lines) { assert.ok(who === 'n' || Story.CAST[who], `${id}: unknown speaker ${who}`); assert.ok(text.length > 0 && text.length <= 48, `${id}: line too long (${text.length})`); }
+  }
+  ok('story: a scene for the prologue and for every main quest, known speakers, short lines');
 
   // accounts
   const A = await named(port, '小明'), B = await named(port, '<b>壞</b>名字超級長');

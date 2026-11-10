@@ -18,7 +18,8 @@ const SEATS = Sim.ROSTER;       // tank, heal, dps, dps
 const FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
-  '/sim.js': ['sim.js', 'text/javascript; charset=utf-8']
+  '/sim.js': ['sim.js', 'text/javascript; charset=utf-8'],
+  '/story.js': ['story.js', 'text/javascript; charset=utf-8']
 };
 
 const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : a; };

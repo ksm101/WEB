@@ -531,5 +531,5 @@ function snapshot(G) {
 
 return { W, H, TIME_LIMIT, CLASSES, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
   MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
-  weekOf, fixQuests, questList, questEvent, questClaim };
+  weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id) };
 });

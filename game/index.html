@@ -150,6 +150,16 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .chip{position:relative;flex:none;height:40px;min-width:60px;padding:0 14px;border:1.5px solid var(--line);border-radius:20px;background:var(--deep);color:var(--foam);font-size:13px}
 .chip b{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;box-sizing:border-box;padding:0 4px;border-radius:9px;background:var(--ember);color:var(--ink);font-family:var(--f-num);font-size:11px;line-height:18px;text-align:center}
 .overlay.top{z-index:7}
+#story{z-index:8;cursor:pointer}
+#story h2{font-size:30px}
+#st-log{display:flex;flex-direction:column;gap:18px;margin-top:6px}
+.st-line{display:flex;flex-direction:column;gap:4px;animation:st-in .28s ease-out}
+.st-who{font-family:var(--f-display);font-weight:900;font-size:15px;letter-spacing:.1em}
+.st-line p{margin:0;font-size:17px;line-height:1.8;max-width:26em;text-wrap:pretty}
+.st-line.narr p{color:var(--mute)}
+#st-count{font-family:var(--f-num);font-size:12px;color:var(--mute);text-align:center;margin:0}
+@keyframes st-in{from{opacity:0;transform:translateY(8px)}}
+@media (prefers-reduced-motion:reduce){.st-line{animation:none}}
 .chips{display:flex;flex-wrap:wrap;gap:10px}
 .questline{display:flex;align-items:baseline;gap:10px;width:100%;box-sizing:border-box;padding:11px 12px;border:1.5px solid var(--line);border-radius:6px;background:var(--deep);text-align:left;font-size:13px}
 .questline span{flex:none;color:var(--brass);font-size:11px;letter-spacing:.16em}
@@ -295,14 +305,29 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div id="bag-body"></div>
     </div>
   </section>
+  <section id="story" class="overlay" hidden>
+    <div class="wrap">
+      <div class="head">
+        <div><p class="eyebrow">劇情</p><h2 id="st-title"></h2></div>
+        <button class="chip" id="st-skip" type="button">跳過</button>
+      </div>
+      <div id="st-log" aria-live="polite"></div>
+      <div class="cta">
+        <p id="st-count"></p>
+        <button class="btn" id="st-next" type="button">下一句</button>
+      </div>
+    </div>
+  </section>
   <div id="toast" hidden role="status"><span id="toast-msg"></span><span id="toast-btns"></span></div>
 </div>
 
 <script src="sim.js"></script>
+<script src="story.js"></script>
 <script>
 (() => {
 'use strict';
 const S = window.Sim, { W, H, TIME_LIMIT, CLASSES, ENEMY, SPOTS } = S;
+const Story = window.Story || { CAST: {}, SCENES: {}, ORDER: [] };   // the game runs without the story file
 const $ = s => document.querySelector(s);
 const TAU = Math.PI * 2;
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -326,7 +351,7 @@ const F = { display: tok('--f-display'), num: tok('--f-num') };
  * With a game server the account lives there; this is a cache of it plus the key that signs this device in.
  * Without one (a plain copy of this page) progress stays on this device. */
 const SAVE_KEY = 'embertide.v1';
-const save = { lvl: 1, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, q: null, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
+const save = { lvl: 1, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, q: null, intro: false, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
 function loadSave() {
   try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s === 'object') Object.assign(save, s); } catch (e) {}
   if (!save.acct || typeof save.acct !== 'object') save.acct = { id: '', token: '', bk: '' };
@@ -441,7 +466,7 @@ function conclude(r, stats, extra) {
 /* ================= Online ================= */
 const INTERP = 100;   // ms the view runs behind the server so there are always two snapshots to blend
 const net = { ws: null, authed: false, kicked: false, backoff: 0, back: false, buf: [], offset: null, rtt: 80, lastSend: 0, sx: NaN, sy: NaN, lastMove: 0, pingT: 0, fresh: true, emap: new Map(),
-  solo: null, social: null, lobby: null, pendingInvite: '', roomHint: '', socialT: 0 };
+  solo: null, social: null, lobby: null, pendingInvite: '', roomHint: '', socialT: 0, claiming: '' };
 function serverUrl() { return qs.get('server') || ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
 function probe() {   // only offer online play when a game server answers
   if (location.protocol === 'file:' && !qs.get('server')) return;
@@ -509,7 +534,7 @@ function onMsg(m) {
       toast(String(m.msg || '') + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); renderBag(); if (!$('#menu').hidden) renderMenu();
       break;
     }
-    case 'claimed': applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); break;
+    case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok) playStory(id); break; }
     case 'social': net.social = m; renderSocial(); break;
     case 'note': toast(String(m.msg || ''), [], 3500); break;
     case 'invited':
@@ -897,11 +922,41 @@ function renderQuests() {
     }
     g.appendChild(ul); body.appendChild(g);
   }
+  const seen = unlockedScenes();
+  if (seen.length) {
+    const g = el('div', 'group'), ul = el('ul', 'recipes'); g.append(el('h3', '', '劇情回顧'), ul);
+    for (const id of seen) {
+      const sc = Story.SCENES[id], li = el('li'), left = el('div', 'info'), b = el('button', 'mini', '重看'); b.type = 'button'; b.id = 'replay-' + id;
+      left.append(el('b', '', sc.title), el('small', '', sc.lines[0][1])); b.addEventListener('click', () => playStory(id));
+      li.append(left, b); ul.appendChild(li);
+    }
+    body.appendChild(g);
+  }
 }
 function doClaim(id) {
-  if (online) return send({ t: 'claim', id });        // the server hands out rewards
-  const r = S.questClaim(save, id, Date.now()); writeSave(); toast(r.msg, [], 3500); renderBag(); renderMenu();
+  if (online) { net.claiming = id; return send({ t: 'claim', id }); }   // the server hands out rewards
+  const r = S.questClaim(save, id, Date.now()); writeSave(); toast(r.msg, [], 3500); renderBag(); renderMenu(); if (r.ok) playStory(id);
 }
+
+/* ---------- story: a scene is revealed one line per tap and can always be skipped ---------- */
+const story = { id: '', i: 0, done: null };
+function playStory(id, done) {
+  const sc = Story.SCENES[id]; if (!sc) { if (done) done(); return; }
+  story.id = id; story.i = 0; story.done = done || null;
+  $('#st-title').textContent = sc.title; $('#st-log').textContent = ''; $('#story').hidden = false; $('#story').scrollTop = 0; nextLine();
+}
+function nextLine() {
+  const sc = Story.SCENES[story.id]; if (!sc) return;
+  if (story.i >= sc.lines.length) return endStory();
+  const [who, text] = sc.lines[story.i++], c = Story.CAST[who], div = el('div', 'st-line' + (c ? '' : ' narr'));
+  if (c) { const lab = el('span', 'st-who', c.name); lab.style.color = C[c.color]; div.appendChild(lab); }
+  div.appendChild(el('p', '', text)); $('#st-log').appendChild(div);
+  $('#st-next').textContent = story.i >= sc.lines.length ? '繼續' : '下一句'; $('#st-count').textContent = `${story.i} / ${sc.lines.length}`;
+  const o = $('#story'); o.scrollTop = o.scrollHeight;
+}
+function endStory() { const done = story.done; story.id = ''; story.done = null; $('#story').hidden = true; if (done) done(); }
+/* scenes the player has unlocked: the prologue, then one per main quest already handed in */
+function unlockedScenes() { return Story.ORDER.filter((id, i) => Story.SCENES[id] && (i === 0 || (save.q && save.q.main >= i))); }
 
 function showResult(r, s, loot, lvl, more) {
   const body = $('#result-body'); body.textContent = '';
@@ -958,6 +1013,7 @@ cv.addEventListener('pointerdown', ev => {
 });
 addEventListener('keydown', ev => {
   if (ev.target && ev.target.tagName === 'INPUT') return;
+  if (story.id) { if (ev.key === 'Escape') endStory(); else if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); nextLine(); } return; }
   const k = ev.key.toLowerCase(); keys.add(k);
   const i = ['j', 'k', 'l', ';'].indexOf(k), n = ['1', '2', '3', '4'].indexOf(k);
   if (V && (i >= 0 || n >= 0)) act({ c: i >= 0 ? i : n });
@@ -980,6 +1036,7 @@ $('#lb-friends').addEventListener('click', openSocial);
 $('#friends-btn').addEventListener('click', openSocial);
 $('#so-close').addEventListener('click', closeSocial);
 $('#bag-btn').addEventListener('click', openBag);
+$('#story').addEventListener('click', ev => { if (ev.target.closest('#st-skip')) endStory(); else nextLine(); });   // tap anywhere for the next line
 $('#quests-btn').addEventListener('click', openQuests);
 $('#m-quest').addEventListener('click', openQuests);
 $('#quests-close').addEventListener('click', () => { $('#quests').hidden = true; });
@@ -1013,6 +1070,7 @@ function boot(data) {
   loadSave(); if (data && data.save) Object.assign(save, data.save);
   if (inviteRoom) save.room = inviteRoom;
   resize(); showMenu(''); probe(); requestAnimationFrame(frame);
+  if (!save.intro && !AUTO && !qs.has('nostory')) playStory('prologue', () => { save.intro = true; writeSave(); });
 }
 window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, net, save, startSolo, showMenu, send };
 const hot = window.claude && window.claude.hot;
