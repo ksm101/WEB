@@ -25,17 +25,18 @@ const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinit
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';
 const cleanCode = s => typeof s === 'string' ? s.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) : '';
 const cleanId = s => typeof s === 'string' && /^[a-f0-9]{16}$/.test(s) ? s : '';
-const profileOf = r => ({ name: r.name, lvl: r.lvl, gear: r.gear, best: r.best, runs: r.runs, inv: r.inv });
+const profileOf = r => ({ name: r.name, lvl: r.lvl, gear: r.gear, best: r.best, runs: r.runs, inv: r.inv, q: r.q });
 
 function freshRecord(id) {
-  return Object.assign({ id, name: '旅人' + Math.floor(10 + Math.random() * 90), friends: {}, ignored: [], recent: [], created: Date.now() }, Sim.newProfile());
+  return Sim.fixProfile(Object.assign({ id, name: '旅人' + Math.floor(10 + Math.random() * 90), friends: {}, ignored: [], recent: [], created: Date.now() }, Sim.newProfile()));
 }
 /* Rebuild a record from a backup or an older file, keeping only fields of the expected shape. */
 function normalize(b) {
   const g = b.gear || {}, v = b.inv || {};
   const rec = { id: b.id, name: cleanName(b.name), lvl: clampInt(b.lvl, 1, 50), gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) },
     best: {}, runs: clampInt(b.runs, 0, 1e9), inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) },
-    friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15) };
+    q: b.q, friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15) };
+  Sim.fixProfile(rec);
   if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const v = Number(b.best[k]); if (/^\d+$/.test(k) && Number.isFinite(v)) rec.best[k] = v; }
   if (b.friends && typeof b.friends === 'object') for (const k of Object.keys(b.friends).slice(0, MAX_FRIENDS)) if (cleanId(k)) rec.friends[k] = cleanName(b.friends[k]);
   if (Array.isArray(b.ignored)) rec.ignored = b.ignored.filter(cleanId).slice(0, 50);
@@ -120,6 +121,7 @@ function start(opts) {
       if (!rec.friends[id] && Object.keys(rec.friends).length >= MAX_FRIENDS) return send(ws, { t: 'note', msg: `好友名單滿了（上限 ${MAX_FRIENDS} 人）。` });
       rec.friends[id] = (o || known).name; rec.ignored = rec.ignored.filter(x => x !== id); index(rec);
       const mutual = !!(o && o.friends[rec.id]), tws = online.get(id);
+      if (mutual) { Sim.questEvent(rec, { type: 'friend' }, Date.now()); Sim.questEvent(o, { type: 'friend' }, Date.now()); store.put(o); if (tws) sendMe(tws); }
       if (tws) { send(tws, { t: 'note', msg: mutual ? `你和 ${rec.name} 成為好友了。` : `${rec.name} 想加你為好友。`, social: true }); send(tws, socialOf(tws.acc)); }
     }
     store.put(rec); sendMe(ws); send(ws, socialOf(rec));
@@ -222,6 +224,7 @@ function start(opts) {
       const rec = s && store.get(s.id); if (!rec) return;
       const rw = Sim.applyResult(rec, G.lvl, r);
       rec.inv.potion = Math.max(0, rec.inv.potion - G.actors[i].stats.pots);
+      Sim.questEvent(rec, { type: 'run', win: r.win, onTime: r.onTime, cls: s.cls, kicks: G.actors[i].stats.kicks, hits: G.actors[i].stats.hits, mates: hs.length - 1 }, now);
       for (const o of hs) if (o.id !== s.id) rec.recent = [{ id: o.id, name: o.name, cls: o.cls, at: now }].concat(rec.recent.filter(x => x.id !== o.id)).slice(0, 10);
       store.put(rec);
       send(s.ws, { t: 'end', win: r.win, onTime: r.onTime, time: Math.round(r.t * 10) / 10, lvl: G.lvl, stats, loot: rw.loot, mats: rw.mats, again, profile: profileOf(rec), bk: store.pack(rec),
@@ -234,12 +237,15 @@ function start(opts) {
    * passed as the run says it took. */
   function onSolo(ws, m) {
     const rec = ws.acc;
-    if (m.t === 'solo0') { ws.solo = { lvl: clampInt(m.lvl, 1, rec.lvl), at: Date.now() }; return; }
+    if (m.t === 'solo0') { ws.solo = { lvl: clampInt(m.lvl, 1, rec.lvl), cls: SEATS.includes(m.cls) ? m.cls : 'dps', at: Date.now() }; return; }
     const s = ws.solo; ws.solo = null; const time = Number(m.time), win = m.win === true;
     const ok = !!s && Number.isFinite(time) && time > 0 && time < 3600 && (Date.now() - s.at) / 1000 >= time * .9 && (!win || time >= soloMin);
     let rw = { loot: null, mats: null };
     if (s && m.pots > 0) rec.inv.potion = Math.max(0, rec.inv.potion - 1);   // a potion drunk in the run is gone either way
-    if (ok) rw = Sim.applyResult(rec, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time });
+    if (ok) {     // kicks and hits are the device's own count: fine for quests, not for anything worth cheating
+      rw = Sim.applyResult(rec, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time });
+      Sim.questEvent(rec, { type: 'run', win, onTime: win && time <= Sim.TIME_LIMIT, cls: s.cls, kicks: clampInt(m.kicks, 0, 50), hits: clampInt(m.hits, 0, 999), mates: 0 }, Date.now());
+    }
     if (s) store.put(rec);
     send(ws, { t: 'solo', ok, loot: rw.loot, mats: rw.mats, profile: profileOf(rec), bk: store.pack(rec) });
   }
@@ -285,7 +291,8 @@ function start(opts) {
         case 'ignore': { const id = cleanId(m.id); if (id && !ws.acc.ignored.includes(id)) { ws.acc.ignored = ws.acc.ignored.concat(id).slice(-50); store.put(ws.acc); } return send(ws, socialOf(ws.acc)); }
         case 'invite': return onInvite(ws, m);
         case 'solo0': case 'solo1': return onSolo(ws, m);
-        case 'craft': { const r = Sim.craft(ws.acc, String(m.id)); if (r.ok) store.put(ws.acc); return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
+        case 'claim': { const r = Sim.questClaim(ws.acc, String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
+        case 'craft': { const r = Sim.craft(ws.acc, String(m.id)); if (r.ok) { Sim.questEvent(ws.acc, { type: 'craft', kind: r.kind }, Date.now()); store.put(ws.acc); } return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
       }
       const info = ws.info; if (!info || !info.room) return;
       const room = info.room;

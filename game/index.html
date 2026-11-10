@@ -131,6 +131,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
   user-select:text;-webkit-user-select:text;touch-action:auto}
 .fields input::placeholder{color:var(--mute);opacity:.7;font-size:13px}
 .cta{margin-top:auto;display:flex;flex-direction:column;gap:8px}
+#menu .cta{position:sticky;bottom:0;margin-inline:-4px;padding:14px 4px 0;background:linear-gradient(to bottom,transparent,var(--ink) 22%)}
 .btn{height:54px;border-radius:8px;border:0;background:var(--ember);color:var(--ink);font-family:var(--f-display);font-weight:900;font-size:20px;letter-spacing:.2em}
 .btn.ghost{background:transparent;border:1.5px solid var(--line);color:var(--foam);height:46px;font-size:15px}
 .btn:disabled{opacity:.5;cursor:default}
@@ -149,8 +150,14 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .chip{position:relative;flex:none;height:40px;min-width:60px;padding:0 14px;border:1.5px solid var(--line);border-radius:20px;background:var(--deep);color:var(--foam);font-size:13px}
 .chip b{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;box-sizing:border-box;padding:0 4px;border-radius:9px;background:var(--ember);color:var(--ink);font-family:var(--f-num);font-size:11px;line-height:18px;text-align:center}
 .overlay.top{z-index:7}
-.chips{display:flex;flex-direction:column;gap:8px;align-items:flex-end}
-#bag-body,#so-body{display:flex;flex-direction:column;gap:14px}
+.chips{display:flex;flex-wrap:wrap;gap:10px}
+.questline{display:flex;align-items:baseline;gap:10px;width:100%;box-sizing:border-box;padding:11px 12px;border:1.5px solid var(--line);border-radius:6px;background:var(--deep);text-align:left;font-size:13px}
+.questline span{flex:none;color:var(--brass);font-size:11px;letter-spacing:.16em}
+.questline b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.questline i{flex:none;font-style:normal;font-family:var(--f-num);color:var(--mute)}
+.questline.ready{border-color:var(--brass)}
+.questline.ready i{color:var(--brass);font-family:var(--f-body);font-weight:700}
+#bag-body,#so-body,#quests-body{display:flex;flex-direction:column;gap:14px}
 .recipes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .recipes li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;background:var(--deep)}
 .recipes .info{display:flex;flex-direction:column;gap:3px;min-width:0}
@@ -216,18 +223,18 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 
   <section id="menu" class="overlay">
     <div class="wrap">
-      <div class="head">
-        <div><p class="eyebrow">三分鐘副本 · 原型</p><h1>燼潮</h1></div>
-        <div class="chips">
-          <button class="chip" id="bag-btn" type="button">背包</button>
-          <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
-        </div>
+      <div><p class="eyebrow">三分鐘副本 · 原型</p><h1>燼潮</h1></div>
+      <div class="chips">
+        <button class="chip" id="quests-btn" type="button">任務<b id="q-badge" hidden></b></button>
+        <button class="chip" id="bag-btn" type="button">背包</button>
+        <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
       </div>
       <p class="lore">鐘聲沉入海底那天，潮水開始生鏽。四個人、一座塔、三分鐘。</p>
       <div class="run"><b>沉鐘塔</b><span id="m-lvl">第 1 層</span><small id="m-best"></small></div>
+      <button class="questline" id="m-quest" type="button"></button>
       <div class="cards" id="cards"></div>
       <ul class="kit" id="kit"></ul>
-      <p class="how">拖曳移動，角色會自動普攻。<br>地上出現紅色範圍就離開。<br>敵人讀條變成金色時按「斷」。</p>
+      <p class="how" id="how">拖曳移動，角色會自動普攻。<br>地上出現紅色範圍就離開。<br>敵人讀條變成金色時按「斷」。</p>
       <p class="gear" id="gear"></p>
       <div class="fields" id="fields" hidden>
         <label for="nick">暱稱<input id="nick" type="text" maxlength="8" autocomplete="off" spellcheck="false"></label>
@@ -270,6 +277,15 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div id="so-body"></div>
     </div>
   </section>
+  <section id="quests" class="overlay top" hidden>
+    <div class="wrap">
+      <div class="head">
+        <div><p class="eyebrow">做完記得回來領獎</p><h2>任務</h2></div>
+        <button class="chip" id="quests-close" type="button">關閉</button>
+      </div>
+      <div id="quests-body"></div>
+    </div>
+  </section>
   <section id="bag" class="overlay top" hidden>
     <div class="wrap">
       <div class="head">
@@ -310,7 +326,7 @@ const F = { display: tok('--f-display'), num: tok('--f-num') };
  * With a game server the account lives there; this is a cache of it plus the key that signs this device in.
  * Without one (a plain copy of this page) progress stays on this device. */
 const SAVE_KEY = 'embertide.v1';
-const save = { lvl: 1, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
+const save = { lvl: 1, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, q: null, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
 function loadSave() {
   try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s === 'object') Object.assign(save, s); } catch (e) {}
   if (!save.acct || typeof save.acct !== 'object') save.acct = { id: '', token: '', bk: '' };
@@ -320,6 +336,9 @@ function writeSave() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)
 const avgIlvl = () => S.ilvlOf(save.gear);
 const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 const inviteRoom = cleanCode(qs.get('room'));   // opened from a friend's invite link
+/* Run a change to the save and report which quests it finished. */
+const readyQuests = () => S.questList(save, Date.now(), online).items.filter(x => x.ready).map(x => x.title);
+function newlyDone(change) { const before = readyQuests(); change(); return readyQuests().filter(t => !before.includes(t)); }
 
 /* ================= Canvas ================= */
 let scale = 1, dpr = 1, offX = 0, offY = 0, floor = null;
@@ -399,7 +418,7 @@ function startSolo(cls) {
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
   G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: '你', pow: S.powerOf(save.gear), id: 'me', potions: save.inv.potion }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
-  if (net.authed) send({ t: 'solo0', lvl: save.lvl });
+  if (net.authed) send({ t: 'solo0', lvl: save.lvl, cls });
   enterRun(); banner('三名 AI 隊友已就位', 2200);
 }
 /* A finished run. Online, the server has already decided the rewards (extra). Solo with a server, the result is
@@ -410,9 +429,13 @@ function conclude(r, stats, extra) {
   if (extra) return show(extra.loot, extra);
   if (net.authed) {
     net.solo = { show, timer: setTimeout(() => { if (net.solo) { net.solo = null; show(null, { note: '伺服器沒有回應，這場的獎勵沒有記錄到。' }); } }, 4000) };
-    return send({ t: 'solo1', win: r.win, time: r.t, pots: stats.pots });
+    return send({ t: 'solo1', win: r.win, time: r.t, pots: stats.pots, kicks: stats.kicks, hits: stats.hits });
   }
-  const rw = S.applyResult(save, lvl, r); save.inv.potion = Math.max(0, save.inv.potion - stats.pots); writeSave(); show(rw.loot, { mats: rw.mats });
+  let rw; const done = newlyDone(() => {
+    rw = S.applyResult(save, lvl, r); save.inv.potion = Math.max(0, save.inv.potion - stats.pots);
+    S.questEvent(save, { type: 'run', win: r.win, onTime: r.onTime, cls: view.me.cls, kicks: stats.kicks, hits: stats.hits, mates: 0 }, Date.now());
+  });
+  writeSave(); show(rw.loot, { mats: rw.mats, quests: done });
 }
 
 /* ================= Online ================= */
@@ -452,7 +475,7 @@ function goOnline(roomOverride) {
 }
 function applyProfile(m) {   // the server's word on this account
   if (m.bk) save.acct.bk = m.bk;
-  const p = m.profile; if (p) { save.lvl = p.lvl; save.gear = p.gear; save.best = p.best; save.runs = p.runs; save.nick = p.name; if (p.inv) save.inv = p.inv; }
+  const p = m.profile; if (p) { save.lvl = p.lvl; save.gear = p.gear; save.best = p.best; save.runs = p.runs; save.nick = p.name; if (p.inv) save.inv = p.inv; if (p.q) save.q = p.q; }
   writeSave();
 }
 function onMsg(m) {
@@ -471,15 +494,22 @@ function onMsg(m) {
       break;
     case 'start': beginOnline(m); break;
     case 's': if (mode === 'online' && V && !V.result) onSnap(m); break;
-    case 'end':
-      applyProfile(m);
-      if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx], { loot: m.loot, mats: m.mats, mates: m.mates, again: m.again });
+    case 'end': {
+      const done = newlyDone(() => applyProfile(m));
+      if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx], { loot: m.loot, mats: m.mats, mates: m.mates, again: m.again, quests: done });
       break;
-    case 'solo':
-      applyProfile(m);
-      if (net.solo) { const q = net.solo; net.solo = null; clearTimeout(q.timer); q.show(m.loot, m.ok ? { mats: m.mats } : { note: '伺服器沒有承認這場結果，所以沒有獎勵。' }); }
+    }
+    case 'solo': {
+      const done = newlyDone(() => applyProfile(m));
+      if (net.solo) { const q = net.solo; net.solo = null; clearTimeout(q.timer); q.show(m.loot, m.ok ? { mats: m.mats, quests: done } : { note: '伺服器沒有承認這場結果，所以沒有獎勵。' }); }
       break;
-    case 'crafted': applyProfile(m); toast(String(m.msg || ''), [], 3000); renderBag(); if (!$('#menu').hidden) renderMenu(); break;
+    }
+    case 'crafted': {
+      const done = newlyDone(() => applyProfile(m));
+      toast(String(m.msg || '') + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); renderBag(); if (!$('#menu').hidden) renderMenu();
+      break;
+    }
+    case 'claimed': applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); break;
     case 'social': net.social = m; renderSocial(); break;
     case 'note': toast(String(m.msg || ''), [], 3500); break;
     case 'invited':
@@ -740,6 +770,7 @@ function renderMenu(msg) {
   $('#go').className = online ? 'btn ghost' : 'btn'; $('#go').textContent = online ? '單人練習' : '單人開始';
   onlineLabel();
   const note = $('#note'); note.classList.toggle('warn', !!menuMsg);
+  renderQuests(); $('#how').hidden = save.runs > 0;   // the how-to is for a first visit
   note.textContent = menuMsg || (online && inviteRoom && cleanCode($('#room').value) === inviteRoom ? `朋友邀請你到房間 ${inviteRoom}。選好職業後按「加入房間」。` : online ? NOTE_ONLINE : NOTE_SOLO);
 }
 function showMenu(msg) {
@@ -840,7 +871,36 @@ function renderBag() {
 }
 function doCraft(id) {
   if (online) return send({ t: 'craft', id });        // the server owns the bag
-  const r = S.craft(save, id); writeSave(); toast(r.msg, [], 3000); renderBag(); renderMenu();
+  let r; const done = newlyDone(() => { r = S.craft(save, id); if (r.ok) S.questEvent(save, { type: 'craft', kind: r.kind }, Date.now()); });
+  writeSave(); toast(r.msg + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); renderBag(); renderMenu();
+}
+
+/* ---------- quests ---------- */
+function openQuests() { $('#quests').hidden = false; renderQuests(); }
+function renderQuests() {
+  const ql = S.questList(save, Date.now(), online), ready = ql.items.filter(x => x.ready).length, badge = $('#q-badge');
+  badge.hidden = !ready; badge.textContent = ready;
+  const main = ql.items.find(x => x.group === 'main'), line = $('#m-quest'); line.textContent = ''; line.classList.toggle('ready', !!(main && main.ready));
+  line.append(el('span', '', '主線'), el('b', '', main ? `${main.title}　${main.goal}` : '主線暫時到這裡，之後會再加'), el('i', '', main ? (main.ready ? '可領獎' : `${main.have} / ${main.need}`) : ''));
+  if ($('#quests').hidden) return;
+  const body = $('#quests-body'), waiting = online && !net.authed; body.textContent = '';
+  for (const [key, title] of [['main', `主線　已完成 ${ql.mainDone} / ${ql.mainTotal}`], ['week', '本週　每週一重置'], ['side', '支線']]) {
+    const rows = ql.items.filter(x => x.group === key), g = el('div', 'group'), ul = el('ul', 'recipes'); g.appendChild(el('h3', '', title));
+    if (!rows.length) { if (key !== 'main') continue; g.appendChild(el('p', 'note', '主線暫時到這裡，之後會再加。')); body.appendChild(g); continue; }
+    for (const it of rows) {
+      const li = el('li'), left = el('div', 'info'), meta = el('span', 'cost');
+      meta.append(el('span', '', `進度 ${it.have}/${it.need}`), el('span', '', `獎勵　${it.reward}`));
+      left.append(el('b', '', it.title), el('small', '', it.goal), meta);
+      const b = el('button', 'mini' + (it.ready ? ' go' : ''), it.claimed ? '已領' : it.ready ? '領取' : '進行中'); b.type = 'button'; b.id = 'claim-' + it.id; b.disabled = !it.ready || waiting;
+      b.addEventListener('click', () => { b.disabled = true; doClaim(it.id); });
+      li.append(left, b); ul.appendChild(li);
+    }
+    g.appendChild(ul); body.appendChild(g);
+  }
+}
+function doClaim(id) {
+  if (online) return send({ t: 'claim', id });        // the server hands out rewards
+  const r = S.questClaim(save, id, Date.now()); writeSave(); toast(r.msg, [], 3500); renderBag(); renderMenu();
 }
 
 function showResult(r, s, loot, lvl, more) {
@@ -860,6 +920,7 @@ function showResult(r, s, loot, lvl, more) {
     for (const k of Object.keys(more.mats)) if (more.mats[k] > 0) { const sp = el('span', '', S.MATS[k] + ' '); sp.append(el('b', '', '+' + more.mats[k])); line.appendChild(sp); }
     body.appendChild(line);
   }
+  if (more.quests && more.quests.length) body.appendChild(el('p', 'verdict good', `任務完成：${more.quests.join('、')}。回主選單的「任務」領獎。`));
   const mates = more.mates || [], team = mates.length > 0 && !!more.again;
   group(body, '這場的隊友', mates.map(f => row(CLASSES[f.cls].mark, C[CLASSES[f.cls].color], String(f.name), f.friend ? '已在名單' : '',
     f.friend ? [] : [['加好友', b => { send({ t: 'friend', id: f.id }); b.textContent = '已送出'; }, 'go']])));
@@ -919,6 +980,9 @@ $('#lb-friends').addEventListener('click', openSocial);
 $('#friends-btn').addEventListener('click', openSocial);
 $('#so-close').addEventListener('click', closeSocial);
 $('#bag-btn').addEventListener('click', openBag);
+$('#quests-btn').addEventListener('click', openQuests);
+$('#m-quest').addEventListener('click', openQuests);
+$('#quests-close').addEventListener('click', () => { $('#quests').hidden = true; });
 $('#bag-close').addEventListener('click', () => { $('#bag').hidden = true; });
 $('#pot').addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); act({ p: 1 }); });
 $('#room').addEventListener('input', () => renderMenu());

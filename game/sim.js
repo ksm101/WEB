@@ -390,11 +390,12 @@ const ilvlOf = gear => Math.round((gear.w + gear.a + gear.t) / 3);
 const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
 const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
 const gearCap = lvl => 10 + lvl * 4 + 7;        // how far tempering can push a slot at this tower level
-function newProfile() { return { lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 } }; }
+function newProfile() { return { lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, q: null }; }
 function fixProfile(p) {   // fill in anything an older save does not have
   const d = newProfile();
   for (const k of Object.keys(d)) if (p[k] == null) p[k] = d[k];
   for (const k of Object.keys(d.inv)) if (!(p.inv[k] >= 0)) p.inv[k] = 0;
+  fixQuests(p);
   return p;
 }
 /* r: { win, onTime, t }. Updates the profile p and returns { loot, mats }: the item that dropped (null for a wipe)
@@ -438,7 +439,79 @@ function craft(p, id) {
   if (rc.kind === 'forge') p.gear[rc.slot] = forgeIlvl(p.lvl);
   else if (rc.kind === 'temper') p.gear[rc.slot] = Math.min(gearCap(p.lvl), p.gear[rc.slot] + 2);
   else p.inv.potion++;
-  return { ok: true, msg: rc.kind === 'potion' ? `做好一瓶潮息藥水，現在有 ${p.inv.potion} 瓶。` : `${LOOT[rc.slot][0]}現在是裝等 ${p.gear[rc.slot]}。` };
+  return { ok: true, kind: rc.kind, msg: rc.kind === 'potion' ? `做好一瓶潮息藥水，現在有 ${p.inv.potion} 瓶。` : `${LOOT[rc.slot][0]}現在是裝等 ${p.gear[rc.slot]}。` };
+}
+
+/* ---------- quests ----------
+ * Three groups. Main quests come one at a time, in order. Weekly quests reset every Monday (Taipei time).
+ * Side quests can be done once, in any order. Progress only moves through questEvent(), which the server
+ * calls for online accounts; rewards are handed out by questClaim(). */
+const isRun = ev => ev.type === 'run';
+const CLS_BIT = { tank: 1, heal: 2, dps: 4 };
+const bits = n => (n & 1) + (n >> 1 & 1) + (n >> 2 & 1);
+const MAIN = [
+  { id: 'bell', title: '第一聲鐘響', goal: '通關沉鐘塔一次', need: 1, reward: { scrap: 6, salt: 2 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
+  { id: 'kick', title: '斷其咒語', goal: '成功打斷敵人的金色讀條 3 次', need: 3, reward: { salt: 3 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
+  { id: 'craft', title: '工坊開張', goal: '在背包裡製作任何一樣東西', need: 1, reward: { scrap: 8, salt: 2 }, inc: ev => ev.type === 'craft' ? 1 : 0 },
+  { id: 'ontime', title: '搶在潮水之前', goal: '三分鐘內通關一次', need: 1, reward: { potion: 1 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 },
+  { id: 'clean', title: '乾淨的腳步', goal: '通關一場，而且整場沒有踩到紅圈', need: 1, reward: { shard: 1, scrap: 6 }, inc: ev => isRun(ev) && ev.win && ev.hits === 0 ? 1 : 0 },
+  { id: 'lvl3', title: '更深一層', goal: '抵達第 3 層', need: 3, reward: { salt: 4, scrap: 8 }, value: p => p.lvl },
+  { id: 'temper', title: '淬火', goal: '淬鍊任何一個部位一次', need: 1, reward: { shard: 2 }, inc: ev => ev.type === 'craft' && ev.kind === 'temper' ? 1 : 0 },
+  { id: 'lvl5', title: '鐘塔中段', goal: '抵達第 5 層', need: 5, reward: { shard: 2, potion: 1, scrap: 12 }, value: p => p.lvl }
+];
+const WEEK = [
+  { id: 'w-runs', title: '本週巡塔', goal: '這週通關 5 場', need: 5, reward: { scrap: 15, salt: 4 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
+  { id: 'w-kicks', title: '本週斷法', goal: '這週成功打斷 10 次', need: 10, reward: { salt: 5 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
+  { id: 'w-ontime', title: '本週準時', goal: '這週三分鐘內通關 3 場', need: 3, reward: { shard: 2 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 }
+];
+const SIDE = [
+  { id: 's-party', title: '結伴', goal: '和至少一位其他玩家一起通關', need: 1, online: true, reward: { scrap: 10, potion: 1 }, upd: (v, ev) => isRun(ev) && ev.win && ev.mates > 0 ? 1 : v },
+  { id: 's-classes', title: '三種走法', goal: '用三個職業各通關一次', need: 3, reward: { shard: 2 }, upd: (v, ev) => isRun(ev) && ev.win ? v | (CLS_BIT[ev.cls] || 0) : v, have: bits },
+  { id: 's-friend', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
+];
+const weekOf = now => Math.floor((Math.floor((now + 8 * 3600000) / 86400000) + 3) / 7);
+const qInt = (v, a, b) => Number.isInteger(v) ? Math.min(b, Math.max(a, v)) : a;
+/* Make p.q well-formed whatever it held before; with a time, also start a fresh week when one has begun. */
+function fixQuests(p, now) {
+  let q = p.q; if (!q || typeof q !== 'object') q = p.q = {};
+  q.main = qInt(q.main, 0, MAIN.length); q.mp = qInt(q.mp, 0, 999);
+  const side = {}, os = q.side && typeof q.side === 'object' ? q.side : {};
+  for (const d of SIDE) { const v = os[d.id]; if (Number.isInteger(v) && v >= -1 && v <= 7) side[d.id] = v; }
+  const ow = q.week && typeof q.week === 'object' ? q.week : {}, wk = { n: qInt(ow.n, 0, 1e6), p: {}, c: {} };
+  for (const d of WEEK) { const v = ow.p && ow.p[d.id]; if (Number.isInteger(v) && v > 0) wk.p[d.id] = Math.min(d.need, v); if (ow.c && ow.c[d.id]) wk.c[d.id] = 1; }
+  if (now != null && wk.n !== weekOf(now)) { wk.n = weekOf(now); wk.p = {}; wk.c = {}; }
+  q.side = side; q.week = wk; return q;
+}
+const rewardText = r => Object.keys(r).map(k => `${k === 'potion' ? '潮息藥水' : MATS[k]} +${r[k]}`).join('、');
+/* Everything the quest screen needs. online = false hides quests that need other players. */
+function questList(p, now, online) {
+  const q = fixQuests(p, now), items = [], m = MAIN[q.main];
+  if (m) { const have = Math.min(m.need, m.value ? m.value(p) : q.mp); items.push({ id: m.id, group: 'main', title: m.title, goal: m.goal, have, need: m.need, ready: have >= m.need, claimed: false, reward: rewardText(m.reward) }); }
+  for (const d of WEEK) { const have = q.week.p[d.id] || 0, claimed = !!q.week.c[d.id]; items.push({ id: d.id, group: 'week', title: d.title, goal: d.goal, have: claimed ? d.need : have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) }); }
+  for (const d of SIDE) {
+    if (d.online && !online) continue;
+    const v = q.side[d.id] || 0, claimed = v === -1, have = claimed ? d.need : Math.min(d.need, d.have ? d.have(v) : v);
+    items.push({ id: d.id, group: 'side', title: d.title, goal: d.goal, have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) });
+  }
+  return { items, mainDone: q.main, mainTotal: MAIN.length };
+}
+/* ev: { type: 'run', win, onTime, cls, kicks, hits, mates } | { type: 'craft', kind } | { type: 'friend' } */
+function questEvent(p, ev, now) {
+  const q = fixQuests(p, now), m = MAIN[q.main];
+  if (isRun(ev)) { ev.kicks = qInt(ev.kicks, 0, 50); ev.hits = qInt(ev.hits, 0, 999); }
+  if (m && m.inc) q.mp = Math.min(m.need, q.mp + (m.inc(ev) || 0));
+  for (const d of WEEK) if (!q.week.c[d.id]) { const v = Math.min(d.need, (q.week.p[d.id] || 0) + (d.inc(ev) || 0)); if (v > 0) q.week.p[d.id] = v; }
+  for (const d of SIDE) if (q.side[d.id] !== -1) { const v = d.upd(q.side[d.id] || 0, ev); if (v > 0) q.side[d.id] = v; }
+}
+function questClaim(p, id, now) {
+  const q = fixQuests(p, now), it = questList(p, now, true).items.find(x => x.id === id);
+  if (!it) return { ok: false, msg: '沒有這個任務。' };
+  if (it.claimed) return { ok: false, msg: '這個任務的獎勵已經領過了。' };
+  if (!it.ready) return { ok: false, msg: `「${it.title}」還沒完成。` };
+  const d = MAIN.concat(WEEK, SIDE).find(x => x.id === id);
+  for (const k of Object.keys(d.reward)) p.inv[k] = Math.min(k === 'potion' ? POTION_CAP : MAT_CAP, p.inv[k] + d.reward[k]);
+  if (it.group === 'main') { q.main++; q.mp = 0; } else if (it.group === 'week') q.week.c[id] = 1; else q.side[id] = -1;
+  return { ok: true, msg: `「${it.title}」完成，領到 ${it.reward}。` };
 }
 
 /* ---------- network snapshot: compact arrays, read back by the client ---------- */
@@ -457,5 +530,6 @@ function snapshot(G) {
 }
 
 return { W, H, TIME_LIMIT, CLASSES, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
-  MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft };
+  MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
+  weekOf, fixQuests, questList, questEvent, questClaim };
 });

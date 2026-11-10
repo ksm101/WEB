@@ -45,7 +45,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   // accounts
   const A = await named(port, '小明'), B = await named(port, '<b>壞</b>名字超級長');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);
-  assert.deepStrictEqual(A.me.profile, { name: '小明', lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 } });
+  { const { q, ...rest } = A.me.profile; assert.deepStrictEqual(rest, { name: '小明', lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
   assert.strictEqual(B.me.profile.name, 'b壞/b名字超級');
   const forged = client(port, { id: A.me.id, token: 'x'.repeat(32) }); await forged.ready;
   assert.notStrictEqual(forged.me.id, A.me.id, 'a wrong token must not open someone else\'s account'); forged.ws.close();
@@ -124,6 +124,22 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   A.send({ t: 'craft', id: '__proto__' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, false);
   A.send({ t: 'craft', id: 'nope' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, false);
   ok('crafting spends materials on the server, refuses when short, and rejects unknown recipes');
+
+  // quests: progress is counted by the server, rewards are handed out by the server
+  const q0 = endA.profile.q; assert.strictEqual(q0.main, 0); assert.strictEqual(q0.mp, 1, 'the first main quest counts the clear');
+  assert.strictEqual(q0.week.p['w-runs'], 1); assert.strictEqual(q0.side['s-party'], 1, 'clearing with another player counts'); assert.strictEqual(q0.side['s-classes'], 4);
+  A.send({ t: 'claim', id: 'kick' }); let cl = await A.wait('claimed'); assert.strictEqual(cl.ok, false, 'only the current main quest can be claimed');
+  const scrap0 = cl.profile.inv.scrap;
+  A.send({ t: 'claim', id: 'bell' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, true); assert.strictEqual(cl.profile.inv.scrap, scrap0 + 6); assert.strictEqual(cl.profile.q.main, 1);
+  A.send({ t: 'claim', id: 'bell' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, false, 'no double claim');
+  A.send({ t: 'claim', id: 'w-runs' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, false); assert.match(cl.msg, /還沒完成/);
+  const pot0 = cl.profile.inv.potion;
+  A.send({ t: 'claim', id: 's-party' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, true); assert.strictEqual(cl.profile.inv.potion, pot0 + 1);
+  A.send({ t: 'claim', id: 's-party' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, false);
+  A.send({ t: 'claim', id: 's-friend' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, true, 'becoming mutual friends completed the friend quest');
+  B2.send({ t: 'claim', id: 's-friend' }); assert.strictEqual((await B2.wait('claimed')).ok, true, 'and for the other side too');
+  A.send({ t: 'claim', id: 'constructor' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, false);
+  ok('quests: the server counts progress, only finished quests pay out, and only once');
 
   // solo claims
   A.send({ t: 'solo1', win: true, time: 150 }); assert.strictEqual((await A.wait('solo')).ok, false, 'a claim without a started run is refused');
