@@ -150,7 +150,12 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .chip{position:relative;flex:none;height:40px;min-width:60px;padding:0 14px;border:1.5px solid var(--line);border-radius:20px;background:var(--deep);color:var(--foam);font-size:13px}
 .chip b{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;box-sizing:border-box;padding:0 4px;border-radius:9px;background:var(--ember);color:var(--ink);font-family:var(--f-num);font-size:11px;line-height:18px;text-align:center}
 .overlay.top{z-index:7}
-#app[data-mode="field"] #pips,#app[data-mode="field"] #timer,#app[data-mode="field"] #timebar{display:none}
+#app[data-mode="field"] #pips,#app[data-mode="field"] #timer{display:none}
+.lvrow{display:flex;align-items:center;gap:10px}
+.lvrow b{font-family:var(--f-num);font-weight:700;font-size:20px;color:var(--brass)}
+.xpbar{flex:1;height:6px;border-radius:3px;background:var(--slate);overflow:hidden}
+.xpbar i{display:block;height:100%;width:0;background:var(--brass)}
+.lvrow small{font-family:var(--f-num);font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
 #act{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:2;height:46px;padding:0 24px;border:0;border-radius:23px;background:var(--ember);color:var(--ink);font-weight:700;font-size:15px;white-space:nowrap}
 #talk,#gatebox{position:absolute;left:var(--gl);right:var(--gr);bottom:12px;z-index:3;display:flex;flex-direction:column;box-sizing:border-box;border:1.5px solid var(--brass);border-radius:8px;background:rgba(10,22,27,.94)}
 #talk{gap:6px;min-height:104px;padding:12px 14px 8px;cursor:pointer}
@@ -257,6 +262,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
         <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
       </div>
       <p class="lore">鐘聲沉入海底那天，潮水開始生鏽。四個人、一座塔、三分鐘。</p>
+      <div class="lvrow"><b id="m-cl">Lv.1</b><span class="xpbar"><i id="m-xpbar"></i></span><small id="m-xp"></small></div>
       <div class="run"><b>沉鐘塔</b><span id="m-lvl">第 1 層</span><small id="m-best"></small></div>
       <button class="questline" id="m-quest" type="button"></button>
       <div class="cards" id="cards"></div>
@@ -358,7 +364,7 @@ const F = { display: tok('--f-display'), num: tok('--f-num') };
  * With a game server the account lives there; this is a cache of it plus the key that signs this device in.
  * Without one (a plain copy of this page) progress stays on this device. */
 const SAVE_KEY = 'embertide.v1';
-const save = { lvl: 1, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, q: null, intro: false, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
+const save = { lvl: 1, cl: 1, xp: 0, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, q: null, intro: false, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
 function loadSave() {
   try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s === 'object') Object.assign(save, s); } catch (e) {}
   if (!save.acct || typeof save.acct !== 'object') save.acct = { id: '', token: '', bk: '' };
@@ -370,7 +376,13 @@ const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').s
 const inviteRoom = cleanCode(qs.get('room'));   // opened from a friend's invite link
 /* Run a change to the save and report which quests it finished. */
 const readyQuests = () => S.questList(save, Date.now(), online).items.filter(x => x.ready).map(x => x.title);
-function newlyDone(change) { const before = readyQuests(); change(); return readyQuests().filter(t => !before.includes(t)); }
+function newlyDone(change) { const before = readyQuests(); change(); levelCheck(); return readyQuests().filter(t => !before.includes(t)); }
+/* Announce a level-up once, wherever the experience came from, and make it count straight away in the field. */
+let shownCl = 0;
+function levelCheck(quiet) {
+  if (shownCl && !quiet && save.cl > shownCl) { banner(`升到 Lv.${save.cl}`, 2400); if (mode === 'field' && V && V.me) S.setLevel(V.me, save.cl, S.charPower(save)); }
+  shownCl = save.cl;
+}
 
 /* ================= Canvas ================= */
 let scale = 1, fscale = 1, stageW = 360, stageH = 440, dpr = 1, offX = 0, offY = 0, floor = null;
@@ -451,7 +463,7 @@ function enterRun() {
 }
 function startSolo(cls) {
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
-  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.lvl, pow: S.powerOf(save.gear), id: 'me', potions: save.inv.potion }] });
+  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
   if (net.authed) send({ t: 'solo0', lvl: save.lvl, cls });
   enterRun(); banner('三名 AI 隊友已就位', 2200);
@@ -466,11 +478,11 @@ function conclude(r, stats, extra) {
     net.solo = { show, timer: setTimeout(() => { if (net.solo) { net.solo = null; show(null, { note: '伺服器沒有回應，這場的獎勵沒有記錄到。' }); } }, 4000) };
     return send({ t: 'solo1', win: r.win, time: r.t, pots: stats.pots, kicks: stats.kicks, hits: stats.hits });
   }
-  let rw; const done = newlyDone(() => {
+  let rw; const cl0 = save.cl, done = newlyDone(() => {
     rw = S.applyResult(save, lvl, r); save.inv.potion = Math.max(0, save.inv.potion - stats.pots);
     S.questEvent(save, { type: 'run', win: r.win, onTime: r.onTime, cls: view.me.cls, kicks: stats.kicks, hits: stats.hits, mates: 0 }, Date.now());
   });
-  writeSave(); show(rw.loot, { mats: rw.mats, quests: done });
+  writeSave(); show(rw.loot, { mats: rw.mats, xp: rw.xp, up: save.cl > cl0, quests: done });
 }
 
 /* ================= Field =================
@@ -488,7 +500,7 @@ function camGoal() {
 }
 function startField(then) {
   mode = 'field'; save.cls = chosen in CLASSES ? chosen : 'dps'; writeSave();
-  G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', pow: S.powerOf(save.gear), id: 'me' } });
+  G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me' } });
   V = G; V.me = G.actors[0]; meIdx = 0;
   if (online && net.authed) send({ t: 'field0' });
   enterRun(); Object.assign(cam, camGoal()); renderQuests(); banner('鏽灘', 1500);
@@ -498,7 +510,7 @@ function startField(then) {
 function fieldFrame(dt) {
   const me = V.me; S.step(G, dt);
   const evs = G.events; G.events = [];
-  for (const o of evs) { handleEvent(o); if (o.k === 'gathered') fieldReport('fg', { id: o.id }, 'gather', o.type); else if (o.k === 'kill') fieldReport('fk', { kind: o.kind }, 'kill', o.kind); }
+  for (const o of evs) { handleEvent(o); if (o.k === 'gathered') fieldReport('fg', { id: o.id }, 'gather', o.type); else if (o.k === 'kill') fieldReport('fk', { kind: o.kind, pk: o.pk }, 'kill', o.kind, o.pk); }
   nearNpc = null; for (const n of FD.npcs) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearNpc = n;
   nearGate = Math.hypot(FD.gate.x - me.x, FD.gate.y - me.y) < FD.gate.r + 34;
   if (gateOpen && !nearGate) { gateOpen = false; $('#gatebox').hidden = true; }
@@ -506,16 +518,17 @@ function fieldFrame(dt) {
   if (btn.textContent !== label) btn.textContent = label; btn.hidden = !label;
   const g = camGoal(), k = 1 - Math.exp(-dt * 8); cam.x += (g.x - cam.x) * k; cam.y += (g.y - cam.y) * k;
 }
-function showYield(mats, done) {
+function showYield(mats, done, xp) {
   const me = V && V.me; if (!me) return; let i = 0;
-  for (const k of Object.keys(mats)) addText(me.x, me.y - 30 - 15 * i++, `${S.MATS[k]} +${mats[k]}`, C.brass, 12, 1.4);
+  if (xp > 0) addText(me.x, me.y - 46 - 15 * i++, `經驗 +${xp}`, C.foam, 11, 1.4);       // start above your own nameplate
+  for (const k of Object.keys(mats)) addText(me.x, me.y - 46 - 15 * i++, `${S.MATS[k]} +${mats[k]}`, C.brass, 12, 1.4);
   if (done.length) toast(`任務完成：${done.join('、')}。`, [], 3500);
   renderQuests();
 }
-function fieldReport(t, body, what, key) {
+function fieldReport(t, body, what, key, pk) {
   if (online) { if (net.authed) send(Object.assign({ t }, body)); else banner('連線中斷，這段時間的收穫不會記錄', 2500); return; }
-  const mats = S.fieldYield(what, key), done = newlyDone(() => { S.grant(save, mats); S.questEvent(save, { type: what }, Date.now()); });
-  writeSave(); showYield(mats, done);
+  let g = null; const done = newlyDone(() => { g = S.fieldGain(save, what, key, pk); if (g) S.questEvent(save, { type: what }, Date.now()); });
+  writeSave(); if (g) showYield(g.mats, done, g.xp);
 }
 
 /* ---------- talking: a box over the world, one line per tap ---------- */
@@ -539,7 +552,7 @@ function talkTo(id) {
 }
 function claimMain(id) {
   if (online) { if (!net.authed) return toast('連線中，等一下再試。', [], 2500); net.claiming = id; return send({ t: 'claim', id }); }
-  const r = S.questClaim(save, id, Date.now()); writeSave(); toast(r.msg, [], 3500); renderBag(); renderMenu(); if (r.ok) say(Story.SCENES[id].lines);
+  const r = S.questClaim(save, id, Date.now()); writeSave(); levelCheck(); toast(r.msg, [], 3500); renderBag(); renderMenu(); if (r.ok) say(Story.SCENES[id].lines);
 }
 function toCamp(msg) { $('#quests').hidden = true; if (mode !== 'field') { chosen = save.cls; startField(); } if (msg) banner(msg, 2800); }
 function replayScene(id) { const sc = Story.SCENES[id]; if (!sc) return; $('#quests').hidden = true; if (mode === 'field') say(sc.lines); else { chosen = save.cls; startField(() => say(sc.lines)); } }
@@ -584,15 +597,15 @@ function goOnline(roomOverride) {
   mode = 'lobby'; lastMode = 'online'; V = null; G = null; showLobby(null);
   send({ t: 'join', cls: save.cls, room });
 }
-function applyProfile(m) {   // the server's word on this account
+function applyProfile(m, quiet) {   // the server's word on this account
   if (m.bk) save.acct.bk = m.bk;
-  const p = m.profile; if (p) { save.lvl = p.lvl; save.gear = p.gear; save.best = p.best; save.runs = p.runs; save.nick = p.name; if (p.inv) save.inv = p.inv; if (p.q) save.q = p.q; }
-  writeSave();
+  const p = m.profile; if (p) { save.lvl = p.lvl; save.gear = p.gear; save.best = p.best; save.runs = p.runs; save.nick = p.name; if (p.inv) save.inv = p.inv; if (p.q) save.q = p.q; if (p.cl) { save.cl = p.cl; save.xp = p.xp || 0; } }
+  writeSave(); levelCheck(quiet);
 }
 function onMsg(m) {
   switch (m.t) {
     case 'me':
-      save.acct.id = m.id; save.acct.token = m.token; applyProfile(m); net.authed = true;
+      save.acct.id = m.id; save.acct.token = m.token; applyProfile(m, m.resume !== undefined); net.authed = true;   // signing in is not a level-up
       if (document.activeElement !== $('#nick')) $('#nick').value = save.nick;
       if (m.resume === false && mode === 'online' && V && !V.result) showMenu('這場副本已經結束了。');
       else if (!$('#menu').hidden) renderMenu();
@@ -607,13 +620,13 @@ function onMsg(m) {
     case 'start': beginOnline(m); break;
     case 's': if (mode === 'online' && V && !V.result) onSnap(m); break;
     case 'end': {
-      const done = newlyDone(() => applyProfile(m));
-      if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx], { loot: m.loot, mats: m.mats, mates: m.mates, again: m.again, quests: done });
+      const cl0 = save.cl, done = newlyDone(() => applyProfile(m));
+      if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx], { loot: m.loot, mats: m.mats, xp: m.xp, up: save.cl > cl0, mates: m.mates, again: m.again, quests: done });
       break;
     }
     case 'solo': {
-      const done = newlyDone(() => applyProfile(m));
-      if (net.solo) { const q = net.solo; net.solo = null; clearTimeout(q.timer); q.show(m.loot, m.ok ? { mats: m.mats, quests: done } : { note: '伺服器沒有承認這場結果，所以沒有獎勵。' }); }
+      const cl0 = save.cl, done = newlyDone(() => applyProfile(m));
+      if (net.solo) { const q = net.solo; net.solo = null; clearTimeout(q.timer); q.show(m.loot, m.ok ? { mats: m.mats, xp: m.xp, up: save.cl > cl0, quests: done } : { note: '伺服器沒有承認這場結果，所以沒有獎勵。' }); }
       break;
     }
     case 'crafted': {
@@ -622,7 +635,7 @@ function onMsg(m) {
       break;
     }
     case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && mode === 'field' && Story.SCENES[id]) say(Story.SCENES[id].lines); break; }
-    case 'fy': { const done = newlyDone(() => applyProfile(m)); if (mode === 'field') showYield(m.mats || {}, done); break; }
+    case 'fy': { const done = newlyDone(() => applyProfile(m)); if (mode === 'field' && m.ok) showYield(m.mats || {}, done, m.xp); break; }
     case 'social': net.social = m; renderSocial(); break;
     case 'note': toast(String(m.msg || ''), [], 3500); break;
     case 'invited':
@@ -635,7 +648,7 @@ function onMsg(m) {
 function beginOnline(m) {
   const back = net.back; net.back = false;
   mode = 'online'; lastMode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.emap = new Map(); net.sx = net.sy = NaN;
-  V = { t: 0, state: 'countdown', cd: 3, wave: -1, lvl: m.lvl, enemies: [], zones: [], shots: [], boss: null, result: null,
+  V = { t: 0, state: 'countdown', cd: 3, wave: -1, lvl: m.lvl, elvl: m.elvl || 1, enemies: [], zones: [], shots: [], boss: null, result: null,
     actors: m.roster.map((r, i) => ({ idx: i, cls: r.cls, def: CLASSES[r.cls], name: String(r.name), lvl: r.lvl > 0 ? r.lvl : m.lvl, human: !!r.human, x: SPOTS[i][0], y: SPOTS[i][1], sx: SPOTS[i][0], sy: SPOTS[i][1],
       r: 12, hp: r.maxHp, maxHp: r.maxHp, alive: true, potions: r.potions || 0, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null })) };
   V.me = V.actors[meIdx];
@@ -659,7 +672,7 @@ function buildView(now) {
   const em = net.emap, seen = new Set(); V.boss = null;
   for (const d of s1.e) {
     let e = em.get(d[0]);
-    if (!e) { const def = ENEMY[d[1]]; e = { id: d[0], kind: d[1], def, name: def.name, lvl: V.lvl, r: def.r, boss: d[1] === 'boss', tm: { enraged: false }, alive: true }; em.set(d[0], e); }
+    if (!e) { const def = ENEMY[d[1]]; e = { id: d[0], kind: d[1], def, name: def.name, lvl: V.elvl, r: def.r, boss: d[1] === 'boss', tm: { enraged: false }, alive: true }; em.set(d[0], e); }
     const p = s0.e.find(q => q[0] === d[0]) || d;
     e.x = L(p[2], d[2]); e.y = L(p[3], d[3]); e.hp = d[4]; e.maxHp = d[5]; e.face = d[6]; e.spawnT = L(p[7], d[7]); e.stun = d[8]; e.tm.enraged = !!d[9];
     const c = d[10], pc = p[10];
@@ -900,9 +913,14 @@ function buildHud() {
   });
 }
 function hud() {
-  const t = V.t, late = t > TIME_LIMIT;
-  $('#timer').firstChild.nodeValue = fmt(t) + ' '; $('#timer').classList.toggle('late', late);
-  $('#timebar').classList.toggle('late', late); $('#timebar').firstElementChild.style.width = Math.min(100, t / TIME_LIMIT * 100) + '%';
+  if (V.mode === 'field') {      // out here the bar under the title is your experience
+    const need = S.xpNeed(save.cl), txt = need ? `Lv.${save.cl}　經驗 ${save.xp} / ${need}` : `Lv.${save.cl}　已滿級`, lv = $('#lvl');
+    if (lv.textContent !== txt) lv.textContent = txt; $('#timebar').classList.remove('late'); $('#timebar').firstElementChild.style.width = (need ? Math.min(100, save.xp / need * 100) : 100) + '%';
+  } else {
+    const t = V.t, late = t > TIME_LIMIT;
+    $('#timer').firstChild.nodeValue = fmt(t) + ' '; $('#timer').classList.toggle('late', late);
+    $('#timebar').classList.toggle('late', late); $('#timebar').firstElementChild.style.width = Math.min(100, t / TIME_LIMIT * 100) + '%';
+  }
   const pips = $('#pips').children, won = !!(V.result && V.result.win);
   for (let i = 0; i < pips.length; i++) { pips[i].classList.toggle('done', i < V.wave || won); pips[i].classList.toggle('now', i === V.wave && V.state === 'run'); }
   for (const f of frames) {
@@ -922,7 +940,7 @@ function hud() {
   $('#pot').classList.toggle('cool', !(p.potions > 0));
   const b = V.boss, bb = $('#bossbar');
   if (b && b.alive) {
-    bb.hidden = false; $('#bossname').textContent = `Lv.${b.lvl || V.lvl} ${b.name}`; $('#bosspct').textContent = Math.ceil(b.hp / b.maxHp * 100) + '%'; $('#bosshp').style.width = (b.hp / b.maxHp * 100) + '%';
+    bb.hidden = false; $('#bossname').textContent = `Lv.${b.lvl || V.elvl || 1} ${b.name}`; $('#bosspct').textContent = Math.ceil(b.hp / b.maxHp * 100) + '%'; $('#bosshp').style.width = (b.hp / b.maxHp * 100) + '%';
     const bc = $('#bosscast');
     if (b.cast) { bc.hidden = false; bc.classList.toggle('kick', !!b.cast.kickable); bc.firstElementChild.style.width = clamp(b.cast.t / b.cast.dur * 100, 0, 100) + '%'; bc.lastElementChild.textContent = b.cast.kickable ? b.cast.name + '　快打斷' : b.cast.name + '　離開正面'; }
     else bc.hidden = true;
@@ -938,6 +956,7 @@ function onlineLabel() {
 }
 function renderMenu(msg) {
   if (msg !== undefined) menuMsg = msg;
+  const need = S.xpNeed(save.cl); $('#m-cl').textContent = `Lv.${save.cl}`; $('#m-xp').textContent = need ? `經驗 ${save.xp} / ${need}` : '已滿級'; $('#m-xpbar').style.width = (need ? Math.min(100, save.xp / need * 100) : 100) + '%';
   $('#m-lvl').textContent = `第 ${save.lvl} 層`;
   const best = save.best[save.lvl]; $('#m-best').textContent = best ? `最佳 ${fmt(best)}` : '限時 3:00';
   const cards = $('#cards'); cards.textContent = '';
@@ -1098,7 +1117,7 @@ function renderQuests() {
 }
 function doClaim(id) {
   if (online) { net.claiming = id; return send({ t: 'claim', id }); }   // the server hands out rewards
-  const r = S.questClaim(save, id, Date.now()); writeSave(); toast(r.msg, [], 3500); renderBag(); renderMenu();
+  const r = S.questClaim(save, id, Date.now()); writeSave(); levelCheck(); toast(r.msg, [], 3500); renderBag(); renderMenu();
 }
 
 /* scenes the player has unlocked: the prologue, then one per main quest already handed in */
@@ -1117,10 +1136,11 @@ function showResult(r, s, loot, lvl, more) {
   if (more.note) body.appendChild(el('p', 'note warn', more.note));
   if (loot) { const box = el('div', 'loot'), inner = el('div'); inner.append(el('b', '', loot.name), el('small', '', `${loot.slot}　${loot.up ? `比身上的 ${loot.old} 好，已經換上` : `身上的 ${loot.old} 比較好，已分解`}`)); box.append(el('span', 'il', loot.il), inner); body.appendChild(box); }
   if (more.mats) {
-    const line = el('p', 'gear'); line.appendChild(el('span', '', '材料'));
+    const line = el('p', 'gear'); if (more.xp > 0) { const sp = el('span', '', '經驗 '); sp.append(el('b', '', '+' + more.xp)); line.appendChild(sp); } line.appendChild(el('span', '', '材料'));
     for (const k of Object.keys(more.mats)) if (more.mats[k] > 0) { const sp = el('span', '', S.MATS[k] + ' '); sp.append(el('b', '', '+' + more.mats[k])); line.appendChild(sp); }
     body.appendChild(line);
   }
+  if (more.up) body.appendChild(el('p', 'verdict good', `升到 Lv.${save.cl}。`));
   if (more.quests && more.quests.length) body.appendChild(el('p', 'verdict good', `任務完成：${more.quests.join('、')}。回主選單的「任務」領獎。`));
   const mates = more.mates || [], team = mates.length > 0 && !!more.again;
   group(body, '這場的隊友', mates.map(f => row(CLASSES[f.cls].mark, C[CLASSES[f.cls].color], String(f.name), f.friend ? '已在名單' : '',
@@ -1225,6 +1245,7 @@ function frame(ts) {
 function boot(data) {
   loadSave(); if (data && data.save) Object.assign(save, data.save);
   if (inviteRoom) save.room = inviteRoom;
+  levelCheck(true);
   resize(); showMenu(''); probe(); requestAnimationFrame(frame);
 }
 window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, net, save, talk, cam, startSolo, startField, showMenu, send };

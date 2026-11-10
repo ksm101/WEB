@@ -26,7 +26,7 @@ const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinit
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';
 const cleanCode = s => typeof s === 'string' ? s.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) : '';
 const cleanId = s => typeof s === 'string' && /^[a-f0-9]{16}$/.test(s) ? s : '';
-const profileOf = r => ({ name: r.name, lvl: r.lvl, gear: r.gear, best: r.best, runs: r.runs, inv: r.inv, q: r.q });
+const profileOf = r => ({ name: r.name, lvl: r.lvl, cl: r.cl, xp: r.xp, gear: r.gear, best: r.best, runs: r.runs, inv: r.inv, q: r.q });
 
 function freshRecord(id) {
   return Sim.fixProfile(Object.assign({ id, name: '旅人' + Math.floor(10 + Math.random() * 90), friends: {}, ignored: [], recent: [], created: Date.now() }, Sim.newProfile()));
@@ -34,7 +34,7 @@ function freshRecord(id) {
 /* Rebuild a record from a backup or an older file, keeping only fields of the expected shape. */
 function normalize(b) {
   const g = b.gear || {}, v = b.inv || {};
-  const rec = { id: b.id, name: cleanName(b.name), lvl: clampInt(b.lvl, 1, 50), gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) },
+  const rec = { id: b.id, name: cleanName(b.name), lvl: clampInt(b.lvl, 1, 50), cl: clampInt(b.cl, 1, Sim.MAX_LEVEL), xp: clampInt(b.xp, 0, 1e9), gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) },
     best: {}, runs: clampInt(b.runs, 0, 1e9), inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) },
     q: b.q, friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15) };
   Sim.fixProfile(rec);
@@ -181,7 +181,7 @@ function start(opts) {
       if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('q:' + (++publicN), '', true); }
       idx = freeSeat(room);
     }
-    room.slots[idx] = { id: rec.id, name: rec.name, cls, lvl: rec.lvl, pow: Sim.powerOf(rec.gear), potions: rec.inv.potion > 0 ? 1 : 0, ws, ready: false };   // level and power come from the account, never from the client
+    room.slots[idx] = { id: rec.id, name: rec.name, cls, lvl: rec.lvl, cl: rec.cl, pow: Sim.charPower(rec), potions: rec.inv.potion > 0 ? 1 : 0, ws, ready: false };   // level and power come from the account, never from the client
     ws.info = { room, idx };
     const now = Date.now();
     room.deadline = room.deadline ? Math.max(room.deadline, now + Math.min(3000, lobbyWait)) : now + lobbyWait;
@@ -191,12 +191,12 @@ function start(opts) {
     const G = room.G;
     room.slots.forEach((s, i) => {
       if (!s || (only != null && only !== i)) return;
-      send(s.ws, { t: 'start', you: i, lvl: G.lvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, lvl: a.lvl, human: a.human, maxHp: a.maxHp, potions: a.potions })) });
+      send(s.ws, { t: 'start', you: i, lvl: G.lvl, elvl: G.elvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, lvl: a.lvl, human: a.human, maxHp: a.maxHp, potions: a.potions })) });
     });
   }
   function startRoom(room) {
     const lvl = Math.min.apply(null, humans(room).map(s => s.lvl));
-    room.G = Sim.createRun({ lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.lvl, pow: s.pow, id: s.id, potions: s.potions })) });
+    room.G = Sim.createRun({ lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.cl, pow: s.pow, id: s.id, potions: s.potions })) });
     // seats and actors share the same order, so slot i drives actor i
     room.slots.forEach((s, i) => { if (s) { if (room.G.actors[i].pid !== s.id) throw new Error('seat mismatch'); seats.set(s.id, { room, idx: i }); } });
     room.state = 'run'; room.acc = 0; room.n = 0; room.clock = 0; room.goneSince = 0; room.last = Date.now();
@@ -228,7 +228,7 @@ function start(opts) {
       Sim.questEvent(rec, { type: 'run', win: r.win, onTime: r.onTime, cls: s.cls, kicks: G.actors[i].stats.kicks, hits: G.actors[i].stats.hits, mates: hs.length - 1 }, now);
       for (const o of hs) if (o.id !== s.id) rec.recent = [{ id: o.id, name: o.name, cls: o.cls, at: now }].concat(rec.recent.filter(x => x.id !== o.id)).slice(0, 10);
       store.put(rec);
-      send(s.ws, { t: 'end', win: r.win, onTime: r.onTime, time: Math.round(r.t * 10) / 10, lvl: G.lvl, stats, loot: rw.loot, mats: rw.mats, again, profile: profileOf(rec), bk: store.pack(rec),
+      send(s.ws, { t: 'end', win: r.win, onTime: r.onTime, time: Math.round(r.t * 10) / 10, lvl: G.lvl, stats, loot: rw.loot, mats: rw.mats, xp: rw.xp, again, profile: profileOf(rec), bk: store.pack(rec),
         mates: hs.filter(o => o.id !== s.id).map(o => ({ id: o.id, name: o.name, cls: o.cls, friend: !!rec.friends[o.id] })) });
     });
     endRoom(room);
@@ -241,14 +241,14 @@ function start(opts) {
     if (m.t === 'solo0') { ws.solo = { lvl: clampInt(m.lvl, 1, rec.lvl), cls: SEATS.includes(m.cls) ? m.cls : 'dps', at: Date.now() }; return; }
     const s = ws.solo; ws.solo = null; const time = Number(m.time), win = m.win === true;
     const ok = !!s && Number.isFinite(time) && time > 0 && time < 3600 && (Date.now() - s.at) / 1000 >= time * .9 && (!win || time >= soloMin);
-    let rw = { loot: null, mats: null };
+    let rw = { loot: null, mats: null, xp: 0 };
     if (s && m.pots > 0) rec.inv.potion = Math.max(0, rec.inv.potion - 1);   // a potion drunk in the run is gone either way
     if (ok) {     // kicks and hits are the device's own count: fine for quests, not for anything worth cheating
       rw = Sim.applyResult(rec, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time });
       Sim.questEvent(rec, { type: 'run', win, onTime: win && time <= Sim.TIME_LIMIT, cls: s.cls, kicks: clampInt(m.kicks, 0, 50), hits: clampInt(m.hits, 0, 999), mates: 0 }, Date.now());
     }
     if (s) store.put(rec);
-    send(ws, { t: 'solo', ok, loot: rw.loot, mats: rw.mats, profile: profileOf(rec), bk: store.pack(rec) });
+    send(ws, { t: 'solo', ok, loot: rw.loot, mats: rw.mats, xp: rw.xp, profile: profileOf(rec), bk: store.pack(rec) });
   }
 
   /* The field is simulated on the player's device; the server only keeps the books. It decides what a gather or
@@ -257,17 +257,17 @@ function start(opts) {
   function onField(ws, m) {
     const rec = ws.acc, now = Date.now();
     if (m.t === 'field0') { ws.field = { nodes: {}, lastG: 0, tokens: 6, at: now }; return; }
-    const f = ws.field; let mats = null;
+    const f = ws.field; let gain = null;
     if (f && m.t === 'fg') {
       const node = Sim.FIELD.nodes.find(n => n.id === m.id);
-      if (node && now - (f.nodes[node.id] || 0) >= Sim.NODE_RESPAWN * 900 && now - f.lastG >= Sim.GATHER_TIME * 900) { f.nodes[node.id] = now; f.lastG = now; mats = Sim.fieldYield('gather', node.type); Sim.questEvent(rec, { type: 'gather' }, now); }
+      if (node && now - (f.nodes[node.id] || 0) >= Sim.NODE_RESPAWN * 900 && now - f.lastG >= Sim.GATHER_TIME * 900) { f.nodes[node.id] = now; f.lastG = now; gain = Sim.fieldGain(rec, 'gather', node.type); Sim.questEvent(rec, { type: 'gather' }, now); }
     } else if (f && m.t === 'fk') {
       f.tokens = Math.min(6, f.tokens + (now - f.at) / 2500); f.at = now;
-      const def = typeof m.kind === 'string' && Object.prototype.hasOwnProperty.call(Sim.ENEMY, m.kind) ? Sim.ENEMY[m.kind] : null;
-      if (def && def.aggro && f.tokens >= 1) { f.tokens -= 1; mats = Sim.fieldYield('kill', m.kind); Sim.questEvent(rec, { type: 'kill' }, now); }
+      // the creature's level, and so its experience, is worked out here from the account's level and the pack it names
+      if (f.tokens >= 1 && typeof m.kind === 'string') { gain = Sim.fieldGain(rec, 'kill', m.kind, m.pk); if (gain) { f.tokens -= 1; Sim.questEvent(rec, { type: 'kill' }, now); } }
     }
-    if (mats) { Sim.grant(rec, mats); store.put(rec); }
-    send(ws, { t: 'fy', ok: !!mats, mats: mats || {}, profile: profileOf(rec), bk: store.pack(rec) });
+    if (gain) store.put(rec);
+    send(ws, { t: 'fy', ok: !!gain, mats: gain ? gain.mats : {}, xp: gain ? gain.xp : 0, profile: profileOf(rec), bk: store.pack(rec) });
   }
 
   function tick() {

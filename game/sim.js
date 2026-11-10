@@ -65,10 +65,30 @@ const FIELD = {
     { id: 5, type: 'herb', x: 240, y: 520 }, { id: 6, type: 'herb', x: 710, y: 420 },
     { id: 7, type: 'wreck', x: 590, y: 1160 }, { id: 8, type: 'wreck', x: 280, y: 1010 }, { id: 9, type: 'wreck', x: 770, y: 690 }, { id: 10, type: 'wreck', x: 150, y: 560 }, { id: 11, type: 'wreck', x: 560, y: 320 },
     { id: 12, type: 'salt', x: 110, y: 1060 }, { id: 13, type: 'salt', x: 810, y: 620 }, { id: 14, type: 'salt', x: 360, y: 270 }, { id: 15, type: 'salt', x: 630, y: 180 }],
-  packs: [{ kind: 'crab', x: 270, y: 1060, n: 2 }, { kind: 'crab', x: 660, y: 1120, n: 2 }, { kind: 'crab', x: 520, y: 930, n: 2 }, { kind: 'acolyte', x: 220, y: 820, n: 1 },
-    { kind: 'crab', x: 710, y: 830, n: 3 }, { kind: 'crab', x: 330, y: 690, n: 2 }, { kind: 'acolyte', x: 610, y: 610, n: 2 }, { kind: 'crab', x: 170, y: 440, n: 3 },
-    { kind: 'crab', x: 520, y: 440, n: 2 }, { kind: 'acolyte', x: 400, y: 280, n: 2 }, { kind: 'crab', x: 720, y: 220, n: 2 }]
+  // min/max: a creature takes the player's level, held inside this range. South is gentle, the north shore is not.
+  packs: [{ kind: 'crab', x: 270, y: 1060, n: 2, min: 1, max: 6 }, { kind: 'crab', x: 660, y: 1120, n: 2, min: 1, max: 6 }, { kind: 'crab', x: 520, y: 930, n: 2, min: 2, max: 7 },
+    { kind: 'acolyte', x: 220, y: 820, n: 1, min: 3, max: 9 }, { kind: 'crab', x: 710, y: 830, n: 3, min: 3, max: 8 }, { kind: 'crab', x: 330, y: 690, n: 2, min: 4, max: 9 },
+    { kind: 'acolyte', x: 610, y: 610, n: 2, min: 5, max: 11 }, { kind: 'crab', x: 170, y: 440, n: 3, min: 6, max: 11 }, { kind: 'crab', x: 520, y: 440, n: 2, min: 6, max: 12 },
+    { kind: 'acolyte', x: 400, y: 280, n: 2, min: 8, max: 14 }, { kind: 'crab', x: 720, y: 220, n: 2, min: 8, max: 14 }]
 };
+/* ---------- character level ----------
+ * Level comes from experience and is separate from how deep you have gone in the tower. One factor, lvF, turns a
+ * level into strength for players and creatures alike, so an even-level fight feels the same at any level and
+ * gear is what puts you ahead. */
+const MAX_LEVEL = 30;
+const lvF = L => 1 + .06 * (Math.max(1, L) - 1);
+const xpNeed = L => L >= MAX_LEVEL ? 0 : Math.round(80 + 45 * Math.pow(L - 1, 1.6));   // experience to go from L to L + 1
+const recLevel = floor => Math.min(MAX_LEVEL, 1 + (floor - 1) * 2);                    // the level a tower floor is meant for
+const mobLevel = (pk, cl) => clamp(cl, pk.min, pk.max);
+const KILL_XP = { crab: 12, acolyte: 16 };
+/* Creatures a few levels under you teach less and less; ones above you teach a little more. */
+function xpForKill(kind, mobLvl, cl) {
+  const d = cl - mobLvl, mul = d < 0 ? Math.min(1.3, 1 - d * .1) : d <= 2 ? 1 : d >= 7 ? .1 : 1 - (d - 2) * .2;
+  return Math.round((KILL_XP[kind] || 0) * lvF(mobLvl) * mul);
+}
+function scaleMob(e, lvl) { const k = e.maxHp ? e.hp / e.maxHp : 1; e.lvl = lvl; e.maxHp = R(e.def.hp * lvF(lvl)); e.hp = Math.max(1, R(e.maxHp * k)); e.dmg = e.def.dmg * lvF(lvl); }
+function setLevel(a, lvl, pow) { a.lvl = lvl; a.pow = pow; a.maxHp = R(a.def.hp * pow); a.hp = a.maxHp; }   // levelling up refills your health
+
 const inCamp = p => Math.hypot(p.x - FIELD.safe.x, p.y - FIELD.safe.y) < FIELD.safe.r;
 function pushOut(p) { for (const r of FIELD.rocks) { const dx = p.x - r.x, dy = p.y - r.y, d = Math.hypot(dx, dy) || .01, m = r.r + p.r; if (d < m) { p.x = r.x + dx / d * m; p.y = r.y + dy / d * m; } } }
 
@@ -95,34 +115,37 @@ function mkActor(cls, name, spot, pow) {
  * Each player takes the first free seat of their class; every other seat is a bot. */
 function createRun(opts) {
   const lvl = opts.lvl || 1, botPow = 1 + .1 * (lvl - 1);
-  const G = { mode: 'dungeon', bw: W, bh: H, t: 0, lvl, es: Math.pow(1.13, lvl - 1), state: 'countdown', cd: 3, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
+  const G = { mode: 'dungeon', bw: W, bh: H, t: 0, lvl, elvl: recLevel(lvl), es: Math.pow(1.13, lvl - 1), state: 'countdown', cd: 3, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
     boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: !!opts.auto };
   const pending = (opts.players || []).slice(); let dpsN = 0;
   ROSTER.forEach((c, i) => {
     const k = pending.findIndex(p => p.cls === c), p = k >= 0 ? pending.splice(k, 1)[0] : null;
     const a = mkActor(c, p ? p.name : (c === 'dps' ? BOT_NAMES.dps[dpsN++] : BOT_NAMES[c]), SPOTS[i], p ? p.pow : botPow);
-    a.lvl = p && p.lvl > 0 ? p.lvl : lvl;      // a player shows their own level; a bot shows the level of the run
+    a.lvl = p && p.lvl > 0 ? p.lvl : G.elvl;   // a player shows their own level; a bot shows the level the floor is meant for
     a.idx = i; a.human = !!p; a.pid = p ? p.id : null; a.potions = p && p.potions > 0 ? 1 : 0; G.actors.push(a);   // one potion per run
   });
   return G;
 }
 function mkEnemy(G, kind, x, y) {
   const d = ENEMY[kind], s = G.es;
-  const e = { id: G.nextId++, kind, def: d, name: d.name, lvl: G.lvl, x, y, r: d.r, maxHp: R(d.hp * s), hp: R(d.hp * s), dmg: d.dmg * s, atkT: rand(.4, 1), threat: new Map(),
+  const e = { id: G.nextId++, kind, def: d, name: d.name, lvl: G.elvl || 1, x, y, r: d.r, maxHp: R(d.hp * s), hp: R(d.hp * s), dmg: d.dmg * s, atkT: rand(.4, 1), threat: new Map(),
     fix: null, fixT: 0, target: null, cast: null, stun: 0, boss: kind === 'boss', tm: {}, alive: true, spawnT: .6, face: Math.PI / 2 };
   if (d.caster) e.tm.cast = rand(1.5, 3.5);
   if (e.boss) { e.tm = { cleave: 5, bells: 8, roar: 12, adds: false, enraged: false }; G.boss = e; }
   const tank = G.mode !== 'field' && G.actors.find(a => a.cls === 'tank'); if (tank) e.threat.set(tank, 40);
   G.enemies.push(e); return e;
 }
-function spawnMob(G, kind, home) { const e = mkEnemy(G, kind, home.x + rand(-14, 14), home.y + rand(-14, 14)); e.home = home; e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3); e.engaged = false; e.ret = false; return e; }
-/* opts: { lvl, player: { cls, name, pow, id } }. One player, no bots, no timer. */
+function spawnMob(G, pk, home) {
+  const def = FIELD.packs[pk], e = mkEnemy(G, def.kind, home.x + rand(-14, 14), home.y + rand(-14, 14));
+  e.pk = pk; e.home = home; e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3); e.engaged = false; e.ret = false; scaleMob(e, mobLevel(def, G.actors[0].lvl)); return e;
+}
+/* opts: { lvl (tower floor reached), player: { cls, name, pow, id, lvl (character level) } }. One player, no bots, no timer. */
 function createField(opts) {
   const lvl = opts.lvl || 1, p = opts.player;
-  const G = { mode: 'field', bw: FIELD.w, bh: FIELD.h, t: 0, lvl, es: Math.pow(1.13, lvl - 1), state: 'run', cd: 0, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
+  const G = { mode: 'field', bw: FIELD.w, bh: FIELD.h, t: 0, lvl, elvl: 1, es: 1, state: 'run', cd: 0, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
     boss: null, result: null, nextId: 1, grace: 0, auto: false, respawns: [], nodes: FIELD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, ready: true, t: 0 })) };
-  const a = mkActor(p.cls, p.name, FIELD.spawn, p.pow); a.lvl = lvl; a.idx = 0; a.human = true; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; G.actors.push(a);
-  for (const pk of FIELD.packs) for (let i = 0; i < pk.n; i++) spawnMob(G, pk.kind, { x: pk.x + (i - (pk.n - 1) / 2) * 34, y: pk.y + (i % 2) * 22 });
+  const a = mkActor(p.cls, p.name, FIELD.spawn, p.pow); a.lvl = p.lvl > 0 ? p.lvl : 1; a.idx = 0; a.human = true; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; G.actors.push(a);
+  FIELD.packs.forEach((pk, k) => { for (let i = 0; i < pk.n; i++) spawnMob(G, k, { x: pk.x + (i - (pk.n - 1) / 2) * 34, y: pk.y + (i % 2) * 22 }); });
   return G;
 }
 function nextWave(G) {
@@ -156,7 +179,7 @@ function hurtEnemy(G, e, dmg, src, big, noUlt) {
   ev(G, { k: 'dmg', x: R(e.x), y: R(e.y - e.r - 6), v: R(dmg), big: big ? 1 : 0, by: src.idx });
   if (e.hp <= 0) {
     e.hp = 0; e.alive = false; ring(G, e.x, e.y, e.r * .5, e.r * 2.2, e.boss ? 'brass' : 'rust', .45);
-    if (G.mode === 'field') { G.respawns.push({ kind: e.kind, home: e.home, at: G.t + MOB_RESPAWN }); ev(G, { k: 'kill', kind: e.kind, by: src.idx }); }
+    if (G.mode === 'field') { G.respawns.push({ pk: e.pk, home: e.home, at: G.t + MOB_RESPAWN }); ev(G, { k: 'kill', kind: e.kind, pk: e.pk, by: src.idx }); }
     if (e.boss) { for (const o of G.enemies) if (o !== e && o.alive) { o.alive = false; ring(G, o.x, o.y, 6, 30, 'rust', .4); } G.zones.length = 0; shake(G, .6); }
   }
 }
@@ -456,7 +479,9 @@ function stepField(G, dt) {
   for (const e of G.enemies) updEnemy(G, e, dt);
   updWorld(G, dt);
   G.enemies = G.enemies.filter(e => e.alive);
-  G.respawns = G.respawns.filter(r => { if (G.t < r.at || G.actors.some(a => Math.hypot(a.x - r.home.x, a.y - r.home.y) < 170)) return true; spawnMob(G, r.kind, r.home); return false; });
+  G.respawns = G.respawns.filter(r => { if (G.t < r.at || G.actors.some(a => Math.hypot(a.x - r.home.x, a.y - r.home.y) < 170)) return true; spawnMob(G, r.pk, r.home); return false; });
+  // creatures that are not in a fight follow your level, inside their pack's range
+  for (const e of G.enemies) if (!e.engaged && !e.ret) { const want = mobLevel(FIELD.packs[e.pk], G.actors[0].lvl); if (e.lvl !== want) scaleMob(e, want); }
   for (const n of G.nodes) if (!n.ready) { n.t -= dt; if (n.t <= 0) n.ready = true; }
   for (const a of G.actors) fieldActor(G, a, dt);
 }
@@ -469,6 +494,14 @@ function fieldYield(what, key) {
   return m;
 }
 function grant(p, mats) { fixProfile(p); for (const k of Object.keys(mats)) if (k in MATS) p.inv[k] = Math.min(MAT_CAP, p.inv[k] + mats[k]); }
+/* Everything one gather or one kill gives this profile: materials and experience. For a kill, pk says which pack the
+ * creature belonged to; null when the claim does not name a real pack of that creature. */
+function fieldGain(p, what, key, pk) {
+  fixProfile(p); let xp = 5;
+  if (what === 'kill') { const def = Number.isInteger(pk) ? FIELD.packs[pk] : null; if (!def || def.kind !== key) return null; xp = xpForKill(key, mobLevel(def, p.cl), p.cl); }
+  const mats = fieldYield(what, key); grant(p, mats); const x = addXp(p, xp);
+  return { mats, xp: x.xp, ups: x.ups };
+}
 
 function step(G, dt) {
   if (G.mode === 'field') return stepField(G, dt);
@@ -496,15 +529,22 @@ const ilvlOf = gear => Math.round((gear.w + gear.a + gear.t) / 3);
 const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
 const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
 const gearCap = lvl => 10 + lvl * 4 + 7;        // how far tempering can push a slot at this tower level
-function newProfile() { return { lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null }; }
+const charPower = p => powerOf(p.gear) * lvF(p.cl);     // what a character brings to a fight: gear and level
+function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null }; }
 function fixProfile(p) {   // fill in anything an older save does not have
   const d = newProfile();
   for (const k of Object.keys(d)) if (p[k] == null) p[k] = d[k];
   for (const k of Object.keys(d.inv)) if (!(p.inv[k] >= 0)) p.inv[k] = 0;
+  p.cl = Number.isInteger(p.cl) ? clamp(p.cl, 1, MAX_LEVEL) : 1; p.xp = p.xp >= 0 && p.cl < MAX_LEVEL ? Math.min(Math.floor(p.xp), xpNeed(p.cl)) : 0;
   fixQuests(p);
   return p;
 }
-/* r: { win, onTime, t }. Updates the profile p and returns { loot, mats }: the item that dropped (null for a wipe)
+function addXp(p, n) {
+  n = Math.max(0, Math.round(n)); let ups = 0; if (p.cl >= MAX_LEVEL || !n) return { xp: 0, ups: 0 };
+  p.xp += n; while (p.cl < MAX_LEVEL && p.xp >= xpNeed(p.cl)) { p.xp -= xpNeed(p.cl); p.cl++; ups++; }
+  if (p.cl >= MAX_LEVEL) p.xp = 0; return { xp: n, ups };
+}
+/* r: { win, onTime, t }. Updates the profile p and returns { loot, mats, xp, ups }: the item that dropped (null for a wipe)
  * and the crafting materials picked up. */
 function applyResult(p, lvl, r) {
   fixProfile(p);
@@ -512,7 +552,8 @@ function applyResult(p, lvl, r) {
     ? { scrap: 3 + Math.floor(Math.random() * 3) + Math.floor(lvl / 3), salt: 1 + (Math.random() < .5 ? 1 : 0), shard: r.onTime ? 1 : (Math.random() < .3 ? 1 : 0) }
     : { scrap: 1 + Math.floor(Math.random() * 2), salt: 0, shard: 0 };
   for (const k of Object.keys(mats)) p.inv[k] = Math.min(MAT_CAP, p.inv[k] + mats[k]);
-  if (!r.win) return { loot: null, mats };
+  const x = addXp(p, r.win ? (100 + 50 * lvl) * (r.onTime ? 1.25 : 1) : 25);
+  if (!r.win) return { loot: null, mats, xp: x.xp, ups: x.ups };
   p.runs++;
   const ks = ['w', 'a', 't']; let k = pick(ks);
   if (Math.random() < .5) k = ks.reduce((m, x) => p.gear[x] < p.gear[m] ? x : m, 'w');
@@ -520,7 +561,7 @@ function applyResult(p, lvl, r) {
   if (up) p.gear[k] = il;
   if (!p.best[lvl] || r.t < p.best[lvl]) p.best[lvl] = Math.round(r.t * 10) / 10;
   if (r.onTime) p.lvl = Math.max(p.lvl, Math.min(50, lvl + 1));
-  return { loot: { slot: LOOT[k][0], name: pick(LOOT[k][1]), il, old, up }, mats };
+  return { loot: { slot: LOOT[k][0], name: pick(LOOT[k][1]), il, old, up }, mats, xp: x.xp, ups: x.ups };
 }
 
 /* ---------- crafting ---------- */
@@ -556,26 +597,26 @@ const isRun = ev => ev.type === 'run';
 const CLS_BIT = { tank: 1, heal: 2, dps: 4 };
 const bits = n => (n & 1) + (n >> 1 & 1) + (n >> 2 & 1);
 const MAIN = [
-  { id: 'bell', title: '第一聲鐘響', goal: '通關沉鐘塔一次', need: 1, reward: { scrap: 6, salt: 2 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
-  { id: 'kick', title: '斷其咒語', goal: '成功打斷敵人的金色讀條 3 次', need: 3, reward: { salt: 3 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
-  { id: 'craft', title: '工坊開張', goal: '在背包裡製作任何一樣東西', need: 1, reward: { scrap: 8, salt: 2 }, inc: ev => ev.type === 'craft' ? 1 : 0 },
-  { id: 'ontime', title: '搶在潮水之前', goal: '三分鐘內通關一次', need: 1, reward: { potion: 1 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 },
-  { id: 'clean', title: '乾淨的腳步', goal: '通關一場，而且整場沒有踩到紅圈', need: 1, reward: { shard: 1, scrap: 6 }, inc: ev => isRun(ev) && ev.win && ev.hits === 0 ? 1 : 0 },
-  { id: 'lvl3', title: '更深一層', goal: '抵達第 3 層', need: 3, reward: { salt: 4, scrap: 8 }, value: p => p.lvl },
-  { id: 'temper', title: '淬火', goal: '淬鍊任何一個部位一次', need: 1, reward: { shard: 2 }, inc: ev => ev.type === 'craft' && ev.kind === 'temper' ? 1 : 0 },
-  { id: 'lvl5', title: '鐘塔中段', goal: '抵達第 5 層', need: 5, reward: { shard: 2, potion: 1, scrap: 12 }, value: p => p.lvl }
+  { id: 'bell', title: '第一聲鐘響', goal: '通關沉鐘塔一次', need: 1, reward: { xp: 120, scrap: 6, salt: 2 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
+  { id: 'kick', title: '斷其咒語', goal: '成功打斷敵人的金色讀條 3 次', need: 3, reward: { xp: 120, salt: 3 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
+  { id: 'craft', title: '工坊開張', goal: '在背包裡製作任何一樣東西', need: 1, reward: { xp: 150, scrap: 8, salt: 2 }, inc: ev => ev.type === 'craft' ? 1 : 0 },
+  { id: 'ontime', title: '搶在潮水之前', goal: '三分鐘內通關一次', need: 1, reward: { xp: 200, potion: 1 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 },
+  { id: 'clean', title: '乾淨的腳步', goal: '通關一場，而且整場沒有踩到紅圈', need: 1, reward: { xp: 250, shard: 1, scrap: 6 }, inc: ev => isRun(ev) && ev.win && ev.hits === 0 ? 1 : 0 },
+  { id: 'lvl3', title: '更深一層', goal: '抵達第 3 層', need: 3, reward: { xp: 300, salt: 4, scrap: 8 }, value: p => p.lvl },
+  { id: 'temper', title: '淬火', goal: '淬鍊任何一個部位一次', need: 1, reward: { xp: 300, shard: 2 }, inc: ev => ev.type === 'craft' && ev.kind === 'temper' ? 1 : 0 },
+  { id: 'lvl5', title: '鐘塔中段', goal: '抵達第 5 層', need: 5, reward: { xp: 500, shard: 2, potion: 1, scrap: 12 }, value: p => p.lvl }
 ];
 const WEEK = [
-  { id: 'w-runs', title: '本週巡塔', goal: '這週通關 5 場', need: 5, reward: { scrap: 15, salt: 4 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
-  { id: 'w-kicks', title: '本週斷法', goal: '這週成功打斷 10 次', need: 10, reward: { salt: 5 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
-  { id: 'w-ontime', title: '本週準時', goal: '這週三分鐘內通關 3 場', need: 3, reward: { shard: 2 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 }
+  { id: 'w-runs', title: '本週巡塔', goal: '這週通關 5 場', need: 5, reward: { xp: 300, scrap: 15, salt: 4 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
+  { id: 'w-kicks', title: '本週斷法', goal: '這週成功打斷 10 次', need: 10, reward: { xp: 250, salt: 5 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
+  { id: 'w-ontime', title: '本週準時', goal: '這週三分鐘內通關 3 場', need: 3, reward: { xp: 350, shard: 2 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 }
 ];
 const SIDE = [
-  { id: 's-party', title: '結伴', goal: '和至少一位其他玩家一起通關', need: 1, online: true, reward: { scrap: 10, potion: 1 }, upd: (v, ev) => isRun(ev) && ev.win && ev.mates > 0 ? 1 : v },
-  { id: 's-classes', title: '三種走法', goal: '用三個職業各通關一次', need: 3, reward: { shard: 2 }, upd: (v, ev) => isRun(ev) && ev.win ? v | (CLS_BIT[ev.cls] || 0) : v, have: bits },
-  { id: 's-gather', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
-  { id: 's-hunt', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
-  { id: 's-friend', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
+  { id: 's-party', title: '結伴', goal: '和至少一位其他玩家一起通關', need: 1, online: true, reward: { xp: 200, scrap: 10, potion: 1 }, upd: (v, ev) => isRun(ev) && ev.win && ev.mates > 0 ? 1 : v },
+  { id: 's-classes', title: '三種走法', goal: '用三個職業各通關一次', need: 3, reward: { xp: 400, shard: 2 }, upd: (v, ev) => isRun(ev) && ev.win ? v | (CLS_BIT[ev.cls] || 0) : v, have: bits },
+  { id: 's-gather', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { xp: 150, scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
+  { id: 's-hunt', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { xp: 200, salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
+  { id: 's-friend', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { xp: 100, salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
 ];
 const weekOf = now => Math.floor((Math.floor((now + 8 * 3600000) / 86400000) + 3) / 7);
 const qInt = (v, a, b) => Number.isInteger(v) ? Math.min(b, Math.max(a, v)) : a;
@@ -590,7 +631,7 @@ function fixQuests(p, now) {
   if (now != null && wk.n !== weekOf(now)) { wk.n = weekOf(now); wk.p = {}; wk.c = {}; }
   q.side = side; q.week = wk; return q;
 }
-const rewardText = r => Object.keys(r).map(k => `${k === 'potion' ? '潮息藥水' : MATS[k]} +${r[k]}`).join('、');
+const rewardText = r => Object.keys(r).map(k => `${k === 'xp' ? '經驗' : k === 'potion' ? '潮息藥水' : MATS[k]} +${r[k]}`).join('、');
 /* Everything the quest screen needs. online = false hides quests that need other players. */
 function questList(p, now, online) {
   const q = fixQuests(p, now), items = [], m = MAIN[q.main];
@@ -617,7 +658,7 @@ function questClaim(p, id, now) {
   if (it.claimed) return { ok: false, msg: '這個任務的獎勵已經領過了。' };
   if (!it.ready) return { ok: false, msg: `「${it.title}」還沒完成。` };
   const d = MAIN.concat(WEEK, SIDE).find(x => x.id === id);
-  for (const k of Object.keys(d.reward)) p.inv[k] = Math.min(k === 'potion' ? POTION_CAP : MAT_CAP, p.inv[k] + d.reward[k]);
+  for (const k of Object.keys(d.reward)) { if (k === 'xp') addXp(p, d.reward.xp); else p.inv[k] = Math.min(k === 'potion' ? POTION_CAP : MAT_CAP, p.inv[k] + d.reward[k]); }
   if (it.group === 'main') { q.main++; q.mp = 0; } else if (it.group === 'week') q.week.c[id] = 1; else q.side[id] = -1;
   return { ok: true, msg: `「${it.title}」完成，領到 ${it.reward}。` };
 }
@@ -638,7 +679,8 @@ function snapshot(G) {
 }
 
 return { W, H, TIME_LIMIT, CLASSES, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
-  FIELD, GATHER_TIME, NODE_RESPAWN, createField, fieldYield, grant,
+  FIELD, GATHER_TIME, NODE_RESPAWN, createField, fieldYield, grant, fieldGain,
+  MAX_LEVEL, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id) };
 });

@@ -54,10 +54,21 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   for (const n of Sim.FIELD.npcs) { assert.ok(Story.CAST[n.id] && Story.IDLE[n.id].length >= 2, n.id); for (const t of Story.IDLE[n.id]) assert.ok(t.length <= 48, t); }
   ok('story: a scene for the prologue and for every main quest, each handed in by someone at the camp, short lines');
 
+  // levels: experience curve, level cap, creatures that follow the player inside a range, shrinking experience from weak ones
+  assert.ok(Sim.xpNeed(1) < Sim.xpNeed(2) && Sim.xpNeed(10) < Sim.xpNeed(20)); assert.strictEqual(Sim.xpNeed(Sim.MAX_LEVEL), 0);
+  { const pr = Sim.fixProfile(Sim.newProfile()); assert.strictEqual(Sim.addXp(pr, Sim.xpNeed(1) + Sim.xpNeed(2) + 5).ups, 2); assert.strictEqual(pr.cl, 3); assert.strictEqual(pr.xp, 5);
+    pr.cl = Sim.MAX_LEVEL; pr.xp = 0; assert.strictEqual(Sim.addXp(pr, 1e6).ups, 0); assert.strictEqual(pr.cl, Sim.MAX_LEVEL); }
+  for (const pk of Sim.FIELD.packs) { assert.ok(pk.min >= 1 && pk.max >= pk.min && pk.max < Sim.MAX_LEVEL); assert.strictEqual(Sim.mobLevel(pk, 1), pk.min); assert.strictEqual(Sim.mobLevel(pk, pk.max - 1 < pk.min ? pk.min : pk.max - 1), Math.max(pk.min, pk.max - 1)); assert.strictEqual(Sim.mobLevel(pk, 30), pk.max, 'a creature never goes above its cap'); }
+  assert.ok(Sim.xpForKill('crab', 6, 6) > Sim.xpForKill('crab', 6, 10)); assert.ok(Sim.xpForKill('crab', 6, 10) > Sim.xpForKill('crab', 6, 20)); assert.ok(Sim.xpForKill('crab', 6, 20) >= 1);
+  { const Gf = Sim.createField({ lvl: 1, player: { cls: 'dps', name: 'x', pow: 1, id: 'me', lvl: 1 } }), e0 = Gf.enemies.find(e => e.pk === 0), hp1 = e0.maxHp;
+    Sim.setLevel(Gf.actors[0], 4, Sim.lvF(4)); Sim.step(Gf, 1 / 30); assert.strictEqual(e0.lvl, 4); assert.ok(e0.maxHp > hp1, 'creatures grow with you');
+    Sim.setLevel(Gf.actors[0], 25, Sim.lvF(25)); Sim.step(Gf, 1 / 30); assert.strictEqual(e0.lvl, Sim.FIELD.packs[0].max, 'and stop at their cap'); }
+  ok('levels: curve and cap, creatures scale with the player inside a range, weak creatures give little experience');
+
   // accounts
   const A = await named(port, '小明'), B = await named(port, '<b>壞</b>名字超級長');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);
-  { const { q, ...rest } = A.me.profile; assert.deepStrictEqual(rest, { name: '小明', lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
+  { const { q, ...rest } = A.me.profile; assert.deepStrictEqual(rest, { name: '小明', lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
   assert.strictEqual(B.me.profile.name, 'b壞/b名字超級');
   const forged = client(port, { id: A.me.id, token: 'x'.repeat(32) }); await forged.ready;
   assert.notStrictEqual(forged.me.id, A.me.id, 'a wrong token must not open someone else\'s account'); forged.ws.close();
@@ -106,6 +117,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.strictEqual(endA.win, true); assert.strictEqual(endA.stats.length, 4); assert.ok(endA.stats[2].dmg > 0);
   assert.strictEqual(endA.profile.runs, 1); assert.ok(endA.loot && endA.loot.il >= 14); assert.strictEqual(endA.profile.lvl, endA.onTime ? 2 : 1);
   assert.ok(Object.values(endA.profile.gear).some(v => v === endA.loot.il), 'the dropped item is on the account');
+  assert.ok(endA.xp >= 150 && endA.profile.cl >= 2, 'a clear gives experience');
   assert.ok(endA.mats.scrap >= 3 && endA.mats.salt >= 1); assert.strictEqual(endA.profile.inv.scrap, endA.mats.scrap); assert.strictEqual(endA.profile.inv.potion, 1, 'the potion that was drunk is gone');
   assert.deepStrictEqual(endA.mates.map(m => m.name), ['b壞/b名字超級']); assert.strictEqual(endA.mates[0].friend, false); assert.strictEqual(endA.again, 'TEST');
   assert.ok(JSON.stringify(A.last.s).length < 4000);
@@ -143,7 +155,9 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.strictEqual(q0.week.p['w-runs'], 1); assert.strictEqual(q0.side['s-party'], 1, 'clearing with another player counts'); assert.strictEqual(q0.side['s-classes'], 4);
   A.send({ t: 'claim', id: 'kick' }); let cl = await A.wait('claimed'); assert.strictEqual(cl.ok, false, 'only the current main quest can be claimed');
   const scrap0 = cl.profile.inv.scrap;
+  const lv0 = cl.profile.cl * 1e6 + cl.profile.xp;
   A.send({ t: 'claim', id: 'bell' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, true); assert.strictEqual(cl.profile.inv.scrap, scrap0 + 6); assert.strictEqual(cl.profile.q.main, 1);
+  assert.ok(cl.profile.cl * 1e6 + cl.profile.xp > lv0, 'quests give experience'); assert.match(cl.msg, /經驗 \+120/);
   A.send({ t: 'claim', id: 'bell' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, false, 'no double claim');
   A.send({ t: 'claim', id: 'w-runs' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, false); assert.match(cl.msg, /還沒完成/);
   const pot0 = cl.profile.inv.potion;
@@ -157,13 +171,15 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   // field ledger: the device says what happened, the server decides what it was worth and how fast it may happen
   A.send({ t: 'fg', id: 1 }); let fy = await A.wait('fy'); assert.strictEqual(fy.ok, false, 'no field session yet');
   A.send({ t: 'field0' }); const herb0 = fy.profile.inv.herb;
-  A.send({ t: 'fg', id: 1 }); fy = await A.wait('fy'); assert.strictEqual(fy.ok, true); assert.ok(fy.mats.herb >= 1); assert.strictEqual(fy.profile.inv.herb, herb0 + fy.mats.herb); assert.strictEqual(fy.profile.q.side['s-gather'], 1);
+  A.send({ t: 'fg', id: 1 }); fy = await A.wait('fy'); assert.strictEqual(fy.ok, true); assert.ok(fy.mats.herb >= 1); assert.strictEqual(fy.profile.inv.herb, herb0 + fy.mats.herb); assert.strictEqual(fy.profile.q.side['s-gather'], 1); assert.strictEqual(fy.xp, 5);
   A.send({ t: 'fg', id: 1 }); fy = await A.wait('fy'); assert.strictEqual(fy.ok, false, 'the same node has not regrown');
   A.send({ t: 'fg', id: 7 }); fy = await A.wait('fy'); assert.strictEqual(fy.ok, false, 'two gathers cannot be faster than the gathering time');
   A.send({ t: 'fg', id: 999 }); fy = await A.wait('fy'); assert.strictEqual(fy.ok, false);
-  let paid = 0; for (let i = 0; i < 9; i++) { A.send({ t: 'fk', kind: 'crab' }); if ((await A.wait('fy')).ok) paid++; }
+  A.send({ t: 'fk', kind: 'crab', pk: 3 }); assert.strictEqual((await A.wait('fy')).ok, false, 'pack 3 is not crabs'); A.send({ t: 'fk', kind: 'crab' }); assert.strictEqual((await A.wait('fy')).ok, false, 'a kill must name its pack');
+  let paid = 0, kx = 0; for (let i = 0; i < 9; i++) { A.send({ t: 'fk', kind: 'crab', pk: 0 }); const y = await A.wait('fy'); if (y.ok) { paid++; kx = y.xp; } }
+  assert.ok(kx >= 10 && kx <= 20, 'kill experience is worked out by the server: ' + kx);
   assert.strictEqual(paid, 6, 'kills are paid at a limited rate');
-  for (const kind of ['boss', 'grunt', '__proto__', 'constructor', 7]) { A.send({ t: 'fk', kind }); assert.strictEqual((await A.wait('fy')).ok, false, String(kind)); }
+  for (const kind of ['boss', 'grunt', '__proto__', 'constructor', 7]) { A.send({ t: 'fk', kind, pk: 0 }); assert.strictEqual((await A.wait('fy')).ok, false, String(kind)); }
   assert.strictEqual(A.last.fy.profile.q.side['s-hunt'], 6);
   ok('field: gathers and kills are rewarded by the server, within regrow time and a kill rate, for field creatures only');
 
