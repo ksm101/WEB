@@ -135,7 +135,7 @@ const FIELD = {
   gate: { x: 450, y: 120, r: 46 },
   events: [{ x: 450, y: 790, r: 115 }, { x: 620, y: 430, r: 115 }],             // where the tide surge can come ashore
   npcs: [{ id: 'kol', x: 385, y: 1285 }, { id: 'mira', x: 512, y: 1280 }, { id: 'jin', x: 540, y: 1372 }, { id: 'wu', x: 372, y: 1378 }],
-  stalls: [{ id: 'shop', name: '老錨', title: '商人', x: 318, y: 1318 }],      // people at the camp who run a service rather than a story
+  stalls: [{ id: 'shop', name: '老錨', title: '商人', x: 318, y: 1318 }, { id: 'ah', name: '秤婆', title: '拍賣', x: 585, y: 1318 }, { id: 'mail', name: '信箱', title: '寄信收信', x: 450, y: 1235 }],      // people at the camp who run a service rather than a story
   path: [[450, 1320], [430, 1100], [520, 860], [400, 620], [470, 380], [450, 170]],
   rocks: [{ x: 250, y: 1150, r: 34 }, { x: 650, y: 1010, r: 40 }, { x: 330, y: 900, r: 30 }, { x: 690, y: 740, r: 36 }, { x: 220, y: 660, r: 38 },
     { x: 590, y: 510, r: 32 }, { x: 300, y: 390, r: 34 }, { x: 660, y: 310, r: 38 }, { x: 150, y: 930, r: 26 }, { x: 770, y: 560, r: 28 }],

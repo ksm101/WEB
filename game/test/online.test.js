@@ -33,7 +33,7 @@ function client(port, cred) {
 // sign in and create one character of the given class
 const named = async (port, name, cls) => { const c = client(port), first = await c.ready; c.send({ t: 'char-new', name, cls: cls || 'dps' }); await c.wait('me', m => m !== first); return c; };
 const get = (port, p) => new Promise((res, rej) => http.get({ host: '127.0.0.1', port, path: p }, r => { let b = ''; r.on('data', d => b += d); r.on('end', () => res({ status: r.statusCode, body: b })); }).on('error', rej));
-const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lobbyWait: 600, debug: true, soloMin: .2, eventPeriod: 1e13, eventDur: 0, backupEvery: 300, lootWait: 1500 }, o)); await new Promise(r => s.server.on('listening', r)); return s; };
+const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lobbyWait: 600, debug: true, soloMin: .2, eventPeriod: 1e13, eventDur: 0, backupEvery: 300, lootWait: 1500, auctionSweep: 150 }, o)); await new Promise(r => s.server.on('listening', r)); return s; };
 
 (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'embertide-'));
@@ -363,6 +363,46 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   const l2 = await P.wait('loot', m => m.i === 1, 4000); assert.ok(l2.win === 0 || l2.win === 1, 'what the leader leaves undecided is rolled for when the time runs out'); assert.strictEqual(l2.rolls.length, 2);
   await sleep(100); assert.strictEqual(srv.loots.size, 0); P.ws.close(); Q.ws.close();
   ok('gear: sets, bag and selling follow the rules; a leader can hand out the drops, and leftovers are rolled for');
+
+  // mail between friends, and the auction house
+  { const M1 = await named(port, '寄信人', 'dps'), M2 = await named(port, '收信人', 'heal'), c1 = srv.store.get(M1.me.id).chars[0], c2 = srv.store.get(M2.me.id).chars[0];
+    const act = async (c, o, what) => { const before = c.last.ack; c.send(o); return c.wait('ack', m => m !== before && m.what === what); };
+    Object.assign(c1, { coin: 200 }); c1.inv.scrap = 10; c1.bag = [{ s: 'w', il: 30, q: 1, n: '霧燈之芯' }];
+    let r = await act(M1, { t: 'mail-send', to: M2.me.id, text: 'hi' }, 'mail'); assert.strictEqual(r.ok, false, 'letters only go to friends'); assert.match(r.msg, /好友/);
+    M1.send({ t: 'friend', id: M2.me.id }); await M1.wait('social'); M2.send({ t: 'friend', id: M1.me.id }); await M2.wait('social', m => m.friends.some(f => f.mutual));
+    r = await act(M1, { t: 'mail-send', to: M2.me.id, text: '' }, 'mail'); assert.strictEqual(r.ok, false, 'an empty letter is refused');
+    r = await act(M1, { t: 'mail-send', to: M2.me.id, text: 'x', coin: 999 }, 'mail'); assert.strictEqual(r.ok, false); assert.match(r.msg, /鐘幣不夠/);
+    r = await act(M1, { t: 'mail-send', to: M2.me.id, text: 'x', key: 'scrap', qty: 99 }, 'mail'); assert.strictEqual(r.ok, false);
+    r = await act(M1, { t: 'mail-send', to: M2.me.id, text: 'x', item: 5 }, 'mail'); assert.strictEqual(r.ok, false);
+    r = await act(M1, { t: 'mail-send', to: M2.me.id, text: '<b>給你</b>' + '長'.repeat(200), coin: 50, key: 'scrap', qty: 4, item: 0 }, 'mail');
+    assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.coin, 145, 'coins sent plus postage leave the sender'); assert.strictEqual(r.profile.inv.scrap, 6); assert.strictEqual(r.profile.bag.length, 0);
+    let box = await M2.wait('mail', m => m.list.length === 1); const L = box.list[0];
+    assert.strictEqual(L.from, '寄信人'); assert.ok(!/[<>]/.test(L.text) && L.text.length <= 80); assert.strictEqual(L.read, 0); assert.deepStrictEqual([L.coin, L.key, L.qty, L.item.n], [50, 'scrap', 4, '霧燈之芯']);
+    M2.send({ t: 'mail-del', id: L.id }); await M2.wait('note', m => /先領出來/.test(m.msg));
+    r = await act(M2, { t: 'mail-take', id: L.id }, 'mail'); assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.coin, 50); assert.strictEqual(r.profile.inv.scrap, 4); assert.strictEqual(r.profile.bag[0].n, '霧燈之芯');
+    r = await act(M2, { t: 'mail-take', id: L.id }, 'mail'); assert.strictEqual(r.profile.coin, 50, 'a letter pays out once');
+    M2.send({ t: 'mail-del', id: L.id }); box = await M2.wait('mail', m => m.list.length === 0);
+    ok('mail: friends only, postage and attachments leave the sender, the letter pays out once, text is cleaned');
+
+    r = await act(M2, { t: 'ah', op: 'sell', item: 0, price: 0 }, 'ah'); assert.strictEqual(r.ok, false); r = await act(M2, { t: 'ah', op: 'sell', item: 3, price: 10 }, 'ah'); assert.strictEqual(r.ok, false);
+    r = await act(M2, { t: 'ah', op: 'sell', item: 0, price: 120 }, 'ah'); assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.bag.length, 0, 'listed goods leave the bag');
+    let ah = await M2.wait('ah', m => m.list.length === 1); const lid = ah.list[0].id; assert.strictEqual(ah.list[0].mine, true); assert.strictEqual(ah.list[0].item.n, '霧燈之芯'); assert.strictEqual(ah.list[0].name, '收信人');
+    r = await act(M2, { t: 'ah', op: 'buy', id: lid }, 'ah'); assert.strictEqual(r.ok, false, 'you cannot buy your own listing');
+    M1.send({ t: 'ah', op: 'list' }); ah = await M1.wait('ah', m => m.list.length === 1); assert.strictEqual(ah.list[0].mine, false);
+    M1.send({ t: 'ah', op: 'cancel', id: lid }); await sleep(80); assert.strictEqual(srv.market.size, 1, 'only the seller can take a listing down');
+    r = await act(M1, { t: 'ah', op: 'buy', id: lid }, 'ah'); assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.coin, 25); assert.strictEqual(r.profile.bag[0].n, '霧燈之芯'); assert.strictEqual(srv.market.size, 0);
+    r = await act(M1, { t: 'ah', op: 'buy', id: lid }, 'ah'); assert.strictEqual(r.ok, false, 'a thing sells once');
+    box = await M2.wait('mail', m => m.list.length === 1 && m.list[0].sys === 1); assert.strictEqual(box.list[0].coin, 114, 'the seller is paid by mail, less 5%');
+    r = await act(M2, { t: 'mail-take', id: box.list[0].id }, 'mail'); assert.strictEqual(r.profile.coin, 164);
+    r = await act(M1, { t: 'ah', op: 'sell', key: 'scrap', qty: 4, price: 9 }, 'ah'); assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.inv.scrap, 2);
+    ah = await M1.wait('ah', m => m.list.length === 1 && m.list[0].key === 'scrap'); r = await act(M1, { t: 'ah', op: 'cancel', id: ah.list[0].id }, 'ah'); assert.strictEqual(r.ok, true);
+    box = await M1.wait('mail', m => m.list.some(x => x.key === 'scrap' && x.qty === 4)); r = await act(M1, { t: 'mail-take', id: box.list[0].id }, 'mail'); assert.strictEqual(r.profile.inv.scrap, 6, 'a cancelled listing comes back by mail');
+    r = await act(M1, { t: 'ah', op: 'sell', key: 'scrap', qty: 2, price: 5 }, 'ah'); for (const v of srv.market.values()) v.l.ends = 1;
+    box = await M1.wait('mail', m => m.list.some(x => x.key === 'scrap' && x.qty === 2 && /沒有賣出/.test(x.text)), 3000); assert.strictEqual(srv.market.size, 0, 'an unsold listing expires and comes back');
+    const bk = srv.store.pack(srv.store.get(M1.me.id)); assert.ok(bk.length < 48000);
+    M1.ws.close(); M2.ws.close();
+    ok('auction house: listing takes the goods, buying pays the seller by mail less the cut, cancel and expiry return them');
+  }
 
   // public matchmaking
   const D = await named(port, 'D', 'tank'), E = await named(port, 'E', 'dps'), F = await named(port, 'F', 'tank');

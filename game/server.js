@@ -14,7 +14,10 @@ const { createStore } = require('./store.js');
 const TICK = 1 / 30;            // simulation step
 const SNAP_EVERY = 2;           // snapshot every 2 steps = 15 per second
 const MAX_ROOMS = 200, MAX_FRIENDS = 50;
-const NEEDS_CHAR = ['join', 'name', 'loadout', 'claim', 'craft', 'solo0', 'solo1', 'field0', 'fg', 'fk', 'talent', 'talent-reset', 'shop', 'item'];
+/* Mail and the auction house. Mail belongs to the account; what is attached comes from, and goes to, the character in use. */
+const MAIL_CAP = 30, MAIL_FEE = 5, MAIL_TEXT = 80;
+const AH_MAX = 8, AH_CUT = .05, AH_HOURS = 24, AH_SHOW = 80, AH_PRICE = 999999;
+const NEEDS_CHAR = ['join', 'name', 'loadout', 'claim', 'craft', 'solo0', 'solo1', 'field0', 'fg', 'fk', 'talent', 'talent-reset', 'shop', 'item', 'mail-send', 'mail-take', 'ah'];
 const SEATS = Sim.ROSTER;       // tank, heal, dps, dps
 const FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
@@ -26,6 +29,7 @@ const FILES = {
 const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : a; };
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';
 const cleanCode = s => typeof s === 'string' ? s.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) : '';
+const cleanText = s => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, ' ').trim().slice(0, MAIL_TEXT) : '';
 const cleanId = s => typeof s === 'string' && /^[a-f0-9]{16}$/.test(s) ? s : '';
 /* An account holds up to MAX_CHARS characters. Everything a player progresses (class, level, gear, bag, quests,
  * skills) belongs to a character; friends belong to the account. rec.name mirrors the name of the character in use. */
@@ -37,7 +41,13 @@ const rosterOf = r => r.chars.map(c => ({ name: c.name, cls: c.cls, cl: c.cl, lv
 const charName = s => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '';
 const newChar = (name, cls) => Sim.fixProfile(Object.assign({ name, cls, made: Date.now() }, Sim.newProfile()));
 
-function freshRecord(id) { return { id, name: '旅人', friends: {}, ignored: [], recent: [], created: Date.now(), chars: [], cur: -1 }; }
+function freshRecord(id) { return { id, name: '旅人', friends: {}, ignored: [], recent: [], created: Date.now(), chars: [], cur: -1, mail: [], mailN: 0, auctions: [], aucN: 0 }; }
+/* what a letter or a listing carries: coins, one stack of a material, one piece of gear; anything else is dropped */
+function normGoods(b) {
+  const o = { coin: clampInt(b.coin, 0, 9999999), key: '', qty: 0, item: Sim.fixItem(b.item) };
+  if (typeof b.key === 'string' && Object.prototype.hasOwnProperty.call(Sim.MATS, b.key) && clampInt(b.qty, 0, 9999) > 0) { o.key = b.key; o.qty = clampInt(b.qty, 1, 9999); }
+  return o;
+}
 /* Rebuild a character from a backup or an older file, keeping only fields of the expected shape. */
 function normChar(b) {
   const g = b.gear || {}, v = b.inv || {};
@@ -48,7 +58,9 @@ function normChar(b) {
   return Sim.fixProfile(c);
 }
 function normalize(b) {
-  const rec = { id: b.id, name: cleanName(b.name), friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15), chars: [], cur: -1 };
+  const rec = { id: b.id, name: cleanName(b.name), friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15), chars: [], cur: -1, mail: [], mailN: clampInt(b.mailN, 0, 1e9), auctions: [], aucN: clampInt(b.aucN, 0, 1e9) };
+  if (Array.isArray(b.mail)) for (const m of b.mail.slice(0, MAIL_CAP * 2)) if (m && typeof m === 'object') rec.mail.push(Object.assign(normGoods(m), { id: clampInt(m.id, 0, 1e9), from: cleanName(m.from), sys: m.sys ? 1 : 0, at: clampInt(m.at, 0, 9e15), text: cleanText(m.text), read: m.read ? 1 : 0 }));
+  if (Array.isArray(b.auctions)) for (const a of b.auctions.slice(0, AH_MAX)) if (a && typeof a === 'object') { const g = normGoods(a); if (g.item || g.key) rec.auctions.push({ n: clampInt(a.n, 0, 1e9), item: g.item, key: g.item ? '' : g.key, qty: g.item ? 0 : g.qty, price: clampInt(a.price, 1, AH_PRICE), ends: clampInt(a.ends, 0, 9e15) }); }
   const src = Array.isArray(b.chars) ? b.chars : b.gear ? [b] : [];        // a record from before characters existed becomes one character
   for (const c of src.slice(0, MAX_CHARS)) if (c && typeof c === 'object') rec.chars.push(normChar(c));
   if (rec.chars.length) { rec.cur = clampInt(b.cur, 0, rec.chars.length - 1); rec.name = pc(rec).name; }
@@ -73,9 +85,14 @@ function start(opts) {
   const online = new Map();                            // account id -> socket
   const wanted = new Map();                            // account id -> ids of accounts that added it as a friend
   const loots = new Map();                             // id -> gear a group is still dividing after a run
+  const market = new Map();                            // listing id -> { sid, l }: everything on the auction house, kept in the sellers' accounts
   let publicN = 0, lootN = 0;
 
-  const index = rec => { for (const id of Object.keys(rec.friends)) { if (!wanted.has(id)) wanted.set(id, new Set()); wanted.get(id).add(rec.id); } };
+  const index = rec => {
+    for (const id of Object.keys(rec.friends)) { if (!wanted.has(id)) wanted.set(id, new Set()); wanted.get(id).add(rec.id); }
+    for (const [k, v] of market) if (v.sid === rec.id) market.delete(k);
+    for (const l of rec.auctions) market.set(rec.id + '-' + l.n, { sid: rec.id, l });
+  };
   for (const old of Array.from(store.all())) { const rec = normalize(old); store.put(rec); index(rec); }      // also brings older files up to date
 
   const server = http.createServer((req, res) => {
@@ -103,7 +120,7 @@ function start(opts) {
   const humans = room => room.slots.filter(Boolean);
   /* gear or talents changed while standing in a field the server runs: the body there follows */
   const refit = ws => { const info = ws && ws.info, room = info && info.room, c = ws && ws.acc && pc(ws.acc); if (!room || room.kind !== 'field' || !c) return; Sim.refit(room.G.actors[info.idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls)); fieldRoster(room); };
-  const sendMe = (ws, extra) => { const r = ws.acc; send(ws, Object.assign({ t: 'me', id: r.id, token: store.token(r.id), bk: store.pack(r), profile: profileOf(r), chars: rosterOf(r), cur: r.cur, ev: { now: Date.now(), period: evPeriod, dur: evDur } }, extra)); };
+  const sendMe = (ws, extra) => { const r = ws.acc; send(ws, Object.assign({ t: 'me', id: r.id, token: store.token(r.id), bk: store.pack(r), profile: profileOf(r), chars: rosterOf(r), cur: r.cur, unread: r.mail.filter(x => !x.read).length, ev: { now: Date.now(), period: evPeriod, dur: evDur } }, extra)); };
 
   /* ---------- accounts ---------- */
   function onHello(ws, m) {
@@ -164,6 +181,89 @@ function start(opts) {
     if (stateOf(id) === 'run') return send(ws, { t: 'note', msg: `${o.name} 正在打副本。` });
     send(tws, { t: 'invited', from: { id: rec.id, name: rec.name }, code: room.code, field: afield });
     send(ws, { t: 'note', msg: `已邀請 ${o.name}。` });
+  }
+
+  /* ---------- mail ----------
+   * A letter goes to a friend (both sides must have added each other) and can carry coins, one stack of a material
+   * and one piece of gear. The auction house also writes: what you earned, and what came back unsold. */
+  const sendMail = ws => send(ws, { t: 'mail', list: ws.acc.mail, fee: MAIL_FEE, cap: MAIL_CAP });
+  function post(rec, m) {
+    rec.mailN++; rec.mail.unshift(Object.assign({ id: rec.mailN, from: '', sys: 0, at: Date.now(), text: '', read: 0, coin: 0, key: '', qty: 0, item: null }, m)); store.put(rec);
+    const ws = online.get(rec.id); if (ws) { sendMail(ws); send(ws, { t: 'note', msg: m.sys ? `${m.from}寄了東西給你，在信箱裡。` : `${m.from} 寄了一封信給你。` }); later(ws); }
+  }
+  const goodsText = g => g.item ? Sim.itemText(g.item) : `${Sim.MATS[g.key]} ×${g.qty}`;
+  function onMail(ws, m) {
+    const rec = ws.acc, c = pc(rec), now = Date.now(), no = msg => ack(ws, 'mail', { ok: false, msg });
+    if (m.t === 'mail') return sendMail(ws);
+    const letter = Number.isInteger(m.id) ? rec.mail.find(x => x.id === m.id) : null;
+    if (m.t === 'mail-read') { if (letter && !letter.read) { letter.read = 1; store.put(rec); sendMail(ws); } return; }
+    if (m.t === 'mail-del') {
+      if (!letter) return; if (letter.coin || letter.key || letter.item) return send(ws, { t: 'note', msg: '信裡還有東西，先領出來再刪。' });
+      rec.mail = rec.mail.filter(x => x !== letter); store.put(rec); later(ws); return sendMail(ws);
+    }
+    if (m.t === 'mail-take') {
+      if (!letter) return no('沒有這封信。');
+      if (letter.item && c.bag.length >= Sim.BAG_CAP) return no('背包滿了，先清出一格再領。');
+      if (letter.coin) Sim.addCoin(c, letter.coin); if (letter.key) Sim.grant(c, { [letter.key]: letter.qty }); if (letter.item) c.bag.push(letter.item);
+      letter.coin = 0; letter.key = ''; letter.qty = 0; letter.item = null; letter.read = 1;
+      ack(ws, 'mail', { ok: true, msg: '信裡的東西領到了。' }); return sendMail(ws);
+    }
+    // mail-send
+    const to = cleanId(m.to), o = to && to !== rec.id ? store.get(to) : null, text = cleanText(m.text), g = normGoods({ coin: m.coin, key: m.key, qty: m.qty });
+    const bi = Number.isInteger(m.item) ? m.item : -1, item = bi >= 0 ? c.bag[bi] : null;
+    if (now - (ws.lastMail || 0) < 1500) return no('寄太快了，等一下再寄。');
+    if (!o || !o.friends[rec.id] || !rec.friends[to]) return no('只能寄給互相加了好友的人。');
+    if (!text && !g.coin && !g.key && !item) return no('信裡要寫點什麼，或放點東西。');
+    if (bi >= 0 && !item) return no('背包裡沒有這件裝備。');
+    if (c.coin < g.coin + MAIL_FEE) return no(`鐘幣不夠：郵資 ${MAIL_FEE}，加上要寄的 ${g.coin}，你只有 ${c.coin}。`);
+    if (g.key && c.inv[g.key] < g.qty) return no(`你沒有那麼多${Sim.MATS[g.key]}。`);
+    if (o.mail.length >= MAIL_CAP) return no(`${o.name} 的信箱滿了。`);
+    ws.lastMail = now; c.coin -= g.coin + MAIL_FEE; if (g.key) c.inv[g.key] -= g.qty; if (item) c.bag.splice(bi, 1);
+    post(o, { from: c.name, text, coin: g.coin, key: g.key, qty: g.qty, item: item || null });
+    ack(ws, 'mail', { ok: true, msg: `寄給 ${o.name} 了，郵資 ${MAIL_FEE} 鐘幣。` });
+  }
+
+  /* ---------- the auction house ----------
+   * Buy-now only: a seller names a price, the first buyer who pays it gets the goods. The goods leave the seller's bag
+   * when listed. A sale pays the seller by mail, less a cut; what does not sell in time comes back by mail. */
+  const ahList = ws => {
+    const now = Date.now(), list = [];
+    for (const [id, v] of market) { const o = store.get(v.sid); list.push({ id, name: o ? o.name : '', item: v.l.item, key: v.l.key, qty: v.l.qty, price: v.l.price, left: Math.max(0, v.l.ends - now), mine: v.sid === ws.acc.id }); }
+    list.sort((a, b) => (b.mine - a.mine) || (b.left - a.left));
+    send(ws, { t: 'ah', list: list.slice(0, AH_SHOW), cut: AH_CUT, max: AH_MAX, hours: AH_HOURS });
+  };
+  function unlist(id) { const v = market.get(id), o = v && store.get(v.sid); market.delete(id); if (!o) return null; o.auctions = o.auctions.filter(x => x !== v.l); store.put(o); return o; }
+  function onAuction(ws, m) {
+    const rec = ws.acc, c = pc(rec), now = Date.now(), no = msg => ack(ws, 'ah', { ok: false, msg });
+    if (m.op === 'list') return ahList(ws);
+    if (m.op === 'sell') {
+      const price = m.price, bi = Number.isInteger(m.item) ? m.item : -1, g = normGoods({ key: m.key, qty: m.qty });
+      if (!Number.isInteger(price) || price < 1 || price > AH_PRICE) return no(`價格要在 1 到 ${AH_PRICE} 之間。`);
+      if (rec.auctions.length >= AH_MAX) return no(`一次最多上架 ${AH_MAX} 樣。`);
+      const l = { n: ++rec.aucN, item: null, key: '', qty: 0, price, ends: now + AH_HOURS * 3600000 };
+      if (bi >= 0) { if (!c.bag[bi]) return no('背包裡沒有這件裝備。'); l.item = c.bag.splice(bi, 1)[0]; }
+      else if (g.key) { if (c.inv[g.key] < g.qty) return no(`你沒有那麼多${Sim.MATS[g.key]}。`); c.inv[g.key] -= g.qty; l.key = g.key; l.qty = g.qty; }
+      else return no('選一件裝備或一種材料來賣。');
+      rec.auctions.push(l); market.set(rec.id + '-' + l.n, { sid: rec.id, l });
+      ack(ws, 'ah', { ok: true, msg: `${goodsText(l)}上架了，標價 ${price} 鐘幣，${AH_HOURS} 小時內有效。` }); return ahList(ws);
+    }
+    const id = typeof m.id === 'string' ? m.id : '', v = market.get(id); if (!v) { no('這樣東西已經不在拍賣場了。'); return ahList(ws); }
+    if (m.op === 'cancel') {
+      if (v.sid !== rec.id) return; unlist(id); post(rec, { from: '拍賣場', sys: 1, text: '你下架的東西退回來了。', item: v.l.item, key: v.l.key, qty: v.l.qty });
+      ack(ws, 'ah', { ok: true, msg: '下架了，東西寄回你的信箱。' }); return ahList(ws);
+    }
+    if (m.op === 'buy') {
+      if (v.sid === rec.id) return no('不能買自己上架的東西。');
+      if (c.coin < v.l.price) return no(`鐘幣不夠，要 ${v.l.price}，你只有 ${c.coin}。`);
+      if (v.l.item && c.bag.length >= Sim.BAG_CAP) return no('背包滿了，先清出一格再買。');
+      const seller = unlist(id), cut = Math.max(1, Math.round(v.l.price * AH_CUT));
+      c.coin -= v.l.price; if (v.l.item) c.bag.push(v.l.item); else Sim.grant(c, { [v.l.key]: v.l.qty });
+      if (seller) post(seller, { from: '拍賣場', sys: 1, text: `${goodsText(v.l)}賣出了。成交 ${v.l.price}，手續費 ${cut}。`, coin: v.l.price - cut });
+      ack(ws, 'ah', { ok: true, msg: `買到${goodsText(v.l)}，花了 ${v.l.price} 鐘幣。${v.l.item ? '在背包裡。' : ''}` }); return ahList(ws);
+    }
+  }
+  function expireAuctions(now) {
+    for (const [id, v] of Array.from(market)) if (v.l.ends <= now) { const o = unlist(id); if (o) post(o, { from: '拍賣場', sys: 1, text: '時間到了沒有賣出，東西退回來了。', item: v.l.item, key: v.l.key, qty: v.l.qty }); }
   }
 
   /* ---------- rooms ---------- */
@@ -489,6 +589,8 @@ function start(opts) {
         case 'shop': return ack(ws, 'shop', m.op === 'sell' ? Sim.shopSell(pc(ws.acc), String(m.key), m.n) : Sim.shopBuy(pc(ws.acc), String(m.key), m.n));
         case 'item': { if (seats.has(ws.acc.id)) return send(ws, { t: 'note', msg: '副本裡不能換裝備。' }); return ack(ws, 'item', m.op === 'sell' ? Sim.sellItem(pc(ws.acc), m.i) : Sim.equipItem(pc(ws.acc), m.i)); }
         case 'roll': case 'assign': return onLoot(ws, m);
+        case 'mail': case 'mail-read': case 'mail-del': case 'mail-take': case 'mail-send': return onMail(ws, m);
+        case 'ah': return onAuction(ws, m);
         case 'field0': case 'fg': case 'fk': return onField(ws, m);
         case 'loadout': { const r = Sim.setLoadout(pc(ws.acc), pc(ws.acc).cls, m.skills); if (r.ok) store.put(ws.acc); return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'claim': { const r = Sim.questClaim(pc(ws.acc), String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
@@ -522,10 +624,11 @@ function start(opts) {
 
   const loop = setInterval(tick, 1000 / 30);
   const bkTimer = setInterval(flushBackups, opts.backupEvery || 8000);
+  const ahTimer = setInterval(() => expireAuctions(Date.now()), opts.auctionSweep || 15000);
   const beat = setInterval(() => { for (const ws of wss.clients) { if (!ws.isAlive) { ws.terminate(); continue; } ws.isAlive = false; ws.ping(); } }, 15000);
   server.listen(opts.port != null ? opts.port : (process.env.PORT || 8080), '0.0.0.0');
-  const close = () => new Promise(res => { clearInterval(loop); clearInterval(beat); clearInterval(bkTimer); store.flush(); for (const ws of wss.clients) ws.terminate(); wss.close(() => server.close(res)); });
-  return { server, rooms, seats, store, loots, close };
+  const close = () => new Promise(res => { clearInterval(loop); clearInterval(beat); clearInterval(bkTimer); clearInterval(ahTimer); store.flush(); for (const ws of wss.clients) ws.terminate(); wss.close(() => server.close(res)); });
+  return { server, rooms, seats, store, loots, market, close };
 }
 
 if (require.main === module) {

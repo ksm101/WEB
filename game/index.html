@@ -250,6 +250,18 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .items li.pile .acts{grid-column:1 / -1;max-width:none;justify-content:flex-start}
 .sets{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--mute);line-height:1.6}
 .sets b{color:var(--foam)} .sets .on{color:var(--brass)}
+.fields select{font:inherit;font-size:16px;color:var(--foam);background:var(--deep);border:1.5px solid var(--line);border-radius:8px;height:44px;padding:0 8px;min-width:0}
+.letters{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.letters li{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;background:var(--deep)}
+.letters li.new{border-color:var(--ember)}
+.letters .top{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--mute)}
+.letters .top b{font-size:15px;color:var(--foam)}
+.letters p{margin:0;font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.letters .has{font-size:12px;color:var(--brass)}
+.letters .acts{display:flex;gap:6px;justify-content:flex-end}
+#ah-body,#mail-body{display:flex;flex-direction:column;gap:12px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs .mini.on{border-color:var(--brass);color:var(--brass)}
 </style>
 
 <div id="app">
@@ -305,6 +317,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
         <button class="chip" id="quests-btn" type="button">任務<b id="q-badge" hidden></b></button>
         <button class="chip" id="bag-btn" type="button">背包</button>
         <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
+        <button class="chip" id="mail-btn" type="button" hidden>信箱<b id="mail-badge" hidden></b></button>
       </div>
       <div class="lvrow"><b id="m-cl">Lv.1</b><span class="xpbar"><i id="m-xpbar"></i></span><small id="m-xp"></small></div>
       <div class="run"><b>沉鐘塔</b><span id="m-lvl">第 1 層</span><small id="m-best"></small></div>
@@ -433,6 +446,25 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       </div>
       <p class="lore">「撿到什麼都能拿來換錢。要藥水、要草，我這裡有，就是貴一點。」</p>
       <div id="shop-body"></div>
+    </div>
+  </section>
+  <section id="mail" class="overlay top" hidden>
+    <div class="wrap">
+      <div class="head">
+        <div><p class="eyebrow">寄信和收信</p><h2>信箱</h2></div>
+        <button class="chip" id="mail-close" type="button">關閉</button>
+      </div>
+      <div id="mail-body"></div>
+    </div>
+  </section>
+  <section id="ah" class="overlay top" hidden>
+    <div class="wrap">
+      <div class="head">
+        <div><p class="eyebrow">營地的拍賣</p><h2>秤婆</h2></div>
+        <button class="chip" id="ah-close" type="button">關閉</button>
+      </div>
+      <p class="lore">「東西放我這，標個價。有人付錢我就寄給你，抽一點秤錢。」</p>
+      <div id="ah-body"></div>
     </div>
   </section>
   <section id="bag" class="overlay top" hidden>
@@ -728,7 +760,7 @@ function toCamp(msg) { $('#quests').hidden = true; if (!inField()) { chosen = sa
 function replayScene(id) { const sc = Story.SCENES[id]; if (!sc) return; $('#quests').hidden = true; if (inField()) say(sc.lines); else { chosen = save.cls; startField(() => say(sc.lines)); } }
 function doAct() {
   if (!inField() || talk.lines || gateOpen) return;
-  if (nearStall) return nearStall.id === 'shop' ? openShop() : null;
+  if (nearStall) return nearStall.id === 'shop' ? openShop() : nearStall.id === 'ah' ? openAh() : openMail();
   if (nearNpc) return talkTo(nearNpc.id);
   if (nearGate) { const on = online && net.authed, party = mode === 'online' && !!V.code; gateOpen = true; $('#gate-party').hidden = !party; $('#gate-online').hidden = !on; $('#gate-solo').className = on ? 'btn ghost' : 'btn'; $('#gatebox').hidden = false; }
 }
@@ -787,7 +819,7 @@ function onMsg(m) {
   switch (m.t) {
     case 'me':
     { const had = box.chars.length;
-      box.key.id = m.id; box.key.token = m.token; applyProfile(m, true); net.authed = true;
+      box.key.id = m.id; box.key.token = m.token; applyProfile(m, true); net.authed = true; if (Number.isInteger(m.unread)) { net.unread = m.unread; mailBadge(); }
       if (m.ev) net.ev = { off: m.ev.now - Date.now(), period: m.ev.period, dur: m.ev.dur };
       if (QUICK && !box.chars.length) send({ t: 'char-new', name: qs.get('qname') || '測試', cls: QUICK in CLASSES ? QUICK : 'dps' });
       if (m.resume === false && mode === 'online' && inField()) send({ t: 'join', field: true, room: V.code });      // reconnected: walk back into the party's field
@@ -824,9 +856,11 @@ function onMsg(m) {
     case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && inField() && Story.SCENES[id]) say(Story.SCENES[id].lines); break; }
     case 'fy': { const done = newlyDone(() => applyProfile(m)); if (inField() && m.ok) showYield(m.mats || {}, done, m.xp, m.coin, m.item); if (m.item && m.item.up) refitMe(); break; }
     case 'loot': onLoot(m); break;
+    case 'mail': net.mail = m; net.unread = m.list.filter(x => !x.read).length; mailBadge(); renderMail(); break;
+    case 'ah': net.ah = m; renderAh(); break;
     case 'bk': if (typeof m.bk === 'string') { box.key.bk = m.bk; writeSave(); } break;
-    case 'ack': applyProfile(m); toast(String(m.msg || ''), [], m.ok ? 2600 : 4000); refitMe(); renderTalents(); renderShop(); renderBag(); if (!$('#menu').hidden) renderMenu(); break;
-    case 'social': net.social = m; renderSocial(); break;
+    case 'ack': if (m.what === 'mail' && m.ok && mf.sent) { mf.text = ''; mf.coin = ''; mf.key = ''; mf.qty = '1'; mf.item = '-1'; } mf.sent = false; applyProfile(m); toast(String(m.msg || ''), [], m.ok ? 2600 : 4000); refitMe(); renderTalents(); renderShop(); renderBag(); renderMail(); renderAh(); if (!$('#menu').hidden) renderMenu(); break;
+    case 'social': net.social = m; renderSocial(); renderMail(); break;
     case 'note': toast(String(m.msg || ''), [], 3500); break;
     case 'invited':
       if (mode === 'online' && V && !inField() && !V.result) break;        // in the middle of a dungeon run: not now
@@ -1086,9 +1120,15 @@ function drawNode(n) {
   c.globalAlpha = 1;
   const g = V.me.gather; if (g && g.id === n.id) { c.strokeStyle = C.brass; c.lineWidth = 3; c.beginPath(); c.arc(x, y, 22, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(g.t / S.GATHER_TIME, 0, 1)); c.stroke(); }
 }
-const STALL_ACT = { shop: '和老錨交易' };
+const STALL_ACT = { shop: '和老錨交易', ah: '看秤婆的拍賣', mail: '打開信箱' };
 function drawStall(n) {
   const c = ctx, { x, y } = n; shadow(x, y, 14);
+  if (n.id === 'mail') {      // a post with a box on it
+    c.fillStyle = C.rust; c.strokeStyle = C.ink; c.lineWidth = 2; c.beginPath(); c.rect(x - 3, y - 4, 6, 18); c.fill(); c.stroke();
+    c.fillStyle = C.brass; c.beginPath(); c.rect(x - 12, y - 18, 24, 15); c.fill(); c.stroke(); c.beginPath(); c.moveTo(x - 12, y - 18); c.lineTo(x, y - 9); c.lineTo(x + 12, y - 18); c.stroke();
+    if (net.unread) { c.fillStyle = C.ember; c.beginPath(); c.arc(x + 13, y - 19, 5, 0, Math.PI * 2); c.fill(); c.stroke(); }
+    c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; c.strokeText(n.name, x, y - 26); c.fillStyle = C.brass; c.fillText(n.name, x, y - 26); return;
+  }
   c.fillStyle = C.brass; c.strokeStyle = C.ink; c.lineWidth = 2; c.beginPath(); c.rect(x - 12, y - 12, 24, 24); c.fill(); c.stroke();      // a crate of goods, and its keeper
   c.strokeStyle = C.ink; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x - 12, y); c.lineTo(x + 12, y); c.moveTo(x, y - 12); c.lineTo(x, y + 12); c.stroke();
   c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; const t = `${n.title}　${n.name}`; c.strokeText(t, x, y - 20); c.fillStyle = C.brass; c.fillText(t, x, y - 20);
@@ -1389,7 +1429,7 @@ function renderMenu(msg) {
   for (const s of S.loadoutOf(save, chosen).map(id => S.SKILLS[id])) { const li = el('li'); li.append(el('em', '', s.seal), el('b', '', s.name), el('span', '', s.desc + (s.ult ? '（集滿能量才能放）' : ''))); kit.appendChild(li); }
   const gear = $('#gear'); gear.textContent = '';
   for (const [k, v] of [['鐘幣', save.coin], ['裝等', avgIlvl()], ['武器', save.gear.w], ['護甲', save.gear.a], ['飾品', save.gear.t], ['通關次數', save.runs]]) { const sp = el('span', '', k + ' '); sp.append(el('b', '', v)); gear.appendChild(sp); }
-  $('#fields').hidden = !online; $('#go-online').hidden = !online; $('#friends-btn').hidden = !(online && net.authed);
+  $('#fields').hidden = !online; $('#go-online').hidden = !online; $('#friends-btn').hidden = !(online && net.authed); $('#mail-btn').hidden = !(online && net.authed); mailBadge();
   onlineLabel();
   const note = $('#note'); note.classList.toggle('warn', !!menuMsg);
   renderQuests(); $('#how').hidden = save.runs > 0;   // the how-to is for a first visit
@@ -1532,6 +1572,93 @@ function renderShop() {
   if (save.bag.length) { const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', '賣裝備'), ul);
     save.bag.forEach((it, i) => ul.appendChild(itemRow(it, `${S.SLOT_NAME[it.s]}・收 ${S.itemPrice(it)} 鐘幣`, [['賣掉', () => itemDo('sell', i), '', 'shop-item-' + i]])));
     body.appendChild(g); }
+}
+
+/* ---------- mail ----------
+ * Letters live on the server with the account. What is attached comes out of, and goes into, the character in use. */
+const mf = { to: '', text: '', coin: '', key: '', qty: '1', item: '-1', fresh: new Set() };
+const needServer = (body, what) => { body.appendChild(el('p', 'note', online ? `正在連線，${what}等一下就能用。` : `${what}需要連上伺服器。這個版本沒有伺服器。`)); };
+function mailBadge() { const b = $('#mail-badge'), n = net.unread || 0; b.hidden = !n; b.textContent = n; }
+function openMail() {
+  $('#mail').hidden = false; mf.fresh = new Set();
+  if (online && net.authed) { send({ t: 'mail' }); send({ t: 'social' }); }
+  renderMail();
+}
+const goodsLine = g => [g.coin ? `鐘幣 ${g.coin}` : '', g.key ? `${S.MATS[g.key]} ×${g.qty}` : '', g.item ? S.itemText(g.item) : ''].filter(Boolean).join('、');
+const ago = at => { const m = Math.max(0, Math.floor((Date.now() - at) / 60000)); return m < 1 ? '剛剛' : m < 60 ? `${m} 分鐘前` : m < 1440 ? `${Math.floor(m / 60)} 小時前` : `${Math.floor(m / 1440)} 天前`; };
+/* a labelled input or select that writes straight into a form object, so a redraw does not lose what was typed */
+function field(form, key, label, kind, opts) {
+  const lab = el('label', '', label), inp = document.createElement(kind === 'select' ? 'select' : 'input'); inp.id = `${form === mf ? 'mf' : 'af'}-${key}`;
+  if (kind === 'select') for (const [v, t] of opts) { const o = el('option', '', t); o.value = v; inp.appendChild(o); }
+  else { inp.type = kind === 'num' ? 'number' : 'text'; if (kind === 'num') { inp.inputMode = 'numeric'; inp.min = '0'; } else inp.maxLength = 80; inp.autocomplete = 'off'; inp.placeholder = opts || ''; }
+  inp.value = form[key]; if (kind === 'select' && (inp.selectedIndex < 0 || inp.value !== String(form[key]))) { inp.selectedIndex = 0; form[key] = inp.value; }      // what was chosen is gone: fall back to the first
+  inp.addEventListener(kind === 'select' ? 'change' : 'input', () => { form[key] = inp.value; });
+  lab.appendChild(inp); return lab;
+}
+function renderMail() {
+  if ($('#mail').hidden) return;
+  const body = $('#mail-body'); body.textContent = '';
+  if (!online || !net.authed) return needServer(body, '信箱');
+  const m = net.mail, list = m ? m.list : [];
+  for (const x of list) if (!x.read) { mf.fresh.add(x.id); send({ t: 'mail-read', id: x.id }); }      // opening the box reads them; they keep their mark until it is closed
+  const g = el('div', 'group'); g.appendChild(el('h3', '', `收到的信　${list.length}${m ? ' / ' + m.cap : ''}`));
+  if (!list.length) g.appendChild(el('p', 'note', m ? '信箱是空的。' : '讀取中。'));
+  else { const ul = el('ul', 'letters');
+    for (const x of list) {
+      const li = el('li', mf.fresh.has(x.id) ? 'new' : ''), top = el('div', 'top'), has = goodsLine(x), acts = el('div', 'acts');
+      top.append(el('b', '', x.from || '不明'), el('span', '', (mf.fresh.has(x.id) ? '新　' : '') + ago(x.at))); li.appendChild(top);
+      if (x.text) li.appendChild(el('p', '', x.text)); if (has) li.appendChild(el('span', 'has', '附：' + has));
+      const b = el('button', 'mini' + (has ? ' go' : ''), has ? '領取' : '刪除'); b.type = 'button'; b.id = `mail-${has ? 'take' : 'del'}-${x.id}`;
+      b.addEventListener('click', () => { b.disabled = true; send({ t: has ? 'mail-take' : 'mail-del', id: x.id }); }); acts.appendChild(b); li.appendChild(acts); ul.appendChild(li);
+    }
+    g.appendChild(ul); }
+  body.appendChild(g);
+  const w = el('div', 'group'), friends = net.social ? net.social.friends.filter(f => f.mutual) : []; w.appendChild(el('h3', '', '寄信'));
+  if (!friends.length) w.appendChild(el('p', 'note', '只能寄給互相加了好友的人。你還沒有這樣的好友。'));
+  else {
+    const one = el('div', 'fields one'), two = el('div', 'fields'), three = el('div', 'fields one');
+    one.append(field(mf, 'to', '寄給', 'select', friends.map(f => [f.id, f.name])), field(mf, 'text', '內容（最多 80 個字）', 'text', '寫點什麼'));
+    two.append(field(mf, 'coin', `附鐘幣（你有 ${save.coin}）`, 'num', '0'), field(mf, 'key', '附材料', 'select', [['', '不附']].concat(Object.keys(S.MATS).filter(k => save.inv[k] > 0).map(k => [k, `${S.MATS[k]}（有 ${save.inv[k]}）`]))), field(mf, 'qty', '材料數量', 'num', '1'),
+      field(mf, 'item', '附裝備', 'select', [['-1', '不附']].concat(save.bag.map((it, i) => [String(i), `${it.n} ${it.il}`]))));
+    const b = el('button', 'btn', '寄出'); b.type = 'button'; b.id = 'mail-send';
+    b.addEventListener('click', () => { b.disabled = true; setTimeout(() => { b.disabled = false; }, 1600);
+      send({ t: 'mail-send', to: mf.to, text: mf.text, coin: Math.max(0, parseInt(mf.coin, 10) || 0), key: mf.key, qty: Math.max(1, parseInt(mf.qty, 10) || 1), item: parseInt(mf.item, 10) }); mf.sent = true; });
+    three.appendChild(b); w.append(one, two, three, el('p', 'note', `郵資 ${m ? m.fee : 5} 鐘幣。附的東西從你現在這個角色身上拿，對方用他當時的角色領。`));
+  }
+  body.appendChild(w);
+}
+
+/* ---------- the auction house ---------- */
+const af = { tab: 'buy', filter: 'all', what: '', qty: '1', price: '' };
+function openAh() { $('#ah').hidden = false; if (online && net.authed) send({ t: 'ah', op: 'list' }); renderAh(); }
+function renderAh() {
+  if ($('#ah').hidden) return;
+  const body = $('#ah-body'); body.textContent = '';
+  if (!online || !net.authed) return needServer(body, '拍賣場');
+  const a = net.ah, all = a ? a.list : [], hrs = ms => ms >= 3600000 ? `剩 ${Math.round(ms / 3600000)} 小時` : `剩 ${Math.max(1, Math.ceil(ms / 60000))} 分鐘`;
+  const coin = el('div', 'coinline'); coin.append(el('span', '', '你的鐘幣'), el('b', '', save.coin)); body.appendChild(coin);
+  const tabs = el('div', 'tabs'); for (const [k, t] of [['buy', '買'], ['sell', '賣'], ['mine', `我上架的 ${all.filter(x => x.mine).length}`]]) { const b = el('button', 'mini' + (af.tab === k ? ' on' : ''), t); b.type = 'button'; b.id = 'ah-tab-' + k; b.addEventListener('click', () => { af.tab = k; renderAh(); }); tabs.appendChild(b); }
+  body.appendChild(tabs);
+  const row = (x, acts) => { const it = x.item || { s: '', il: x.qty, q: 0, n: S.MATS[x.key] }, li = itemRow(it, x.item ? `${S.SLOT_NAME[it.s]}・比身上的${it.il > save.gear[it.s] ? '高 ' + (it.il - save.gear[it.s]) : it.il < save.gear[it.s] ? '低 ' + (save.gear[it.s] - it.il) : '一樣'}` : '材料・數量', acts);
+    li.querySelector('.info').appendChild(el('small', 'q2', `${x.price} 鐘幣　${x.mine ? '' : x.name + '　'}${hrs(x.left)}`)); return li; };
+  if (af.tab === 'sell') {
+    const one = el('div', 'fields one'), two = el('div', 'fields'), opts = save.bag.map((it, i) => ['i' + i, `${it.n} ${it.il}${it.q ? '・' + S.QUALITY[it.q] : ''}`]).concat(Object.keys(S.MATS).filter(k => save.inv[k] > 0).map(k => ['m' + k, `${S.MATS[k]}（有 ${save.inv[k]}）`]));
+    if (!opts.length) body.appendChild(el('p', 'note', '你身上沒有可以賣的東西。穿著的要先換下來才能賣。'));
+    else {
+      one.append(field(af, 'what', '要賣的東西', 'select', opts)); two.append(field(af, 'qty', '數量（材料才要填）', 'num', '1'), field(af, 'price', '一口價（鐘幣）', 'num', '例如 100'));
+      const b = el('button', 'btn', '上架'), three = el('div', 'fields one'); b.type = 'button'; b.id = 'ah-sell';
+      b.addEventListener('click', () => { const price = parseInt(af.price, 10) || 0, isItem = af.what[0] === 'i'; b.disabled = true; setTimeout(() => { b.disabled = false; }, 1200);
+        send(isItem ? { t: 'ah', op: 'sell', item: parseInt(af.what.slice(1), 10), price } : { t: 'ah', op: 'sell', key: af.what.slice(1), qty: Math.max(1, parseInt(af.qty, 10) || 1), price }); });
+      three.appendChild(b); body.append(one, two, three, el('p', 'note', `只有一口價，沒有競標。賣出後抽 ${a ? Math.round(a.cut * 100) : 5}%，錢寄到信箱。${a ? a.hours : 24} 小時沒賣掉會退回信箱。一次最多上架 ${a ? a.max : 8} 樣。`));
+    }
+    return;
+  }
+  if (af.tab === 'buy') { const fl = el('div', 'tabs'); for (const [k, t] of [['all', '全部'], ['w', '武器'], ['a', '護甲'], ['t', '飾品'], ['m', '材料']]) { const b = el('button', 'mini' + (af.filter === k ? ' on' : ''), t); b.type = 'button'; b.addEventListener('click', () => { af.filter = k; renderAh(); }); fl.appendChild(b); } body.appendChild(fl); }
+  const list = af.tab === 'mine' ? all.filter(x => x.mine) : all.filter(x => !x.mine && (af.filter === 'all' || (af.filter === 'm' ? !x.item : x.item && x.item.s === af.filter))).sort((p, q) => p.price - q.price);
+  if (!list.length) return body.appendChild(el('p', 'note', !a ? '讀取中。' : af.tab === 'mine' ? '你沒有上架任何東西。' : '現在沒有人在賣這類東西。'));
+  const ul = el('ul', 'items');
+  for (const x of list) ul.appendChild(row(x, x.mine ? [['下架', () => send({ t: 'ah', op: 'cancel', id: x.id }), '', 'ah-cancel-' + x.id]] : [['買', () => send({ t: 'ah', op: 'buy', id: x.id }), save.coin >= x.price ? 'go' : '', 'ah-buy-' + x.id]]));
+  body.appendChild(ul);
 }
 
 /* ---------- skill loadout ---------- */
@@ -1783,6 +1910,9 @@ $('#lb-link').addEventListener('click', () => {
 });
 $('#lb-friends').addEventListener('click', openSocial);
 $('#friends-btn').addEventListener('click', openSocial);
+$('#mail-btn').addEventListener('click', openMail);
+$('#mail-close').addEventListener('click', () => { $('#mail').hidden = true; });
+$('#ah-close').addEventListener('click', () => { $('#ah').hidden = true; });
 $('#so-close').addEventListener('click', closeSocial);
 $('#bag-btn').addEventListener('click', openBag);
 $('#lo-open').addEventListener('click', openLoadout);
