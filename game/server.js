@@ -14,6 +14,7 @@ const { createStore } = require('./store.js');
 const TICK = 1 / 30;            // simulation step
 const SNAP_EVERY = 2;           // snapshot every 2 steps = 15 per second
 const MAX_ROOMS = 200, MAX_FRIENDS = 50;
+const NEEDS_CHAR = ['join', 'name', 'loadout', 'claim', 'craft', 'solo0', 'solo1', 'field0', 'fg', 'fk'];
 const SEATS = Sim.ROSTER;       // tank, heal, dps, dps
 const FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
@@ -26,19 +27,31 @@ const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinit
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';
 const cleanCode = s => typeof s === 'string' ? s.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) : '';
 const cleanId = s => typeof s === 'string' && /^[a-f0-9]{16}$/.test(s) ? s : '';
-const profileOf = r => ({ name: r.name, lvl: r.lvl, cl: r.cl, xp: r.xp, gear: r.gear, best: r.best, runs: r.runs, inv: r.inv, q: r.q, loadout: r.loadout });
+/* An account holds up to MAX_CHARS characters. Everything a player progresses (class, level, gear, bag, quests,
+ * skills) belongs to a character; friends belong to the account. rec.name mirrors the name of the character in use. */
+const MAX_CHARS = 4;
+const pc = r => r.chars[r.cur] || null;        // the character this account is playing
+const charProfile = c => ({ name: c.name, cls: c.cls, lvl: c.lvl, cl: c.cl, xp: c.xp, gear: c.gear, best: c.best, runs: c.runs, inv: c.inv, q: c.q, loadout: c.loadout });
+const profileOf = r => { const c = pc(r); return c ? charProfile(c) : null; };
+const rosterOf = r => r.chars.map(c => ({ name: c.name, cls: c.cls, cl: c.cl, lvl: c.lvl, ilvl: Sim.ilvlOf(c.gear) }));
+const charName = s => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '';
+const newChar = (name, cls) => Sim.fixProfile(Object.assign({ name, cls, made: Date.now() }, Sim.newProfile()));
 
-function freshRecord(id) {
-  return Sim.fixProfile(Object.assign({ id, name: '旅人' + Math.floor(10 + Math.random() * 90), friends: {}, ignored: [], recent: [], created: Date.now() }, Sim.newProfile()));
-}
-/* Rebuild a record from a backup or an older file, keeping only fields of the expected shape. */
-function normalize(b) {
+function freshRecord(id) { return { id, name: '旅人', friends: {}, ignored: [], recent: [], created: Date.now(), chars: [], cur: -1 }; }
+/* Rebuild a character from a backup or an older file, keeping only fields of the expected shape. */
+function normChar(b) {
   const g = b.gear || {}, v = b.inv || {};
-  const rec = { id: b.id, name: cleanName(b.name), lvl: clampInt(b.lvl, 1, 50), cl: clampInt(b.cl, 1, Sim.MAX_LEVEL), xp: clampInt(b.xp, 0, 1e9), gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) },
-    best: {}, runs: clampInt(b.runs, 0, 1e9), inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) },
-    q: b.q, loadout: b.loadout, friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15) };
-  Sim.fixProfile(rec);
-  if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const v = Number(b.best[k]); if (/^\d+$/.test(k) && Number.isFinite(v)) rec.best[k] = v; }
+  const c = { name: cleanName(b.name), cls: SEATS.includes(b.cls) ? b.cls : 'dps', made: clampInt(b.made, 0, 9e15), lvl: clampInt(b.lvl, 1, 50), cl: clampInt(b.cl, 1, Sim.MAX_LEVEL), xp: clampInt(b.xp, 0, 1e9),
+    gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) }, best: {}, runs: clampInt(b.runs, 0, 1e9),
+    inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) }, q: b.q, loadout: b.loadout };
+  if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const n = Number(b.best[k]); if (/^\d+$/.test(k) && Number.isFinite(n)) c.best[k] = n; }
+  return Sim.fixProfile(c);
+}
+function normalize(b) {
+  const rec = { id: b.id, name: cleanName(b.name), friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15), chars: [], cur: -1 };
+  const src = Array.isArray(b.chars) ? b.chars : b.gear ? [b] : [];        // a record from before characters existed becomes one character
+  for (const c of src.slice(0, MAX_CHARS)) if (c && typeof c === 'object') rec.chars.push(normChar(c));
+  if (rec.chars.length) { rec.cur = clampInt(b.cur, 0, rec.chars.length - 1); rec.name = pc(rec).name; }
   if (b.friends && typeof b.friends === 'object') for (const k of Object.keys(b.friends).slice(0, MAX_FRIENDS)) if (cleanId(k)) rec.friends[k] = cleanName(b.friends[k]);
   if (Array.isArray(b.ignored)) rec.ignored = b.ignored.filter(cleanId).slice(0, 50);
   if (Array.isArray(b.recent)) rec.recent = b.recent.filter(r => r && cleanId(r.id)).slice(0, 10).map(r => ({ id: r.id, name: cleanName(r.name), cls: SEATS.includes(r.cls) ? r.cls : 'dps', at: clampInt(r.at, 0, 9e15) }));
@@ -58,7 +71,7 @@ function start(opts) {
   let publicN = 0;
 
   const index = rec => { for (const id of Object.keys(rec.friends)) { if (!wanted.has(id)) wanted.set(id, new Set()); wanted.get(id).add(rec.id); } };
-  for (const rec of store.all()) { Sim.fixProfile(rec); index(rec); }
+  for (const old of Array.from(store.all())) { const rec = normalize(old); store.put(rec); index(rec); }      // also brings older files up to date
 
   const server = http.createServer((req, res) => {
     const url = req.url.split('?')[0];
@@ -77,7 +90,7 @@ function start(opts) {
 
   const send = (ws, o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
   const humans = room => room.slots.filter(Boolean);
-  const sendMe = (ws, extra) => { const r = ws.acc; send(ws, Object.assign({ t: 'me', id: r.id, token: store.token(r.id), bk: store.pack(r), profile: profileOf(r) }, extra)); };
+  const sendMe = (ws, extra) => { const r = ws.acc; send(ws, Object.assign({ t: 'me', id: r.id, token: store.token(r.id), bk: store.pack(r), profile: profileOf(r), chars: rosterOf(r), cur: r.cur }, extra)); };
 
   /* ---------- accounts ---------- */
   function onHello(ws, m) {
@@ -122,7 +135,7 @@ function start(opts) {
       if (!rec.friends[id] && Object.keys(rec.friends).length >= MAX_FRIENDS) return send(ws, { t: 'note', msg: `好友名單滿了（上限 ${MAX_FRIENDS} 人）。` });
       rec.friends[id] = (o || known).name; rec.ignored = rec.ignored.filter(x => x !== id); index(rec);
       const mutual = !!(o && o.friends[rec.id]), tws = online.get(id);
-      if (mutual) { Sim.questEvent(rec, { type: 'friend' }, Date.now()); Sim.questEvent(o, { type: 'friend' }, Date.now()); store.put(o); if (tws) sendMe(tws); }
+      if (mutual) { for (const c of [pc(rec), pc(o)]) if (c) Sim.questEvent(c, { type: 'friend' }, Date.now()); store.put(o); if (tws) sendMe(tws); }
       if (tws) { send(tws, { t: 'note', msg: mutual ? `你和 ${rec.name} 成為好友了。` : `${rec.name} 想加你為好友。`, social: true }); send(tws, socialOf(tws.acc)); }
     }
     store.put(rec); sendMe(ws); send(ws, socialOf(rec));
@@ -165,10 +178,10 @@ function start(opts) {
     unseat(ws);
   }
   function onJoin(ws, m) {
-    const rec = ws.acc;
+    const rec = ws.acc, c = pc(rec);
     if (seats.has(rec.id)) return;                       // already seated in a run
     leave(ws);
-    const cls = SEATS.includes(m.cls) ? m.cls : 'dps', code = cleanCode(m.room); let room = null, idx = -1;
+    const cls = c.cls, code = cleanCode(m.room); let room = null, idx = -1;      // the class is the character's, whatever the client says
     const freeSeat = r => r.slots.findIndex((s, k) => !s && SEATS[k] === cls);
     if (code) {
       room = rooms.get('p:' + code);
@@ -181,7 +194,7 @@ function start(opts) {
       if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('q:' + (++publicN), '', true); }
       idx = freeSeat(room);
     }
-    room.slots[idx] = { id: rec.id, name: rec.name, cls, lvl: rec.lvl, cl: rec.cl, pow: Sim.charPower(rec), potions: rec.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(rec, cls), ws, ready: false };   // level and power come from the account, never from the client
+    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: c.lvl, cl: c.cl, pow: Sim.charPower(c), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), ws, ready: false };   // level and power come from the account, never from the client
     ws.info = { room, idx };
     const now = Date.now();
     room.deadline = room.deadline ? Math.max(room.deadline, now + Math.min(3000, lobbyWait)) : now + lobbyWait;
@@ -222,10 +235,10 @@ function start(opts) {
     if (room.pub) do { again = 'R' + crypto.randomBytes(2).toString('hex').toUpperCase(); } while (rooms.has('p:' + again));
     const stats = G.actors.map(a => ({ dmg: Math.round(a.stats.dmg), heal: Math.round(a.stats.heal), kicks: a.stats.kicks, hits: a.stats.hits }));
     room.slots.forEach((s, i) => {
-      const rec = s && store.get(s.id); if (!rec) return;
-      const rw = Sim.applyResult(rec, G.lvl, r);
-      rec.inv.potion = Math.max(0, rec.inv.potion - G.actors[i].stats.pots);
-      Sim.questEvent(rec, { type: 'run', win: r.win, onTime: r.onTime, cls: s.cls, kicks: G.actors[i].stats.kicks, hits: G.actors[i].stats.hits, mates: hs.length - 1 }, now);
+      const rec = s && store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) return;     // the character that took the seat
+      const rw = Sim.applyResult(c, G.lvl, r);
+      c.inv.potion = Math.max(0, c.inv.potion - G.actors[i].stats.pots);
+      Sim.questEvent(c, { type: 'run', win: r.win, onTime: r.onTime, cls: s.cls, kicks: G.actors[i].stats.kicks, hits: G.actors[i].stats.hits, mates: hs.length - 1 }, now);
       for (const o of hs) if (o.id !== s.id) rec.recent = [{ id: o.id, name: o.name, cls: o.cls, at: now }].concat(rec.recent.filter(x => x.id !== o.id)).slice(0, 10);
       store.put(rec);
       send(s.ws, { t: 'end', win: r.win, onTime: r.onTime, time: Math.round(r.t * 10) / 10, lvl: G.lvl, stats, loot: rw.loot, mats: rw.mats, xp: rw.xp, again, profile: profileOf(rec), bk: store.pack(rec),
@@ -237,15 +250,15 @@ function start(opts) {
    * the claim is believable: the level is one this account has reached, and at least as much real time has
    * passed as the run says it took. */
   function onSolo(ws, m) {
-    const rec = ws.acc;
-    if (m.t === 'solo0') { ws.solo = { lvl: clampInt(m.lvl, 1, rec.lvl), cls: SEATS.includes(m.cls) ? m.cls : 'dps', at: Date.now() }; return; }
+    const rec = ws.acc, c = pc(rec);
+    if (m.t === 'solo0') { ws.solo = { lvl: clampInt(m.lvl, 1, c.lvl), cls: c.cls, at: Date.now() }; return; }
     const s = ws.solo; ws.solo = null; const time = Number(m.time), win = m.win === true;
     const ok = !!s && Number.isFinite(time) && time > 0 && time < 3600 && (Date.now() - s.at) / 1000 >= time * .9 && (!win || time >= soloMin);
     let rw = { loot: null, mats: null, xp: 0 };
-    if (s && m.pots > 0) rec.inv.potion = Math.max(0, rec.inv.potion - 1);   // a potion drunk in the run is gone either way
+    if (s && m.pots > 0) c.inv.potion = Math.max(0, c.inv.potion - 1);   // a potion drunk in the run is gone either way
     if (ok) {     // kicks and hits are the device's own count: fine for quests, not for anything worth cheating
-      rw = Sim.applyResult(rec, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time });
-      Sim.questEvent(rec, { type: 'run', win, onTime: win && time <= Sim.TIME_LIMIT, cls: s.cls, kicks: clampInt(m.kicks, 0, 50), hits: clampInt(m.hits, 0, 999), mates: 0 }, Date.now());
+      rw = Sim.applyResult(c, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time });
+      Sim.questEvent(c, { type: 'run', win, onTime: win && time <= Sim.TIME_LIMIT, cls: s.cls, kicks: clampInt(m.kicks, 0, 50), hits: clampInt(m.hits, 0, 999), mates: 0 }, Date.now());
     }
     if (s) store.put(rec);
     send(ws, { t: 'solo', ok, loot: rw.loot, mats: rw.mats, xp: rw.xp, profile: profileOf(rec), bk: store.pack(rec) });
@@ -255,19 +268,38 @@ function start(opts) {
    * a kill gives, and refuses claims that come faster than the game allows: a node cannot be picked again before
    * it regrows, gathers cannot outpace the gathering time, and kills are limited to a steady rate. */
   function onField(ws, m) {
-    const rec = ws.acc, now = Date.now();
+    const rec = ws.acc, c = pc(rec), now = Date.now();
     if (m.t === 'field0') { ws.field = { nodes: {}, lastG: 0, tokens: 6, at: now }; return; }
     const f = ws.field; let gain = null;
     if (f && m.t === 'fg') {
       const node = Sim.FIELD.nodes.find(n => n.id === m.id);
-      if (node && now - (f.nodes[node.id] || 0) >= Sim.NODE_RESPAWN * 900 && now - f.lastG >= Sim.GATHER_TIME * 900) { f.nodes[node.id] = now; f.lastG = now; gain = Sim.fieldGain(rec, 'gather', node.type); Sim.questEvent(rec, { type: 'gather' }, now); }
+      if (node && now - (f.nodes[node.id] || 0) >= Sim.NODE_RESPAWN * 900 && now - f.lastG >= Sim.GATHER_TIME * 900) { f.nodes[node.id] = now; f.lastG = now; gain = Sim.fieldGain(c, 'gather', node.type); Sim.questEvent(c, { type: 'gather' }, now); }
     } else if (f && m.t === 'fk') {
       f.tokens = Math.min(6, f.tokens + (now - f.at) / 2500); f.at = now;
       // the creature's level, and so its experience, is worked out here from the account's level and the pack it names
-      if (f.tokens >= 1 && typeof m.kind === 'string') { gain = Sim.fieldGain(rec, 'kill', m.kind, m.pk); if (gain) { f.tokens -= 1; Sim.questEvent(rec, { type: 'kill' }, now); } }
+      if (f.tokens >= 1 && typeof m.kind === 'string') { gain = Sim.fieldGain(c, 'kill', m.kind, m.pk); if (gain) { f.tokens -= 1; Sim.questEvent(c, { type: 'kill' }, now); } }
     }
     if (gain) store.put(rec);
     send(ws, { t: 'fy', ok: !!gain, mats: gain ? gain.mats : {}, xp: gain ? gain.xp : 0, profile: profileOf(rec), bk: store.pack(rec) });
+  }
+
+  /* Creating, choosing and deleting characters. Not while seated in a room: the seat belongs to one character. */
+  function onChar(ws, m) {
+    const rec = ws.acc, note = msg => send(ws, { t: 'note', msg });
+    if ((ws.info && ws.info.room) || seats.has(rec.id)) return note('先離開房間或副本，才能換角色。');
+    if (m.t === 'char-new') {
+      const name = charName(m.name);
+      if (rec.chars.length >= MAX_CHARS) return note(`最多只能有 ${MAX_CHARS} 個角色。`);
+      if (!name) return note('角色要有名字。');
+      if (!SEATS.includes(m.cls)) return note('沒有這個職業。');
+      rec.chars.push(newChar(name, m.cls)); rec.cur = rec.chars.length - 1;
+    } else {
+      const i = m.i; if (!Number.isInteger(i) || i < 0 || i >= rec.chars.length) return note('沒有這個角色。');
+      if (m.t === 'char-pick') rec.cur = i;
+      else { rec.chars.splice(i, 1); rec.cur = rec.chars.length ? Math.min(rec.cur > i ? rec.cur - 1 : rec.cur, rec.chars.length - 1) : -1; }
+    }
+    ws.solo = null; ws.field = null; if (pc(rec)) rec.name = pc(rec).name;
+    store.put(rec); sendMe(ws);
   }
 
   function tick() {
@@ -302,19 +334,21 @@ function start(opts) {
       if (m.t === 'p') return send(ws, { t: 'p', c: +m.c || 0 });
       if (m.t === 'hello') return onHello(ws, m);
       if (!ws.acc) return;                               // everything else needs an account
+      if (m.t === 'char-new' || m.t === 'char-pick' || m.t === 'char-del') return onChar(ws, m);
+      if (NEEDS_CHAR.includes(m.t) && !pc(ws.acc)) return send(ws, { t: 'err', msg: '先創建一個角色。' });
       switch (m.t) {
         case 'join': return onJoin(ws, m);
         case 'leave': return leave(ws);
-        case 'name': { const n = cleanName(m.name); if (n !== ws.acc.name) { ws.acc.name = n; store.put(ws.acc); } return sendMe(ws); }
+        case 'name': { const n = charName(m.name), c = pc(ws.acc); if (n && n !== c.name) { c.name = n; ws.acc.name = n; store.put(ws.acc); } return sendMe(ws); }
         case 'social': return send(ws, socialOf(ws.acc));
         case 'friend': return onFriend(ws, m);
         case 'ignore': { const id = cleanId(m.id); if (id && !ws.acc.ignored.includes(id)) { ws.acc.ignored = ws.acc.ignored.concat(id).slice(-50); store.put(ws.acc); } return send(ws, socialOf(ws.acc)); }
         case 'invite': return onInvite(ws, m);
         case 'solo0': case 'solo1': return onSolo(ws, m);
         case 'field0': case 'fg': case 'fk': return onField(ws, m);
-        case 'loadout': { const r = Sim.setLoadout(ws.acc, String(m.cls), m.skills); if (r.ok) store.put(ws.acc); return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
-        case 'claim': { const r = Sim.questClaim(ws.acc, String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
-        case 'craft': { const r = Sim.craft(ws.acc, String(m.id)); if (r.ok) { Sim.questEvent(ws.acc, { type: 'craft', kind: r.kind }, Date.now()); store.put(ws.acc); } return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
+        case 'loadout': { const r = Sim.setLoadout(pc(ws.acc), pc(ws.acc).cls, m.skills); if (r.ok) store.put(ws.acc); return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
+        case 'claim': { const r = Sim.questClaim(pc(ws.acc), String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
+        case 'craft': { const r = Sim.craft(pc(ws.acc), String(m.id)); if (r.ok) { Sim.questEvent(pc(ws.acc), { type: 'craft', kind: r.kind }, Date.now()); store.put(ws.acc); } return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
       }
       const info = ws.info; if (!info || !info.room) return;
       const room = info.room;

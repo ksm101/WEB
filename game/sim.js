@@ -757,7 +757,7 @@ const WEEK = [
 ];
 const SIDE = [
   { id: 's-party', title: '結伴', goal: '和至少一位其他玩家一起通關', need: 1, online: true, reward: { xp: 200, scrap: 10, potion: 1 }, upd: (v, ev) => isRun(ev) && ev.win && ev.mates > 0 ? 1 : v },
-  { id: 's-classes', title: '三種走法', goal: '用三個職業各通關一次', need: 3, reward: { xp: 400, shard: 2 }, upd: (v, ev) => isRun(ev) && ev.win ? v | (CLS_BIT[ev.cls] || 0) : v, have: bits },
+  { id: 's-level', title: '站穩腳步', goal: '升到 5 級', need: 5, reward: { shard: 2, potion: 1 }, upd: (v, ev, p) => p.cl, have: v => v },
   { id: 's-gather', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { xp: 150, scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
   { id: 's-hunt', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { xp: 200, salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
   { id: 's-friend', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { xp: 100, salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
@@ -783,7 +783,7 @@ function questList(p, now, online) {
   for (const d of WEEK) { const have = q.week.p[d.id] || 0, claimed = !!q.week.c[d.id]; items.push({ id: d.id, group: 'week', title: d.title, goal: d.goal, have: claimed ? d.need : have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) }); }
   for (const d of SIDE) {
     if (d.online && !online) continue;
-    const v = q.side[d.id] || 0, claimed = v === -1, have = claimed ? d.need : Math.min(d.need, d.have ? d.have(v) : v);
+    const v = d.id === 's-level' && q.side[d.id] !== -1 ? p.cl : q.side[d.id] || 0, claimed = v === -1, have = claimed ? d.need : Math.min(d.need, d.have ? d.have(v) : v);
     items.push({ id: d.id, group: 'side', title: d.title, goal: d.goal, have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) });
   }
   return { items, mainDone: q.main, mainTotal: MAIN.length };
@@ -794,7 +794,7 @@ function questEvent(p, ev, now) {
   if (isRun(ev)) { ev.kicks = qInt(ev.kicks, 0, 50); ev.hits = qInt(ev.hits, 0, 999); }
   if (m && m.inc) q.mp = Math.min(m.need, q.mp + (m.inc(ev) || 0));
   for (const d of WEEK) if (!q.week.c[d.id]) { const v = Math.min(d.need, (q.week.p[d.id] || 0) + (d.inc(ev) || 0)); if (v > 0) q.week.p[d.id] = v; }
-  for (const d of SIDE) if (q.side[d.id] !== -1) { const v = d.upd(q.side[d.id] || 0, ev); if (v > 0) q.side[d.id] = v; }
+  for (const d of SIDE) if (q.side[d.id] !== -1) { const v = d.upd(q.side[d.id] || 0, ev, p); if (v > 0) q.side[d.id] = v; }
 }
 function questClaim(p, id, now) {
   const q = fixQuests(p, now), it = questList(p, now, true).items.find(x => x.id === id);

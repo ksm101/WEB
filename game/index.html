@@ -175,6 +175,10 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .cards.four .card b{font-size:24px}
 .cards.four .card span{font-size:11px}
 #lo-body{display:flex;flex-direction:column;gap:14px}
+.hero{display:block;width:100%;height:190px;border:1.5px solid var(--line);border-radius:8px;background:var(--deep)}
+#ch-list li{cursor:pointer}
+#ch-list li.sel{border-color:var(--brass);background:var(--slate)}
+#ch-list li small{text-align:right;line-height:1.5}
 .pair{display:flex;gap:8px}
 .pair .btn{flex:1;min-width:0;letter-spacing:.06em}
 .chips{display:flex;flex-wrap:wrap;gap:10px}
@@ -263,23 +267,23 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 
   <section id="menu" class="overlay">
     <div class="wrap">
-      <div><p class="eyebrow">三分鐘副本 · 原型</p><h1>燼潮</h1></div>
+      <div class="head">
+        <div><p class="eyebrow" id="m-class"></p><h2 id="m-name"></h2></div>
+        <button class="chip" id="chars-btn" type="button">換角色</button>
+      </div>
       <div class="chips">
         <button class="chip" id="quests-btn" type="button">任務<b id="q-badge" hidden></b></button>
         <button class="chip" id="bag-btn" type="button">背包</button>
         <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
       </div>
-      <p class="lore">鐘聲沉入海底那天，潮水開始生鏽。四個人、一座塔、三分鐘。</p>
       <div class="lvrow"><b id="m-cl">Lv.1</b><span class="xpbar"><i id="m-xpbar"></i></span><small id="m-xp"></small></div>
       <div class="run"><b>沉鐘塔</b><span id="m-lvl">第 1 層</span><small id="m-best"></small></div>
       <button class="questline" id="m-quest" type="button"></button>
-      <div class="cards" id="cards"></div>
       <ul class="kit" id="kit"></ul>
       <button class="btn ghost" id="lo-open" type="button">換技能</button>
       <p class="how" id="how">拖曳移動，角色會自動普攻。<br>地上出現紅色範圍就離開。<br>敵人讀條變成金色時按「斷」。<br>技能短按會自動找目標；按住拖曳可以自己瞄準。</p>
       <p class="gear" id="gear"></p>
-      <div class="fields" id="fields" hidden>
-        <label for="nick">暱稱<input id="nick" type="text" maxlength="8" autocomplete="off" spellcheck="false"></label>
+      <div class="fields one" id="fields" hidden>
         <label for="room">房號（和朋友輸入同一組）<input id="room" type="text" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="留空就隨機配對"></label>
       </div>
       <div class="cta">
@@ -289,6 +293,40 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
           <button class="btn ghost" id="go" type="button">單人進塔</button>
         </div>
         <p class="note" id="note"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="chars" class="overlay" hidden>
+    <div class="wrap">
+      <div><p class="eyebrow">選擇角色</p><h1>燼潮</h1></div>
+      <canvas class="hero" id="hero-cv"></canvas>
+      <ul class="slots" id="ch-list"></ul>
+      <div class="cta">
+        <button class="btn" id="ch-enter" type="button">進入遊戲</button>
+        <div class="pair">
+          <button class="btn ghost" id="ch-new" type="button">創建角色</button>
+          <button class="btn ghost" id="ch-del" type="button">刪除角色</button>
+        </div>
+        <p class="note" id="ch-note"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="create" class="overlay" hidden>
+    <div class="wrap">
+      <div class="head">
+        <div><p class="eyebrow">創建角色</p><h2>你是誰</h2></div>
+        <button class="chip" id="cr-back" type="button">返回</button>
+      </div>
+      <canvas class="hero" id="create-cv"></canvas>
+      <div class="cards" id="cr-cards"></div>
+      <p class="lore" id="cr-blurb"></p>
+      <ul class="kit" id="cr-kit"></ul>
+      <div class="fields one"><label for="cr-name">名字（最多 8 個字）<input id="cr-name" type="text" maxlength="8" autocomplete="off" spellcheck="false"></label></div>
+      <div class="cta">
+        <button class="btn" id="cr-go" type="button">創建</button>
+        <p class="note" id="cr-note"></p>
       </div>
     </div>
   </section>
@@ -383,14 +421,33 @@ const F = { display: tok('--f-display'), num: tok('--f-num') };
 /* ================= Save =================
  * With a game server the account lives there; this is a cache of it plus the key that signs this device in.
  * Without one (a plain copy of this page) progress stays on this device. */
-const SAVE_KEY = 'embertide.v1';
-const save = { lvl: 1, cl: 1, xp: 0, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, q: null, loadout: {}, intro: false, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
+const BOX_KEY = 'embertide.v2', MAX_CHARS = 4;
+const QUICK = qs.get('quick');                     // debug: skip the character screens (value = class to create)
+const blankChar = () => Object.assign({ nick: '', cls: 'dps' }, S.newProfile());
+const asChar = o => S.fixProfile(Object.assign(blankChar(), { nick: String(o.nick || o.name || '旅人').slice(0, 8), cls: o.cls in CLASSES ? o.cls : 'dps' },
+  ...['lvl', 'cl', 'xp', 'gear', 'best', 'runs', 'inv', 'q', 'loadout'].filter(k => o[k] != null).map(k => ({ [k]: o[k] }))));
+/* box is what this device keeps: the sign-in key and the characters. save is always the character being played
+ * (one of box.chars), or a blank stand-in while there is none, so the rest of the game can just read save. */
+const box = { key: { id: '', token: '', bk: '' }, chars: [], cur: -1, room: '', intro: false };
+let save = blankChar();
+function useChar(i) { box.cur = box.chars[i] ? i : -1; save = box.chars[box.cur] || blankChar(); S.fixProfile(save); chosen = save.cls; levelCheck(true); }
 function loadSave() {
-  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s === 'object') Object.assign(save, s); } catch (e) {}
-  if (!save.acct || typeof save.acct !== 'object') save.acct = { id: '', token: '', bk: '' };
-  S.fixProfile(save);
+  let raw = null, old = null;
+  try { raw = JSON.parse(localStorage.getItem(BOX_KEY)); } catch (e) {}
+  if (raw && typeof raw === 'object') {
+    if (raw.key && typeof raw.key === 'object') Object.assign(box.key, raw.key);
+    if (Array.isArray(raw.chars)) box.chars = raw.chars.filter(c => c && typeof c === 'object').slice(0, MAX_CHARS).map(asChar);
+    box.cur = Number.isInteger(raw.cur) ? raw.cur : 0; box.room = String(raw.room || ''); box.intro = !!raw.intro;
+  } else {
+    try { old = JSON.parse(localStorage.getItem('embertide.v1')); } catch (e) {}      // a save from before characters existed
+    if (old && typeof old === 'object') {
+      if (old.acct && typeof old.acct === 'object') Object.assign(box.key, old.acct); box.intro = !!old.intro; box.room = String(old.room || '');
+      if (old.runs > 0 || old.cl > 1 || old.lvl > 1) box.chars = [asChar(old)];
+    }
+  }
+  useChar(box.chars.length ? clamp(box.cur, 0, box.chars.length - 1) : -1);
 }
-function writeSave() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
+function writeSave() { try { localStorage.setItem(BOX_KEY, JSON.stringify(box)); } catch (e) {} }
 const avgIlvl = () => S.ilvlOf(save.gear);
 const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 const inviteRoom = cleanCode(qs.get('room'));   // opened from a friend's invite link
@@ -482,7 +539,7 @@ function act(o) {
 }
 function enterRun() {
   FX.fx = []; FX.texts = []; FX.shake = 0; stick.x = stick.y = 0;
-  $('#menu').hidden = true; $('#lobby').hidden = true; $('#result').hidden = true;
+  hideScreens();
   $('#app').dataset.mode = mode; talk.lines = null; talk.done = null; talk.focus = null; gateOpen = false;
   $('#talk').hidden = true; $('#gatebox').hidden = true; $('#act').hidden = true;
   resize(); buildHud();
@@ -531,7 +588,7 @@ function startField(then) {
   if (online && net.authed) send({ t: 'field0' });
   enterRun(); Object.assign(cam, camGoal()); renderQuests(); banner('鏽灘', 1500);
   const pro = Story.SCENES.prologue, go = () => { if (then) then(); };
-  if (pro && !save.intro && !AUTO && !qs.has('nostory')) say(pro.lines, () => { save.intro = true; writeSave(); go(); }); else go();
+  if (pro && !box.intro && !AUTO && !qs.has('nostory')) say(pro.lines, () => { box.intro = true; writeSave(); go(); }); else go();
 }
 function fieldFrame(dt) {
   const me = V.me; S.step(G, dt);
@@ -604,7 +661,7 @@ function connect() {
   if (net.ws || net.kicked) return;
   let ws; try { ws = new WebSocket(serverUrl()); } catch (e) { return; }
   net.ws = ws;
-  ws.onopen = () => { net.backoff = 0; send({ t: 'hello', id: save.acct.id, token: save.acct.token, bk: save.acct.bk }); };
+  ws.onopen = () => { net.backoff = 0; send({ t: 'hello', id: box.key.id, token: box.key.token, bk: box.key.bk }); };
   ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } onMsg(m); };
   ws.onclose = () => {
     if (net.ws !== ws) return; net.ws = null; net.authed = false;
@@ -617,24 +674,31 @@ function connect() {
 function goOnline(roomOverride) {
   if (!net.authed) return;
   const fixed = typeof roomOverride === 'string', room = fixed ? cleanCode(roomOverride) : cleanCode($('#room').value);
-  const nick = ($('#nick').value || '').trim().slice(0, 8);
-  save.cls = chosen; if (fixed) net.roomHint = room; else save.room = room; writeSave();
-  if (nick && nick !== save.nick) send({ t: 'name', name: nick });
+  if (fixed) net.roomHint = room; else box.room = room; writeSave();
   mode = 'lobby'; lastMode = 'online'; V = null; G = null; showLobby(null);
   send({ t: 'join', cls: save.cls, room });
 }
 function applyProfile(m, quiet) {   // the server's word on this account
-  if (m.bk) save.acct.bk = m.bk;
-  const p = m.profile; if (p) { save.lvl = p.lvl; save.gear = p.gear; save.best = p.best; save.runs = p.runs; save.nick = p.name; if (p.inv) save.inv = p.inv; if (p.q) save.q = p.q; if (p.cl) { save.cl = p.cl; save.xp = p.xp || 0; } if (p.loadout) save.loadout = p.loadout; }
+  if (m.bk) box.key.bk = m.bk;
+  if (Array.isArray(m.chars)) {       // the roster: full details only come for the character in use
+    box.chars = m.chars.slice(0, MAX_CHARS).map((c, i) => { const mine = box.chars[i], keep = mine && mine.nick === c.name && mine.cls === c.cls ? mine : blankChar(); return Object.assign(keep, { nick: c.name, cls: c.cls, cl: c.cl, lvl: c.lvl, ilvl: c.ilvl }); });
+    box.cur = box.chars[m.cur] ? m.cur : -1; quiet = true;
+  }
+  const p = m.profile, c = box.chars[box.cur];
+  if (p && c) { Object.assign(c, { nick: p.name, cls: p.cls, lvl: p.lvl, cl: p.cl, xp: p.xp || 0, gear: p.gear, best: p.best, runs: p.runs, inv: p.inv, q: p.q, loadout: p.loadout }); c.ilvl = S.ilvlOf(c.gear); }
+  save = c || blankChar(); chosen = save.cls;
   writeSave(); levelCheck(quiet);
 }
 function onMsg(m) {
   switch (m.t) {
     case 'me':
-      save.acct.id = m.id; save.acct.token = m.token; applyProfile(m, m.resume !== undefined); net.authed = true;   // signing in is not a level-up
-      if (document.activeElement !== $('#nick')) $('#nick').value = save.nick;
+    { const had = box.chars.length;
+      box.key.id = m.id; box.key.token = m.token; applyProfile(m, true); net.authed = true;
+      if (QUICK && !box.chars.length) send({ t: 'char-new', name: qs.get('qname') || '測試', cls: QUICK in CLASSES ? QUICK : 'dps' });
       if (m.resume === false && mode === 'online' && V && !V.result) showMenu('這場副本已經結束了。');
-      else if (!$('#menu').hidden) renderMenu();
+      else if (!$('#menu').hidden) { if (box.chars.length) renderMenu(); else showChars(); }
+      else if (!$('#create').hidden) { if (box.chars.length > had) (QUICK ? showMenu : showChars)(''); else renderCreate(); }
+      else if (!$('#chars').hidden) { if (QUICK && box.chars.length) showMenu(''); else showChars(); } }
       if (m.resume !== undefined) send({ t: 'social' });
       if (mode === 'field') send({ t: 'field0' });      // a new connection starts a new set of books
       break;
@@ -1038,6 +1102,97 @@ function hud() {
 }
 
 /* ================= Menus ================= */
+/* ================= Characters ================= */
+const CLASS_BLURB = {
+  tank: '站在最前面的人。血厚，能把敵人的注意力拉到自己身上，替隊友擋下最重的那一下。',
+  heal: '聽得懂潮水的人。負責讓隊友活著，也能打斷咒語。隊伍裡最不能倒的就是你。',
+  dps: '帶著餘燼的弓手。站得遠、打得痛，靠走位活命。三個職業裡最容易上手。'
+};
+let selDel = 0, crCls = 'dps';
+function hideScreens() { for (const id of ['menu', 'lobby', 'result', 'chars', 'create']) $('#' + id).hidden = true; }
+function clearStage() {
+  mode = null; G = null; V = null; $('#bossbar').hidden = true; $('#banner').classList.add('off');
+  delete $('#app').dataset.mode; talk.lines = null; talk.done = null; gateOpen = false; $('#talk').hidden = true; $('#gatebox').hidden = true; $('#act').hidden = true;
+}
+/* A small scene for the character screens: the shore, the tower with its empty bell arch, the camp fire, and the
+ * character drawn the way the game draws it, only larger. */
+function drawHero(cvs, cls, name, sub) {
+  const w = cvs.clientWidth || 358, h = 190, k = Math.min(window.devicePixelRatio || 1, 2.5); cvs.width = Math.round(w * k); cvs.height = Math.round(h * k);
+  const c = cvs.getContext('2d'); c.setTransform(k, 0, 0, k, 0, 0);
+  const sky = c.createLinearGradient(0, 0, 0, h); sky.addColorStop(0, C.glow); sky.addColorStop(.62, C.deep); sky.addColorStop(1, C.ink); c.fillStyle = sky; c.fillRect(0, 0, w, h);
+  c.fillStyle = C.ink; c.fillRect(w - 88, 26, 40, 96); c.beginPath(); c.arc(w - 68, 26, 20, Math.PI, 0); c.fill();
+  c.fillStyle = C.glow; c.beginPath(); c.arc(w - 68, 44, 9, Math.PI, 0); c.rect(w - 77, 44, 18, 13); c.fill();
+  c.strokeStyle = C.rust; c.globalAlpha = .5; c.lineWidth = 2; c.beginPath(); for (let x = 0; x <= w; x += 10) c.lineTo(x, 122 + Math.sin(x * .05) * 3); c.stroke();
+  const fx = 58, fy = 152, fg = c.createRadialGradient(fx, fy, 3, fx, fy, 96); fg.addColorStop(0, C.ember); fg.addColorStop(1, 'transparent');
+  c.globalAlpha = .34; c.fillStyle = fg; c.fillRect(fx - 96, fy - 96, 192, 192); c.globalAlpha = 1;
+  const star = (x, y, r1, r2, n, rot) => { c.beginPath(); for (let i = 0; i < n * 2; i++) { const r = i % 2 ? r2 : r1, a = rot + i * Math.PI / n; c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } c.closePath(); };
+  c.fillStyle = C.ember; star(fx, fy, 10, 5, 4, .4); c.fill();
+  c.textAlign = 'center';
+  if (!cls) { c.fillStyle = C.mute; c.font = `700 14px ${F.display}`; c.fillText('還沒有角色', w / 2, 150); return; }
+  const d = CLASSES[cls], x = w / 2, y = 130, r = 30, face = -.6;
+  c.fillStyle = C.ink; c.globalAlpha = .5; c.beginPath(); c.ellipse(x, y + r * .75, r * 1.1, r * .4, 0, 0, TAU); c.fill(); c.globalAlpha = 1;
+  c.fillStyle = C[d.color]; c.strokeStyle = C.ink; c.lineWidth = 4; c.lineJoin = 'round';
+  if (cls === 'tank') star(x, y, r + 2, r - 2, 3, face); else if (cls === 'dps') star(x, y, r + 7, r - 10, 2, face); else { c.beginPath(); c.arc(x, y, r, 0, TAU); }
+  c.fill(); c.stroke();
+  c.fillStyle = C.ink; c.beginPath(); c.arc(x + Math.cos(face) * (r - 12), y + Math.sin(face) * (r - 12), 5, 0, TAU); c.fill();
+  if (cls === 'heal') { c.strokeStyle = C.ink; c.lineWidth = 3; c.beginPath(); c.arc(x, y, r - 12, 0, TAU); c.stroke(); }
+  c.lineWidth = 4; c.strokeStyle = C.ink; c.font = `900 19px ${F.display}`; c.strokeText(name, x, y - r - 26); c.fillStyle = C.foam; c.fillText(name, x, y - r - 26);
+  c.font = `700 12px ${F.display}`; c.strokeText(sub, x, y - r - 8); c.fillStyle = C.brass; c.fillText(sub, x, y - r - 8);
+}
+function showChars(msg) {
+  clearStage(); hideScreens(); if (!box.chars.length) return showCreate();
+  $('#chars').hidden = false; renderChars(msg);
+}
+function renderChars(msg) {
+  if ($('#chars').hidden) return; if (!box.chars.length) return showCreate();
+  const ul = $('#ch-list'), waiting = online && !net.authed, cur = box.chars[box.cur]; ul.textContent = ''; selDel = 0;
+  box.chars.forEach((c, i) => {
+    const d = CLASSES[c.cls], li = el('li', i === box.cur ? 'sel' : ''), mark = el('em', '', d.mark); mark.style.color = C[d.color];
+    li.id = 'ch-' + i; li.tabIndex = 0; li.setAttribute('role', 'button'); li.setAttribute('aria-pressed', String(i === box.cur));
+    li.append(mark, el('b', '', c.nick), el('small', '', `Lv.${c.cl}　${d.name}　第 ${c.lvl} 層`));
+    li.addEventListener('click', () => pickChar(i)); li.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pickChar(i); } });
+    ul.appendChild(li);
+  });
+  drawHero($('#hero-cv'), cur && cur.cls, cur ? cur.nick : '', cur ? `Lv.${cur.cl}　${CLASSES[cur.cls].name}` : '');
+  $('#ch-enter').disabled = !cur || waiting; $('#ch-new').disabled = box.chars.length >= MAX_CHARS || waiting; $('#ch-del').disabled = !cur || waiting; $('#ch-del').textContent = '刪除角色';
+  $('#ch-note').textContent = msg || (waiting ? '連線中。' : `角色 ${box.chars.length} / ${MAX_CHARS}。每個角色有自己的等級、裝備、背包和任務。`);
+}
+function pickChar(i) {
+  if (i === box.cur || !box.chars[i]) return;
+  if (online) { if (net.authed) send({ t: 'char-pick', i }); return; }     // the server answers with that character's details
+  useChar(i); writeSave(); renderChars();
+}
+function deleteChar() {
+  const c = box.chars[box.cur]; if (!c) return;
+  // the first tap only asks; selDel is 0 until somebody has asked
+  if (!selDel || performance.now() - selDel > 3000) { selDel = performance.now(); $('#ch-del').textContent = '再按一次刪除'; $('#ch-note').textContent = `「${c.nick}」的等級、裝備和任務進度會一起消失，刪掉就救不回來。`; return; }
+  selDel = 0;
+  if (online) { if (net.authed) send({ t: 'char-del', i: box.cur }); return; }
+  box.chars.splice(box.cur, 1); useChar(box.chars.length ? Math.min(box.cur, box.chars.length - 1) : -1); writeSave(); showChars();
+}
+function showCreate() { clearStage(); hideScreens(); $('#create').hidden = false; $('#cr-name').value = ''; renderCreate(''); }
+function renderCreate(msg) {
+  if ($('#create').hidden) return;
+  const cards = $('#cr-cards'), kit = $('#cr-kit'), d = CLASSES[crCls], name = $('#cr-name').value.trim(); cards.textContent = ''; kit.textContent = '';
+  $('#cr-back').hidden = !box.chars.length;
+  for (const k of ['tank', 'heal', 'dps']) {
+    const q = CLASSES[k], b = el('button', 'card'); b.type = 'button'; b.id = 'cr-' + k; b.setAttribute('aria-pressed', String(k === crCls));
+    const mark = el('b', '', q.mark); mark.style.color = C[q.color]; b.append(mark, el('span', '', q.name), el('small', '', q.role));
+    b.addEventListener('click', () => { crCls = k; renderCreate(''); }); cards.appendChild(b);
+  }
+  $('#cr-blurb').textContent = CLASS_BLURB[crCls];
+  for (const k of d.skills) { const li = el('li'); li.append(el('em', '', k.seal), el('b', '', k.name), el('span', '', k.desc)); kit.appendChild(li); }
+  drawHero($('#create-cv'), crCls, name || '？', `Lv.1　${d.name}`);
+  if (msg !== undefined) { $('#cr-note').textContent = msg; $('#cr-note').classList.toggle('warn', !!msg); }
+}
+function createChar() {
+  const name = $('#cr-name').value.replace(/[<>&"']/g, '').trim().slice(0, 8);
+  if (!name) return renderCreate('幫角色取個名字。');
+  if (box.chars.length >= MAX_CHARS) return renderCreate(`最多只能有 ${MAX_CHARS} 個角色。`);
+  if (online) { if (!net.authed) return renderCreate('連線中，等一下再試。'); return send({ t: 'char-new', name, cls: crCls }); }
+  box.chars.push(Object.assign(blankChar(), { nick: name, cls: crCls })); useChar(box.chars.length - 1); writeSave(); showChars();
+}
+
 let chosen = 'dps', menuMsg = '';
 const NOTE_SOLO = '野外可以採集、打怪、找營地的人說話。進塔時另外三名隊友由 AI 補位。', NOTE_ONLINE = '野外是你一個人的。進塔可以線上配對，等不到人的位置由 AI 補上。';
 function onlineLabel() {
@@ -1046,16 +1201,10 @@ function onlineLabel() {
 }
 function renderMenu(msg) {
   if (msg !== undefined) menuMsg = msg;
+  $('#m-name').textContent = save.nick; $('#m-class').textContent = `${CLASSES[save.cls].name}　${CLASSES[save.cls].role}`;
   const need = S.xpNeed(save.cl); $('#m-cl').textContent = `Lv.${save.cl}`; $('#m-xp').textContent = need ? `經驗 ${save.xp} / ${need}` : '已滿級'; $('#m-xpbar').style.width = (need ? Math.min(100, save.xp / need * 100) : 100) + '%';
   $('#m-lvl').textContent = `第 ${save.lvl} 層`;
   const best = save.best[save.lvl]; $('#m-best').textContent = best ? `最佳 ${fmt(best)}` : '限時 3:00';
-  const cards = $('#cards'); cards.textContent = '';
-  for (const k of ['tank', 'heal', 'dps']) {
-    const d = CLASSES[k], b = el('button', 'card'); b.type = 'button'; b.id = 'cls-' + k; b.setAttribute('aria-pressed', String(k === chosen));
-    const mark = el('b', '', d.mark); mark.style.color = C[d.color]; b.append(mark, el('span', '', d.name), el('small', '', d.role));
-    b.addEventListener('click', () => { chosen = k; renderMenu(); });
-    cards.appendChild(b);
-  }
   const kit = $('#kit'); kit.textContent = '';
   for (const s of S.loadoutOf(save, chosen).map(id => S.SKILLS[id])) { const li = el('li'); li.append(el('em', '', s.seal), el('b', '', s.name), el('span', '', s.desc + (s.ult ? '（集滿能量才能放）' : ''))); kit.appendChild(li); }
   const gear = $('#gear'); gear.textContent = '';
@@ -1064,18 +1213,18 @@ function renderMenu(msg) {
   onlineLabel();
   const note = $('#note'); note.classList.toggle('warn', !!menuMsg);
   renderQuests(); $('#how').hidden = save.runs > 0;   // the how-to is for a first visit
-  note.textContent = menuMsg || (online && inviteRoom && cleanCode($('#room').value) === inviteRoom ? `朋友邀請你到房間 ${inviteRoom}。選好職業後按「加入房間」。` : online ? NOTE_ONLINE : NOTE_SOLO);
+  note.textContent = menuMsg || (online && inviteRoom && cleanCode($('#room').value) === inviteRoom ? `朋友邀請你到房間 ${inviteRoom}。按「加入房間」就會進去。` : online ? NOTE_ONLINE : NOTE_SOLO);
 }
 function showMenu(msg) {
-  mode = null; G = null; V = null; chosen = save.cls in CLASSES ? save.cls : 'dps';
-  $('#nick').value = save.nick; $('#room').value = net.roomHint || save.room; net.roomHint = '';
-  renderMenu(msg || ''); $('#result').hidden = true; $('#lobby').hidden = true; $('#menu').hidden = false; $('#bossbar').hidden = true; $('#banner').classList.add('off');
-  delete $('#app').dataset.mode; talk.lines = null; talk.done = null; gateOpen = false; $('#talk').hidden = true; $('#gatebox').hidden = true; $('#act').hidden = true;
+  if (!box.chars[box.cur]) return showChars(msg);       // nobody to play yet
+  clearStage(); hideScreens(); chosen = save.cls;
+  $('#room').value = net.roomHint || box.room; net.roomHint = '';
+  renderMenu(msg || ''); $('#menu').hidden = false;
 }
 function toMenu(msg) { if (mode === 'lobby' || mode === 'online') send({ t: 'leave' }); showMenu(msg); }
 function inviteUrl(code) { const u = new URL(location.href); u.search = ''; u.hash = ''; if (qs.get('server')) u.searchParams.set('server', qs.get('server')); u.searchParams.set('room', code); return u.toString(); }
 function showLobby(m) {
-  net.lobby = m; $('#menu').hidden = true; $('#result').hidden = true; $('#lobby').hidden = false;
+  net.lobby = m; hideScreens(); $('#lobby').hidden = false;
   const ul = $('#lb-slots'), btn = $('#lb-ready'), priv = !!(m && m.code); ul.textContent = '';
   $('#lb-linkbox').hidden = !priv; $('#lb-link').hidden = !priv; $('#lb-friends').hidden = !priv;
   if (!m) { $('#lb-title').textContent = '連線中'; $('#lb-info').textContent = '正在進入房間。'; btn.hidden = true; return; }
@@ -1315,7 +1464,14 @@ addEventListener('blur', () => keys.clear());
 addEventListener('contextmenu', ev => { if (!(ev.target && ev.target.tagName === 'INPUT')) ev.preventDefault(); });
 addEventListener('resize', resize);
 if (window.ResizeObserver) new ResizeObserver(resize).observe($('#stage'));
-$('#go').addEventListener('click', () => startSolo(chosen));
+$('#go').addEventListener('click', () => startSolo(save.cls));
+$('#chars-btn').addEventListener('click', () => showChars());
+$('#ch-enter').addEventListener('click', () => showMenu(''));
+$('#ch-new').addEventListener('click', showCreate);
+$('#ch-del').addEventListener('click', deleteChar);
+$('#cr-back').addEventListener('click', () => showChars());
+$('#cr-go').addEventListener('click', createChar);
+$('#cr-name').addEventListener('input', () => renderCreate());
 $('#go-online').addEventListener('click', goOnline);
 $('#lb-ready').addEventListener('click', () => send({ t: 'ready' }));
 $('#lb-cancel').addEventListener('click', () => toMenu());
@@ -1344,7 +1500,7 @@ $('#room').addEventListener('input', () => renderMenu());
 let quitArm = 0;
 $('#quit').addEventListener('click', () => {
   const q = $('#quit');
-  if (performance.now() - quitArm < 2500) { q.textContent = '離開'; quitArm = 0; toMenu(); return; }
+  if (quitArm && performance.now() - quitArm < 2500) { q.textContent = '離開'; quitArm = 0; toMenu(); return; }
   quitArm = performance.now(); q.textContent = '再按一次'; setTimeout(() => { q.textContent = '離開'; }, 2500);
 });
 
@@ -1366,14 +1522,16 @@ function frame(ts) {
   render(dt);
 }
 function boot(data) {
-  loadSave(); if (data && data.save) Object.assign(save, data.save);
-  if (inviteRoom) save.room = inviteRoom;
-  levelCheck(true);
-  resize(); showMenu(''); probe(); requestAnimationFrame(frame);
+  loadSave(); if (data && data.box && Array.isArray(data.box.chars)) { Object.assign(box, data.box); useChar(box.cur); }
+  if (inviteRoom) box.room = inviteRoom;
+  resize();
+  if (QUICK && !box.chars.length && location.protocol === 'file:') { box.chars.push(Object.assign(blankChar(), { nick: qs.get('qname') || '測試', cls: QUICK in CLASSES ? QUICK : 'dps' })); useChar(0); }
+  if (QUICK && box.chars.length) showMenu(''); else showChars('');     // the game opens on the character screen
+  probe(); requestAnimationFrame(frame);
 }
-window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, net, save, talk, cam, startSolo, startField, showMenu, send };
+window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, get save() { return save; }, box, net, talk, cam, startSolo, startField, showMenu, send };
 const hot = window.claude && window.claude.hot;
-if (hot && hot.snapshot) hot.snapshot(() => ({ save }));
+if (hot && hot.snapshot) hot.snapshot(() => ({ box }));
 if (hot && hot.ready) hot.ready(boot); else boot(hot && hot.data || {});
 })();
 </script>
