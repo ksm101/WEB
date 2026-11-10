@@ -35,7 +35,7 @@ function freshRecord(id) {
 function normalize(b) {
   const g = b.gear || {}, v = b.inv || {};
   const rec = { id: b.id, name: cleanName(b.name), lvl: clampInt(b.lvl, 1, 50), gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) },
-    best: {}, runs: clampInt(b.runs, 0, 1e9), inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) },
+    best: {}, runs: clampInt(b.runs, 0, 1e9), inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) },
     q: b.q, friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15) };
   Sim.fixProfile(rec);
   if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const v = Number(b.best[k]); if (/^\d+$/.test(k) && Number.isFinite(v)) rec.best[k] = v; }
@@ -251,6 +251,25 @@ function start(opts) {
     send(ws, { t: 'solo', ok, loot: rw.loot, mats: rw.mats, profile: profileOf(rec), bk: store.pack(rec) });
   }
 
+  /* The field is simulated on the player's device; the server only keeps the books. It decides what a gather or
+   * a kill gives, and refuses claims that come faster than the game allows: a node cannot be picked again before
+   * it regrows, gathers cannot outpace the gathering time, and kills are limited to a steady rate. */
+  function onField(ws, m) {
+    const rec = ws.acc, now = Date.now();
+    if (m.t === 'field0') { ws.field = { nodes: {}, lastG: 0, tokens: 6, at: now }; return; }
+    const f = ws.field; let mats = null;
+    if (f && m.t === 'fg') {
+      const node = Sim.FIELD.nodes.find(n => n.id === m.id);
+      if (node && now - (f.nodes[node.id] || 0) >= Sim.NODE_RESPAWN * 900 && now - f.lastG >= Sim.GATHER_TIME * 900) { f.nodes[node.id] = now; f.lastG = now; mats = Sim.fieldYield('gather', node.type); Sim.questEvent(rec, { type: 'gather' }, now); }
+    } else if (f && m.t === 'fk') {
+      f.tokens = Math.min(6, f.tokens + (now - f.at) / 2500); f.at = now;
+      const def = typeof m.kind === 'string' && Object.prototype.hasOwnProperty.call(Sim.ENEMY, m.kind) ? Sim.ENEMY[m.kind] : null;
+      if (def && def.aggro && f.tokens >= 1) { f.tokens -= 1; mats = Sim.fieldYield('kill', m.kind); Sim.questEvent(rec, { type: 'kill' }, now); }
+    }
+    if (mats) { Sim.grant(rec, mats); store.put(rec); }
+    send(ws, { t: 'fy', ok: !!mats, mats: mats || {}, profile: profileOf(rec), bk: store.pack(rec) });
+  }
+
   function tick() {
     const now = Date.now();
     for (const room of rooms.values()) {
@@ -292,6 +311,7 @@ function start(opts) {
         case 'ignore': { const id = cleanId(m.id); if (id && !ws.acc.ignored.includes(id)) { ws.acc.ignored = ws.acc.ignored.concat(id).slice(-50); store.put(ws.acc); } return send(ws, socialOf(ws.acc)); }
         case 'invite': return onInvite(ws, m);
         case 'solo0': case 'solo1': return onSolo(ws, m);
+        case 'field0': case 'fg': case 'fk': return onField(ws, m);
         case 'claim': { const r = Sim.questClaim(ws.acc, String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'craft': { const r = Sim.craft(ws.acc, String(m.id)); if (r.ok) { Sim.questEvent(ws.acc, { type: 'craft', kind: r.kind }, Date.now()); store.put(ws.acc); } return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
       }

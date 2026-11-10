@@ -150,16 +150,21 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .chip{position:relative;flex:none;height:40px;min-width:60px;padding:0 14px;border:1.5px solid var(--line);border-radius:20px;background:var(--deep);color:var(--foam);font-size:13px}
 .chip b{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;box-sizing:border-box;padding:0 4px;border-radius:9px;background:var(--ember);color:var(--ink);font-family:var(--f-num);font-size:11px;line-height:18px;text-align:center}
 .overlay.top{z-index:7}
-#story{z-index:8;cursor:pointer}
-#story h2{font-size:30px}
-#st-log{display:flex;flex-direction:column;gap:18px;margin-top:6px}
-.st-line{display:flex;flex-direction:column;gap:4px;animation:st-in .28s ease-out}
-.st-who{font-family:var(--f-display);font-weight:900;font-size:15px;letter-spacing:.1em}
-.st-line p{margin:0;font-size:17px;line-height:1.8;max-width:26em;text-wrap:pretty}
-.st-line.narr p{color:var(--mute)}
-#st-count{font-family:var(--f-num);font-size:12px;color:var(--mute);text-align:center;margin:0}
-@keyframes st-in{from{opacity:0;transform:translateY(8px)}}
-@media (prefers-reduced-motion:reduce){.st-line{animation:none}}
+#app[data-mode="field"] #pips,#app[data-mode="field"] #timer,#app[data-mode="field"] #timebar{display:none}
+#act{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:2;height:46px;padding:0 24px;border:0;border-radius:23px;background:var(--ember);color:var(--ink);font-weight:700;font-size:15px;white-space:nowrap}
+#talk,#gatebox{position:absolute;left:var(--gl);right:var(--gr);bottom:12px;z-index:3;display:flex;flex-direction:column;box-sizing:border-box;border:1.5px solid var(--brass);border-radius:8px;background:rgba(10,22,27,.94)}
+#talk{gap:6px;min-height:104px;padding:12px 14px 8px;cursor:pointer}
+#talk b{font-family:var(--f-display);font-weight:900;font-size:15px;letter-spacing:.1em}
+#talk p{margin:0;font-size:16px;line-height:1.75;text-wrap:pretty}
+#talk.narr p{color:var(--mute)}
+#talk .row{display:flex;justify-content:space-between;align-items:center;margin-top:auto;font-size:11px;color:var(--mute)}
+#talk .mini{height:30px;font-size:12px}
+#gatebox{gap:8px;padding:14px}
+#gatebox p{margin:0 0 2px;font-size:13px;color:var(--mute)}
+#gatebox p b{font-family:var(--f-display);font-size:17px;color:var(--foam);letter-spacing:.08em}
+#gatebox .btn{height:48px;font-size:17px}
+.pair{display:flex;gap:8px}
+.pair .btn{flex:1;min-width:0;letter-spacing:.06em}
 .chips{display:flex;flex-wrap:wrap;gap:10px}
 .questline{display:flex;align-items:baseline;gap:10px;width:100%;box-sizing:border-box;padding:11px 12px;border:1.5px solid var(--line);border-radius:6px;background:var(--deep);text-align:left;font-size:13px}
 .questline span{flex:none;color:var(--brass);font-size:11px;letter-spacing:.16em}
@@ -207,7 +212,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
   <header id="hud">
     <div class="hud-top">
       <button id="quit" type="button">離開</button>
-      <div class="dungeon"><b>沉鐘塔</b><span id="lvl">第 1 層</span></div>
+      <div class="dungeon"><b id="place">沉鐘塔</b><span id="lvl">第 1 層</span></div>
       <div id="pips" aria-hidden="true"><i></i><i></i><i></i><i class="boss"></i></div>
       <div id="timer">0:00 <small>/ 3:00</small></div>
     </div>
@@ -223,6 +228,17 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div id="bosscast" hidden><i></i><span></span></div>
     </div>
     <div id="banner" class="off" aria-live="polite"></div>
+    <button id="act" type="button" hidden></button>
+    <div id="talk" hidden>
+      <b id="talk-who"></b><p id="talk-text" aria-live="polite"></p>
+      <div class="row"><span id="talk-count"></span><button class="mini" id="talk-skip" type="button">跳過</button></div>
+    </div>
+    <div id="gatebox" hidden>
+      <p><b>沉鐘塔</b>　門後就是塔的第一層。</p>
+      <button class="btn" id="gate-online" type="button" hidden>線上配對</button>
+      <button class="btn ghost" id="gate-solo" type="button">單人進塔</button>
+      <button class="btn ghost" id="gate-cancel" type="button">先不要</button>
+    </div>
   </main>
 
   <footer id="deck">
@@ -252,8 +268,11 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
         <label for="room">房號（和朋友輸入同一組）<input id="room" type="text" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="留空就隨機配對"></label>
       </div>
       <div class="cta">
-        <button class="btn" id="go-online" type="button" hidden>線上配對</button>
-        <button class="btn" id="go" type="button">單人開始</button>
+        <button class="btn" id="go-field" type="button">進入野外</button>
+        <div class="pair">
+          <button class="btn ghost" id="go-online" type="button" hidden>線上配對</button>
+          <button class="btn ghost" id="go" type="button">單人進塔</button>
+        </div>
         <p class="note" id="note"></p>
       </div>
     </div>
@@ -306,19 +325,6 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div id="bag-body"></div>
     </div>
   </section>
-  <section id="story" class="overlay" hidden>
-    <div class="wrap">
-      <div class="head">
-        <div><p class="eyebrow">劇情</p><h2 id="st-title"></h2></div>
-        <button class="chip" id="st-skip" type="button">跳過</button>
-      </div>
-      <div id="st-log" aria-live="polite"></div>
-      <div class="cta">
-        <p id="st-count"></p>
-        <button class="btn" id="st-next" type="button">下一句</button>
-      </div>
-    </div>
-  </section>
   <div id="toast" hidden role="status"><span id="toast-msg"></span><span id="toast-btns"></span></div>
 </div>
 
@@ -367,7 +373,7 @@ const readyQuests = () => S.questList(save, Date.now(), online).items.filter(x =
 function newlyDone(change) { const before = readyQuests(); change(); return readyQuests().filter(t => !before.includes(t)); }
 
 /* ================= Canvas ================= */
-let scale = 1, dpr = 1, offX = 0, offY = 0, floor = null;
+let scale = 1, fscale = 1, stageW = 360, stageH = 440, dpr = 1, offX = 0, offY = 0, floor = null;
 const cv = $('#cv'), ctx = cv.getContext('2d');
 function resize() {
   const st = $('#stage'), cw = st.clientWidth, ch = st.clientHeight;
@@ -375,6 +381,7 @@ function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2.5);
   cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
   scale = Math.min(cw / W, ch / H); offX = (cw - W * scale) / 2; offY = (ch - H * scale) / 2;   // the arena is a fixed size so every player sees the same room
+  fscale = cw / W; stageW = cw; stageH = ch;                                                // the field shows a strip as wide as the arena and scrolls
   paintFloor();
 }
 function paintFloor() {
@@ -432,12 +439,14 @@ function handleEvent(o) {
 /* everything the player does goes through here, so solo and online behave the same */
 function act(o) {
   if (!V || !V.me) return;
-  if (mode === 'solo') { const inp = V.me.input; if ('c' in o) inp.cast[o.c] = true; else if ('h' in o) inp.heal = o.h; else if ('p' in o) inp.pot = true; else inp.tg = o.g; }
+  if (mode === 'solo' || mode === 'field') { const inp = V.me.input; if ('c' in o) inp.cast[o.c] = true; else if ('h' in o) inp.heal = o.h; else if ('p' in o) inp.pot = true; else inp.tg = o.g; }
   else if (mode === 'online') send(Object.assign({ t: 'a' }, o));
 }
 function enterRun() {
   FX.fx = []; FX.texts = []; FX.shake = 0; stick.x = stick.y = 0;
   $('#menu').hidden = true; $('#lobby').hidden = true; $('#result').hidden = true;
+  $('#app').dataset.mode = mode; talk.lines = null; talk.done = null; talk.focus = null; gateOpen = false;
+  $('#talk').hidden = true; $('#gatebox').hidden = true; $('#act').hidden = true;
   resize(); buildHud();
 }
 function startSolo(cls) {
@@ -462,6 +471,82 @@ function conclude(r, stats, extra) {
     S.questEvent(save, { type: 'run', win: r.win, onTime: r.onTime, cls: view.me.cls, kicks: stats.kicks, hits: stats.hits, mates: 0 }, Date.now());
   });
   writeSave(); show(rw.loot, { mats: rw.mats, quests: done });
+}
+
+/* ================= Field =================
+ * 鏽灘 is simulated on this device. With a server, every gather and kill is reported and the server answers with
+ * what it was worth; without one the same rules are rolled here. */
+const FD = S.FIELD, cam = { x: 0, y: 0 }, NPC_CLS = { kol: 'tank', mira: 'heal', jin: 'dps', wu: 'dps' };
+const talk = { lines: null, i: 0, done: null, focus: null }, quest = { giver: '' };
+let nearNpc = null, nearGate = false, gateOpen = false;
+
+function camGoal() {
+  const me = V.me, vw = stageW / fscale, vh = stageH / fscale; let tx = me.x, ty = me.y;
+  if (talk.lines) { if (talk.focus) { tx = (tx + talk.focus.x) / 2; ty = (ty + talk.focus.y) / 2; } ty += 46; }   // keep the speakers clear of the dialogue box
+  // while someone talks the view may run past the south edge, so whoever stands at the bottom is not under the box
+  return { x: clamp(tx - vw / 2, 0, Math.max(0, FD.w - vw)), y: clamp(ty - vh / 2, 0, Math.max(0, FD.h - vh) + (talk.lines ? 110 : 0)) };
+}
+function startField(then) {
+  mode = 'field'; save.cls = chosen in CLASSES ? chosen : 'dps'; writeSave();
+  G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: '你', pow: S.powerOf(save.gear), id: 'me' } });
+  V = G; V.me = G.actors[0]; meIdx = 0;
+  if (online && net.authed) send({ t: 'field0' });
+  enterRun(); Object.assign(cam, camGoal()); renderQuests(); banner('鏽灘', 1500);
+  const pro = Story.SCENES.prologue, go = () => { if (then) then(); };
+  if (pro && !save.intro && !AUTO && !qs.has('nostory')) say(pro.lines, () => { save.intro = true; writeSave(); go(); }); else go();
+}
+function fieldFrame(dt) {
+  const me = V.me; S.step(G, dt);
+  const evs = G.events; G.events = [];
+  for (const o of evs) { handleEvent(o); if (o.k === 'gathered') fieldReport('fg', { id: o.id }, 'gather', o.type); else if (o.k === 'kill') fieldReport('fk', { kind: o.kind }, 'kill', o.kind); }
+  nearNpc = null; for (const n of FD.npcs) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearNpc = n;
+  nearGate = Math.hypot(FD.gate.x - me.x, FD.gate.y - me.y) < FD.gate.r + 34;
+  if (gateOpen && !nearGate) { gateOpen = false; $('#gatebox').hidden = true; }
+  const btn = $('#act'), label = talk.lines || gateOpen || !me.alive ? '' : nearNpc ? `和${Story.CAST[nearNpc.id] ? Story.CAST[nearNpc.id].name : '他們'}說話` : nearGate ? '進入沉鐘塔' : '';
+  if (btn.textContent !== label) btn.textContent = label; btn.hidden = !label;
+  const g = camGoal(), k = 1 - Math.exp(-dt * 8); cam.x += (g.x - cam.x) * k; cam.y += (g.y - cam.y) * k;
+}
+function showYield(mats, done) {
+  const me = V && V.me; if (!me) return; let i = 0;
+  for (const k of Object.keys(mats)) addText(me.x, me.y - 30 - 15 * i++, `${S.MATS[k]} +${mats[k]}`, C.brass, 12, 1.4);
+  if (done.length) toast(`任務完成：${done.join('、')}。`, [], 3500);
+  renderQuests();
+}
+function fieldReport(t, body, what, key) {
+  if (online) { if (net.authed) send(Object.assign({ t }, body)); else banner('連線中斷，這段時間的收穫不會記錄', 2500); return; }
+  const mats = S.fieldYield(what, key), done = newlyDone(() => { S.grant(save, mats); S.questEvent(save, { type: what }, Date.now()); });
+  writeSave(); showYield(mats, done);
+}
+
+/* ---------- talking: a box over the world, one line per tap ---------- */
+function say(lines, done) { talk.lines = lines; talk.i = 0; talk.done = done || null; gateOpen = false; $('#gatebox').hidden = true; $('#talk').hidden = false; nextSay(); }
+function nextSay() {
+  if (!talk.lines) return;
+  if (talk.i >= talk.lines.length) return endSay();
+  const [who, text] = talk.lines[talk.i++], c = Story.CAST[who], w = $('#talk-who');
+  $('#talk').classList.toggle('narr', !c); w.hidden = !c; w.textContent = c ? c.name : ''; if (c) w.style.color = C[c.color];
+  $('#talk-text').textContent = text; $('#talk-count').textContent = `${talk.i} / ${talk.lines.length}　點一下繼續`;
+  talk.focus = FD.npcs.find(n => n.id === who) || null;
+}
+function endSay() { const done = talk.done; talk.lines = null; talk.done = null; talk.focus = null; $('#talk').hidden = true; if (done) done(); }
+function talkTo(id) {
+  const main = S.questList(save, Date.now(), online).items.find(x => x.group === 'main'), sc = main && Story.SCENES[main.id];
+  if (main && main.ready && sc && sc.at === id) return claimMain(main.id);      // this is who the finished quest goes back to
+  const lines = [[id, pick(Story.IDLE[id] || ['……'])]];
+  if (main && sc && sc.at === id) lines.push([id, `你手上那件事還沒完：${main.goal}。做完再來。`]);
+  else if (main && main.ready && sc && Story.CAST[sc.at]) lines.push([id, `${Story.CAST[sc.at].name}在找你，像是有東西要給你。`]);
+  say(lines);
+}
+function claimMain(id) {
+  if (online) { if (!net.authed) return toast('連線中，等一下再試。', [], 2500); net.claiming = id; return send({ t: 'claim', id }); }
+  const r = S.questClaim(save, id, Date.now()); writeSave(); toast(r.msg, [], 3500); renderBag(); renderMenu(); if (r.ok) say(Story.SCENES[id].lines);
+}
+function toCamp(msg) { $('#quests').hidden = true; if (mode !== 'field') { chosen = save.cls; startField(); } if (msg) banner(msg, 2800); }
+function replayScene(id) { const sc = Story.SCENES[id]; if (!sc) return; $('#quests').hidden = true; if (mode === 'field') say(sc.lines); else { chosen = save.cls; startField(() => say(sc.lines)); } }
+function doAct() {
+  if (mode !== 'field' || talk.lines || gateOpen) return;
+  if (nearNpc) return talkTo(nearNpc.id);
+  if (nearGate) { const on = online && net.authed; gateOpen = true; $('#gate-online').hidden = !on; $('#gate-solo').className = on ? 'btn ghost' : 'btn'; $('#gatebox').hidden = false; }
 }
 
 /* ================= Online ================= */
@@ -512,6 +597,7 @@ function onMsg(m) {
       if (m.resume === false && mode === 'online' && V && !V.result) showMenu('這場副本已經結束了。');
       else if (!$('#menu').hidden) renderMenu();
       if (m.resume !== undefined) send({ t: 'social' });
+      if (mode === 'field') send({ t: 'field0' });      // a new connection starts a new set of books
       break;
     case 'kicked': net.kicked = true; showMenu('這個帳號在別的分頁或裝置上開著，這裡先離線了。重新整理頁面可以換回這裡。'); break;
     case 'lobby':
@@ -535,7 +621,8 @@ function onMsg(m) {
       toast(String(m.msg || '') + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); renderBag(); if (!$('#menu').hidden) renderMenu();
       break;
     }
-    case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok) playStory(id); break; }
+    case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && mode === 'field' && Story.SCENES[id]) say(Story.SCENES[id].lines); break; }
+    case 'fy': { const done = newlyDone(() => applyProfile(m)); if (mode === 'field') showYield(m.mats || {}, done); break; }
     case 'social': net.social = m; renderSocial(); break;
     case 'note': toast(String(m.msg || ''), [], 3500); break;
     case 'invited':
@@ -613,7 +700,8 @@ function pushMove(now) {
   let mx = stick.x, my = stick.y;
   if (keys.has('a') || keys.has('arrowleft')) mx -= 1; if (keys.has('d') || keys.has('arrowright')) mx += 1;
   if (keys.has('w') || keys.has('arrowup')) my -= 1; if (keys.has('s') || keys.has('arrowdown')) my += 1;
-  if (mode === 'solo') { input.mx = mx; input.my = my; V.me.input.mx = mx; V.me.input.my = my; return; }
+  if (mode === 'field' && talk.lines) { mx = 0; my = 0; }                // stand still while someone is talking to you
+  if (mode !== 'online') { input.mx = mx; input.my = my; V.me.input.mx = mx; V.me.input.my = my; return; }
   const qx = Math.round(clamp(mx, -1, 1) * 20) / 20, qy = Math.round(clamp(my, -1, 1) * 20) / 20; input.mx = qx; input.my = qy;
   if ((qx !== net.sx || qy !== net.sy) && (now - net.lastSend > 45 || (qx === 0 && qy === 0))) { net.sx = qx; net.sy = qy; net.lastSend = now; send({ t: 'm', x: qx, y: qy }); }
   if (now - net.pingT > 2000) { net.pingT = now; send({ t: 'p', c: now }); }
@@ -666,7 +754,11 @@ function drawEnemy(e, dt) {
     const ax = x + Math.cos(e.face) * (r + 6), ay = y + Math.sin(e.face) * (r + 6);   // the anchor it swings
     c.strokeStyle = C.rust; c.lineWidth = 3; c.beginPath(); c.moveTo(x + Math.cos(e.face) * 12, y + Math.sin(e.face) * 12); c.lineTo(ax, ay); c.stroke();
     c.beginPath(); c.arc(ax, ay, 9, e.face - 1.4, e.face + 1.4); c.stroke();
-  } else if (e.kind === 'caster') {
+  } else if (e.kind === 'crab') {
+    c.fillStyle = fl ? C.foam : C.rust; c.strokeStyle = C.ink; c.beginPath(); c.ellipse(x, y, r + 2, r - 2, e.face + Math.PI / 2, 0, TAU); c.fill(); c.stroke();
+    c.strokeStyle = C.rust; c.lineWidth = 3; for (const k of [-.75, .75]) { c.beginPath(); c.arc(x + Math.cos(e.face + k) * (r + 5), y + Math.sin(e.face + k) * (r + 5), 4, e.face + k - 1.9, e.face + k + 1.9); c.stroke(); }
+    c.fillStyle = C.ink; for (const k of [-.35, .35]) { c.beginPath(); c.arc(x + Math.cos(e.face + k) * 5, y + Math.sin(e.face + k) * 5, 1.6, 0, TAU); c.fill(); }
+  } else if (e.def.caster) {
     if (e.cast && e.cast.victim) { c.strokeStyle = C.hex; c.globalAlpha = .5; c.setLineDash([3, 5]); c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(e.cast.victim.x, e.cast.victim.y); c.stroke(); c.setLineDash([]); c.globalAlpha = 1; }
     c.fillStyle = fl ? C.foam : C.hex; c.strokeStyle = C.ink; poly(x, y, r + 3, r - 3, 3, -Math.PI / 2); c.fill(); c.stroke();
     c.fillStyle = C.ink; c.beginPath(); c.arc(x, y + 1, 4, 0, TAU); c.fill();
@@ -681,15 +773,63 @@ function drawEnemy(e, dt) {
   }
   c.globalAlpha = 1;
 }
+function drawField() {
+  const c = ctx, vh = stageH / fscale;
+  c.fillStyle = C.deep; c.fillRect(0, 0, FD.w, FD.h);
+  c.strokeStyle = C.foam; c.globalAlpha = .05; c.lineWidth = 1;                    // tide marks on the sand
+  for (let y = Math.floor(cam.y / 90) * 90; y < cam.y + vh + 90; y += 90) { c.beginPath(); for (let x = 0; x <= FD.w; x += 30) c.lineTo(x, y + Math.sin((x + y) * .02) * 8); c.stroke(); }
+  for (const [a, b] of [[0, 80], [FD.w, FD.w - 80]]) {                              // rusted water on both shores
+    const g = c.createLinearGradient(a, 0, b, 0); g.addColorStop(0, C.rust); g.addColorStop(1, 'transparent');
+    c.globalAlpha = .32; c.fillStyle = g; c.fillRect(Math.min(a, b), 0, 80, FD.h);
+  }
+  c.globalAlpha = .6; c.strokeStyle = C.slate; c.lineWidth = 46; c.lineCap = 'round'; c.lineJoin = 'round';   // the trodden path from camp to the tower
+  c.beginPath(); for (const [x, y] of FD.path) c.lineTo(x, y); c.stroke();
+  c.globalAlpha = 1; c.lineWidth = 2;
+  for (const r of FD.rocks) { c.fillStyle = C.ink; c.strokeStyle = C.line; poly(r.x, r.y, r.r, r.r * .8, 5, r.x * .01); c.fill(); c.stroke(); }
+  c.strokeStyle = C.brass; c.globalAlpha = .2; c.setLineDash([4, 9]); c.lineWidth = 1.5; c.beginPath(); c.arc(FD.safe.x, FD.safe.y, FD.safe.r, 0, TAU); c.stroke(); c.setLineDash([]);
+  const fx = FD.fire[0], fy = FD.fire[1], fg = c.createRadialGradient(fx, fy, 4, fx, fy, 96); fg.addColorStop(0, C.ember); fg.addColorStop(1, 'transparent');
+  c.globalAlpha = reduced ? .3 : .28 + .05 * Math.sin(clock * 6); c.fillStyle = fg; c.fillRect(fx - 96, fy - 96, 192, 192);
+  c.globalAlpha = 1; c.fillStyle = C.ember; poly(fx, fy, 9, 5, 4, reduced ? 0 : clock * 2); c.fill();
+  const g = FD.gate;                                                                 // the tower gate
+  c.fillStyle = C.ink; c.strokeStyle = C.rust; c.lineWidth = 4; c.beginPath(); c.arc(g.x, g.y, g.r, Math.PI, 0); c.lineTo(g.x + g.r, g.y + 22); c.lineTo(g.x - g.r, g.y + 22); c.closePath(); c.fill(); c.stroke();
+  c.strokeStyle = C.brass; c.lineWidth = 2; c.globalAlpha = .75; c.beginPath(); c.arc(g.x, g.y - 8, 15, 0, TAU); c.stroke(); c.beginPath(); c.arc(g.x, g.y - 8, 5, 0, TAU); c.stroke();
+  c.globalAlpha = 1; c.fillStyle = C.brass; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.fillText('沉鐘塔', g.x, g.y + 42);
+}
+function drawNode(n) {
+  const c = ctx, { x, y } = n; c.globalAlpha = n.ready ? 1 : .22; c.lineCap = 'round';
+  if (n.type === 'herb') { c.strokeStyle = C.heal; c.lineWidth = 2.5; for (const a of [-2.3, -1.57, -.84]) { c.beginPath(); c.moveTo(x, y + 7); c.quadraticCurveTo(x + Math.cos(a) * 4, y - 2, x + Math.cos(a) * 13, y + 7 + Math.sin(a) * 17); c.stroke(); } }
+  else if (n.type === 'wreck') { c.strokeStyle = C.rust; c.lineWidth = 5; c.beginPath(); c.moveTo(x - 13, y + 7); c.lineTo(x + 11, y - 8); c.moveTo(x - 7, y - 9); c.lineTo(x + 13, y + 8); c.stroke(); }
+  else { c.fillStyle = C.foam; c.strokeStyle = C.hex; c.lineWidth = 1.5; for (const [dx, dy, r] of [[-6, 4, 6], [6, 4, 5], [0, -5, 7]]) { poly(x + dx, y + dy, r, r * .6, 3, .5); c.fill(); c.stroke(); } }
+  c.globalAlpha = 1;
+  const g = V.me.gather; if (g && g.id === n.id) { c.strokeStyle = C.brass; c.lineWidth = 3; c.beginPath(); c.arc(x, y, 22, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(g.t / S.GATHER_TIME, 0, 1)); c.stroke(); }
+}
+function drawNpc(n) {
+  const c = ctx, cls = NPC_CLS[n.id], d = CLASSES[cls], cast = Story.CAST[n.id], r = 12, { x, y } = n, face = Math.atan2(V.me.y - y, V.me.x - x);
+  shadow(x, y, r);
+  if (talk.focus === n) { c.strokeStyle = C.brass; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r + 6, 0, TAU); c.stroke(); }
+  c.fillStyle = cast ? C[cast.color] : C[d.color]; c.strokeStyle = C.ink; c.lineWidth = 2;
+  if (cls === 'tank') poly(x, y, r + 1, r - 1, 3, face); else if (cls === 'dps') poly(x, y, r + 3, r - 4, 2, face); else { c.beginPath(); c.arc(x, y, r, 0, TAU); }
+  c.fill(); c.stroke();
+  c.fillStyle = C.ink; c.beginPath(); c.arc(x + Math.cos(face) * (r - 5), y + Math.sin(face) * (r - 5), 2.4, 0, TAU); c.fill();
+  c.textAlign = 'center'; c.font = `700 11px ${F.display}`; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText(cast ? cast.name : '', x, y - r - 8); c.fillStyle = C.foam; c.fillText(cast ? cast.name : '', x, y - r - 8);
+  if (quest.giver === n.id && !talk.lines) { c.font = `900 22px ${F.display}`; c.fillStyle = C.brass; c.strokeText('！', x, y - r - 24); c.fillText('！', x, y - r - 24 + (reduced ? 0 : Math.sin(clock * 4) * 2)); }
+}
+function drawMinimap() {
+  const c = ctx, w = 46, h = w * FD.h / FD.w, x = stageW - w - 10, y = 10, k = w / FD.w;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0); c.globalAlpha = .82; c.fillStyle = C.ink; c.fillRect(x, y, w, h); c.globalAlpha = 1; c.strokeStyle = C.line; c.lineWidth = 1; c.strokeRect(x + .5, y + .5, w, h);
+  const dot = (px, py, col, r) => { c.fillStyle = col; c.beginPath(); c.arc(x + px * k, y + py * k, r, 0, TAU); c.fill(); };
+  dot(FD.gate.x, FD.gate.y, C.brass, 3); dot(FD.fire[0], FD.fire[1], C.ember, 3); dot(V.me.x, V.me.y, C.foam, 2.5);
+}
 function render(dt) {
-  const c = ctx; let sx = 0, sy = 0;
+  const c = ctx, field = !!V && V.mode === 'field'; let sx = 0, sy = 0;
   if (FX.shake > 0 && !reduced) { sx = rand(-1, 1) * FX.shake * 5; sy = rand(-1, 1) * FX.shake * 5; }
   c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = C.ink; c.fillRect(0, 0, cv.width, cv.height);
-  if (floor) c.drawImage(floor, sx * dpr, sy * dpr);
-  c.setTransform(dpr * scale, 0, 0, dpr * scale, (offX + sx) * dpr, (offY + sy) * dpr);
+  if (field) { c.setTransform(dpr * fscale, 0, 0, dpr * fscale, (sx - cam.x * fscale) * dpr, (sy - cam.y * fscale) * dpr); drawField(); }
+  else { if (floor) c.drawImage(floor, sx * dpr, sy * dpr); c.setTransform(dpr * scale, 0, 0, dpr * scale, (offX + sx) * dpr, (offY + sy) * dpr); }
   if (!V) return;
   for (const z of V.zones) drawZone(z);
   for (const a of V.actors) if (!a.alive) drawActor(a, dt);
+  if (field) { for (const n of V.nodes) drawNode(n); for (const n of FD.npcs) drawNpc(n); }
   for (const e of V.enemies) drawEnemy(e, dt);
   for (const a of V.actors) if (a.alive) drawActor(a, dt);
   for (const s of V.shots) { c.strokeStyle = C[s.col]; c.lineWidth = s.big ? 4 : 2; c.lineCap = 'round'; c.beginPath(); c.moveTo(s.px, s.py); c.lineTo(s.x, s.y); c.stroke(); c.fillStyle = C.foam; c.beginPath(); c.arc(s.x, s.y, s.big ? 3 : 1.8, 0, TAU); c.fill(); }
@@ -706,6 +846,7 @@ function render(dt) {
   }
   c.globalAlpha = 1;
   if (V.state === 'countdown' && V.cd > 0) { c.font = `700 96px ${F.num}`; c.fillStyle = C.brass; c.lineWidth = 6; c.strokeStyle = C.ink; const n = String(Math.ceil(V.cd)); c.strokeText(n, W / 2, H * .42); c.fillText(n, W / 2, H * .42); }
+  if (field) drawMinimap();
 }
 function updFx(dt) {
   for (const f of FX.fx) f.t += dt; FX.fx = FX.fx.filter(f => f.t < f.dur);
@@ -716,7 +857,7 @@ function updFx(dt) {
 /* ================= HUD ================= */
 let frames = [], skBtns = [];
 function buildHud() {
-  $('#lvl').textContent = `第 ${V.lvl} 層`;
+  const field = V.mode === 'field'; $('#place').textContent = field ? '鏽灘' : '沉鐘塔'; $('#lvl').textContent = field ? '燼港外緣' : `第 ${V.lvl} 層`;
   const party = $('#party'); party.textContent = ''; frames = [];
   V.actors.forEach((a, i) => {
     const me = a === V.me, b = el('button', 'pf' + (me ? ' me' : '')); b.type = 'button'; b.id = 'pf' + i;
@@ -772,7 +913,7 @@ function hud() {
 
 /* ================= Menus ================= */
 let chosen = 'dps', menuMsg = '';
-const NOTE_SOLO = '其餘三名隊友由 AI 補位，不用等人。', NOTE_ONLINE = '線上配對會找其他玩家一起打，等不到人的位置由 AI 補上。';
+const NOTE_SOLO = '野外可以採集、打怪、找營地的人說話。進塔時另外三名隊友由 AI 補位。', NOTE_ONLINE = '野外是你一個人的。進塔可以線上配對，等不到人的位置由 AI 補上。';
 function onlineLabel() {
   const b = $('#go-online'), code = cleanCode($('#room').value); b.disabled = !net.authed;
   b.textContent = net.kicked ? '已離線' : !net.authed ? '連線中' : code ? `加入房間 ${code}` : '線上配對';
@@ -793,7 +934,6 @@ function renderMenu(msg) {
   const gear = $('#gear'); gear.textContent = '';
   for (const [k, v] of [['裝等', avgIlvl()], ['武器', save.gear.w], ['護甲', save.gear.a], ['飾品', save.gear.t], ['通關次數', save.runs]]) { const sp = el('span', '', k + ' '); sp.append(el('b', '', v)); gear.appendChild(sp); }
   $('#fields').hidden = !online; $('#go-online').hidden = !online; $('#friends-btn').hidden = !(online && net.authed);
-  $('#go').className = online ? 'btn ghost' : 'btn'; $('#go').textContent = online ? '單人練習' : '單人開始';
   onlineLabel();
   const note = $('#note'); note.classList.toggle('warn', !!menuMsg);
   renderQuests(); $('#how').hidden = save.runs > 0;   // the how-to is for a first visit
@@ -803,6 +943,7 @@ function showMenu(msg) {
   mode = null; G = null; V = null; chosen = save.cls in CLASSES ? save.cls : 'dps';
   $('#nick').value = save.nick; $('#room').value = net.roomHint || save.room; net.roomHint = '';
   renderMenu(msg || ''); $('#result').hidden = true; $('#lobby').hidden = true; $('#menu').hidden = false; $('#bossbar').hidden = true; $('#banner').classList.add('off');
+  delete $('#app').dataset.mode; talk.lines = null; talk.done = null; gateOpen = false; $('#talk').hidden = true; $('#gatebox').hidden = true; $('#act').hidden = true;
 }
 function toMenu(msg) { if (mode === 'lobby' || mode === 'online') send({ t: 'leave' }); showMenu(msg); }
 function inviteUrl(code) { const u = new URL(location.href); u.search = ''; u.hash = ''; if (qs.get('server')) u.searchParams.set('server', qs.get('server')); u.searchParams.set('room', code); return u.toString(); }
@@ -881,8 +1022,8 @@ function renderBag() {
   if ($('#bag').hidden) return;
   const body = $('#bag-body'), inv = save.inv, waiting = online && !net.authed; body.textContent = '';
   const dl = el('dl', 'stats');
-  for (const [k, v] of [[S.MATS.scrap, inv.scrap], [S.MATS.salt, inv.salt], [S.MATS.shard, inv.shard], ['潮息藥水', `${inv.potion} / ${S.POTION_CAP}`]]) { const d = el('div'); d.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(d); }
-  body.append(dl, el('p', 'lore', `材料從副本掉落，三分鐘內通關一定有沉鐘碎片。淬鍊的上限跟著層數走，第 ${save.lvl} 層是裝等 ${S.gearCap(save.lvl)}。`));
+  for (const [k, v] of [[S.MATS.scrap, inv.scrap], [S.MATS.salt, inv.salt], [S.MATS.herb, inv.herb], [S.MATS.shard, inv.shard], ['潮息藥水', `${inv.potion} / ${S.POTION_CAP}`], ['裝等', avgIlvl()]]) { const d = el('div'); d.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(d); }
+  body.append(dl, el('p', 'lore', `鏽鐵屑、鹽晶、潮草可以在鏽灘採到。沉鐘碎片只有塔裡有，三分鐘內通關一定掉。淬鍊的上限跟著層數走，第 ${save.lvl} 層是裝等 ${S.gearCap(save.lvl)}。`));
   for (const [title, kind] of [['鍛造　直接做一件', 'forge'], ['淬鍊　把身上的往上推', 'temper'], ['消耗品', 'potion']]) {
     const g = el('div', 'group'), ul = el('ul', 'recipes'); g.append(el('h3', '', title), ul);
     for (const rc of S.RECIPES.filter(r => r.kind === kind)) {
@@ -908,7 +1049,8 @@ function renderQuests() {
   const ql = S.questList(save, Date.now(), online), ready = ql.items.filter(x => x.ready).length, badge = $('#q-badge');
   badge.hidden = !ready; badge.textContent = ready;
   const main = ql.items.find(x => x.group === 'main'), line = $('#m-quest'); line.textContent = ''; line.classList.toggle('ready', !!(main && main.ready));
-  line.append(el('span', '', '主線'), el('b', '', main ? `${main.title}　${main.goal}` : '主線暫時到這裡，之後會再加'), el('i', '', main ? (main.ready ? '可領獎' : `${main.have} / ${main.need}`) : ''));
+  quest.giver = main && main.ready && Story.SCENES[main.id] ? Story.SCENES[main.id].at : '';      // who at the camp is waiting for you
+  line.append(el('span', '', '主線'), el('b', '', main ? `${main.title}　${main.goal}` : '主線暫時到這裡，之後會再加'), el('i', '', main ? (main.ready ? '回營地領獎' : `${main.have} / ${main.need}`) : ''));
   if ($('#quests').hidden) return;
   const body = $('#quests-body'), waiting = online && !net.authed; body.textContent = '';
   for (const [key, title] of [['main', `主線　已完成 ${ql.mainDone} / ${ql.mainTotal}`], ['week', '本週　每週一重置'], ['side', '支線']]) {
@@ -918,8 +1060,9 @@ function renderQuests() {
       const li = el('li'), left = el('div', 'info'), meta = el('span', 'cost');
       meta.append(el('span', '', `進度 ${it.have}/${it.need}`), el('span', '', `獎勵　${it.reward}`));
       left.append(el('b', '', it.title), el('small', '', it.goal), meta);
-      const b = el('button', 'mini' + (it.ready ? ' go' : ''), it.claimed ? '已領' : it.ready ? '領取' : '進行中'); b.type = 'button'; b.id = 'claim-' + it.id; b.disabled = !it.ready || waiting;
-      b.addEventListener('click', () => { b.disabled = true; doClaim(it.id); });
+      const sc = key === 'main' && Story.SCENES[it.id], who = sc && Story.CAST[sc.at];      // main quests are handed in to someone at the camp
+      const b = el('button', 'mini' + (it.ready ? ' go' : ''), it.claimed ? '已領' : !it.ready ? '進行中' : who ? `找${who.name}` : '領取'); b.type = 'button'; b.id = 'claim-' + it.id; b.disabled = !it.ready || waiting;
+      b.addEventListener('click', () => { if (who) return toCamp(`${who.name}在營地等你，走過去說話就能領獎。`); b.disabled = true; doClaim(it.id); });
       li.append(left, b); ul.appendChild(li);
     }
     g.appendChild(ul); body.appendChild(g);
@@ -929,7 +1072,7 @@ function renderQuests() {
     const g = el('div', 'group'), ul = el('ul', 'recipes'); g.append(el('h3', '', '劇情回顧'), ul);
     for (const id of seen) {
       const sc = Story.SCENES[id], li = el('li'), left = el('div', 'info'), b = el('button', 'mini', '重看'); b.type = 'button'; b.id = 'replay-' + id;
-      left.append(el('b', '', sc.title), el('small', '', sc.lines[0][1])); b.addEventListener('click', () => playStory(id));
+      left.append(el('b', '', sc.title), el('small', '', sc.lines[0][1])); b.addEventListener('click', () => replayScene(id));
       li.append(left, b); ul.appendChild(li);
     }
     body.appendChild(g);
@@ -937,26 +1080,9 @@ function renderQuests() {
 }
 function doClaim(id) {
   if (online) { net.claiming = id; return send({ t: 'claim', id }); }   // the server hands out rewards
-  const r = S.questClaim(save, id, Date.now()); writeSave(); toast(r.msg, [], 3500); renderBag(); renderMenu(); if (r.ok) playStory(id);
+  const r = S.questClaim(save, id, Date.now()); writeSave(); toast(r.msg, [], 3500); renderBag(); renderMenu();
 }
 
-/* ---------- story: a scene is revealed one line per tap and can always be skipped ---------- */
-const story = { id: '', i: 0, done: null };
-function playStory(id, done) {
-  const sc = Story.SCENES[id]; if (!sc) { if (done) done(); return; }
-  story.id = id; story.i = 0; story.done = done || null;
-  $('#st-title').textContent = sc.title; $('#st-log').textContent = ''; $('#story').hidden = false; $('#story').scrollTop = 0; nextLine();
-}
-function nextLine() {
-  const sc = Story.SCENES[story.id]; if (!sc) return;
-  if (story.i >= sc.lines.length) return endStory();
-  const [who, text] = sc.lines[story.i++], c = Story.CAST[who], div = el('div', 'st-line' + (c ? '' : ' narr'));
-  if (c) { const lab = el('span', 'st-who', c.name); lab.style.color = C[c.color]; div.appendChild(lab); }
-  div.appendChild(el('p', '', text)); $('#st-log').appendChild(div);
-  $('#st-next').textContent = story.i >= sc.lines.length ? '繼續' : '下一句'; $('#st-count').textContent = `${story.i} / ${sc.lines.length}`;
-  const o = $('#story'); o.scrollTop = o.scrollHeight;
-}
-function endStory() { const done = story.done; story.id = ''; story.done = null; $('#story').hidden = true; if (done) done(); }
 /* scenes the player has unlocked: the prologue, then one per main quest already handed in */
 function unlockedScenes() { return Story.ORDER.filter((id, i) => Story.SCENES[id] && (i === 0 || (save.q && save.q.main >= i))); }
 
@@ -981,11 +1107,12 @@ function showResult(r, s, loot, lvl, more) {
   const mates = more.mates || [], team = mates.length > 0 && !!more.again;
   group(body, '這場的隊友', mates.map(f => row(CLASSES[f.cls].mark, C[CLASSES[f.cls].color], String(f.name), f.friend ? '已在名單' : '',
     f.friend ? [] : [['加好友', b => { send({ t: 'friend', id: f.id }); b.textContent = '已送出'; }, 'go']])));
-  const cta = el('div', 'cta'), again = el('button', 'btn', team ? '原隊再來一場' : r.win ? '再來一場' : '再試一次'), swap = el('button', 'btn ghost', '換職業');
-  again.type = swap.type = 'button'; again.id = 'again'; swap.id = 'swap';
+  const cta = el('div', 'cta'), again = el('button', 'btn', team ? '原隊再來一場' : r.win ? '再來一場' : '再試一次'), camp = el('button', 'btn ghost', '回營地'), swap = el('button', 'btn ghost', '回主選單');
+  again.type = camp.type = swap.type = 'button'; again.id = 'again'; camp.id = 'camp'; swap.id = 'swap';
   again.addEventListener('click', () => { if (lastMode !== 'online') return startSolo(save.cls); chosen = save.cls; goOnline(team ? String(more.again) : undefined); });
+  camp.addEventListener('click', () => { chosen = save.cls; startField(); });
   swap.addEventListener('click', () => showMenu());
-  cta.append(again, swap); body.appendChild(cta);
+  cta.append(again, camp, swap); body.appendChild(cta);
   $('#result').hidden = false;
 }
 
@@ -1008,14 +1135,17 @@ deck.addEventListener('pointermove', ev => {
 const stickEnd = ev => { if (ev.pointerId !== stickId) return; stickId = null; stick.x = 0; stick.y = 0; base.hidden = true; };
 deck.addEventListener('pointerup', stickEnd); deck.addEventListener('pointercancel', stickEnd);
 cv.addEventListener('pointerdown', ev => {
+  if (talk.lines) return nextSay();
   if (!V || !V.me || !V.me.alive) return;
-  const r = cv.getBoundingClientRect(), p = { x: (ev.clientX - r.left - offX) / scale, y: (ev.clientY - r.top - offY) / scale };
+  const r = cv.getBoundingClientRect(), field = V.mode === 'field';
+  const p = field ? { x: (ev.clientX - r.left) / fscale + cam.x, y: (ev.clientY - r.top) / fscale + cam.y } : { x: (ev.clientX - r.left - offX) / scale, y: (ev.clientY - r.top - offY) / scale };
   let best = null, bd = 40; for (const e of V.enemies) { const d = dist(p, e) - e.r; if (d < bd) { bd = d; best = e; } }
   if (best) act({ g: best.id });
 });
 addEventListener('keydown', ev => {
   if (ev.target && ev.target.tagName === 'INPUT') return;
-  if (story.id) { if (ev.key === 'Escape') endStory(); else if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); nextLine(); } return; }
+  if (talk.lines) { if (ev.key === 'Escape') endSay(); else if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); nextSay(); } return; }
+  if (mode === 'field' && (ev.key === 'e' || ev.key === 'Enter')) return doAct();
   const k = ev.key.toLowerCase(); keys.add(k);
   const i = ['j', 'k', 'l', ';'].indexOf(k), n = ['1', '2', '3', '4'].indexOf(k);
   if (V && (i >= 0 || n >= 0)) act({ c: i >= 0 ? i : n });
@@ -1038,7 +1168,12 @@ $('#lb-friends').addEventListener('click', openSocial);
 $('#friends-btn').addEventListener('click', openSocial);
 $('#so-close').addEventListener('click', closeSocial);
 $('#bag-btn').addEventListener('click', openBag);
-$('#story').addEventListener('click', ev => { if (ev.target.closest('#st-skip')) endStory(); else nextLine(); });   // tap anywhere for the next line
+$('#go-field').addEventListener('click', () => startField());
+$('#act').addEventListener('click', doAct);
+$('#talk').addEventListener('click', ev => { if (ev.target.closest('#talk-skip')) endSay(); else nextSay(); });   // tap the box, or the world, for the next line
+$('#gate-cancel').addEventListener('click', () => { gateOpen = false; $('#gatebox').hidden = true; });
+$('#gate-solo').addEventListener('click', () => startSolo(save.cls));
+$('#gate-online').addEventListener('click', () => { chosen = save.cls; goOnline(''); });
 $('#quests-btn').addEventListener('click', openQuests);
 $('#m-quest').addEventListener('click', openQuests);
 $('#quests-close').addEventListener('click', () => { $('#quests').hidden = true; });
@@ -1057,9 +1192,10 @@ let last = 0;
 function frame(ts) {
   requestAnimationFrame(frame);
   const dt = Math.min(.05, (ts - last) / 1000 || 0); last = ts; clock += dt;
-  if (V && !document.hidden && (mode === 'solo' || mode === 'online')) {
+  if (V && !document.hidden && (mode === 'solo' || mode === 'online' || mode === 'field')) {
     pushMove(ts);
-    if (mode === 'solo') {
+    if (mode === 'field') fieldFrame(dt);
+    else if (mode === 'solo') {
       if (SPEED > 1) { for (let i = 0; i < SPEED && G.state !== 'over'; i++) S.step(G, 1 / 60); } else S.step(G, dt);
       const evs = G.events; G.events = []; for (const o of evs) handleEvent(o);
       if (G.state === 'over' && !G.result.shown) { G.result.shown = true; conclude(G.result, V.me.stats); }
@@ -1072,9 +1208,8 @@ function boot(data) {
   loadSave(); if (data && data.save) Object.assign(save, data.save);
   if (inviteRoom) save.room = inviteRoom;
   resize(); showMenu(''); probe(); requestAnimationFrame(frame);
-  if (!save.intro && !AUTO && !qs.has('nostory')) playStory('prologue', () => { save.intro = true; writeSave(); });
 }
-window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, net, save, startSolo, showMenu, send };
+window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, net, save, talk, cam, startSolo, startField, showMenu, send };
 const hot = window.claude && window.claude.hot;
 if (hot && hot.snapshot) hot.snapshot(() => ({ save }));
 if (hot && hot.ready) hot.ready(boot); else boot(hot && hot.data || {});

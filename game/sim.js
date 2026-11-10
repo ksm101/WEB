@@ -38,13 +38,39 @@ const CLASSES = {
 };
 const ENEMY = {
   grunt: { name: '鏽蝕水鬼', hp: 1000, dmg: 34, aspd: 1.3, range: 8, speed: 70, r: 13 },
-  caster: { name: '鹽咒祭司', hp: 800, dmg: 150, aspd: 0, range: 165, speed: 60, r: 12 },
+  caster: { name: '鹽咒祭司', hp: 800, dmg: 150, aspd: 0, range: 165, speed: 60, r: 12, caster: true },
+  // field creatures: tuned for one player; aggro and leash are distances
+  crab: { name: '鏽灘蟹', hp: 300, dmg: 20, aspd: 1.4, range: 6, speed: 64, r: 11, aggro: 95, leash: 300 },
+  acolyte: { name: '鹽咒學徒', hp: 240, dmg: 85, aspd: 0, range: 150, speed: 58, r: 11, aggro: 130, leash: 320, caster: true },
   boss: { name: '鏽潮看守者 莫葛', hp: 27000, dmg: 80, aspd: 1.5, range: 10, speed: 58, r: 28 }
 };
 const WAVES = [ [['grunt', 3]], [['grunt', 2], ['caster', 1]], [['grunt', 2], ['caster', 2]], [['boss', 1]] ];
 const ROSTER = ['tank', 'heal', 'dps', 'dps'];
 const SPOTS = [[180, H - 150], [128, H - 84], [236, H - 96], [184, H - 58]];
 const BOT_NAMES = { tank: '柯爾', heal: '蜜拉', dps: ['阿燼', '小霧'] };
+
+/* ---------- the field: 鏽灘, the shore between the camp (south) and the tower gate (north) ---------- */
+const GATHER_TIME = 1.4, NODE_RESPAWN = 45, MOB_RESPAWN = 25;
+const SOLO_BOOST = { tank: 1.8, heal: 3.2, dps: 1 };   // alone in the field, tanks and healers hit harder so every class can hunt
+const FIELD = {
+  w: 900, h: 1500,
+  spawn: [450, 1398], fire: [450, 1330], safe: { x: 450, y: 1325, r: 150 },   // monsters neither enter nor attack into the camp
+  gate: { x: 450, y: 120, r: 46 },
+  npcs: [{ id: 'kol', x: 385, y: 1285 }, { id: 'mira', x: 512, y: 1280 }, { id: 'jin', x: 540, y: 1372 }, { id: 'wu', x: 372, y: 1378 }],
+  path: [[450, 1320], [430, 1100], [520, 860], [400, 620], [470, 380], [450, 170]],
+  rocks: [{ x: 250, y: 1150, r: 34 }, { x: 650, y: 1010, r: 40 }, { x: 330, y: 900, r: 30 }, { x: 690, y: 740, r: 36 }, { x: 220, y: 660, r: 38 },
+    { x: 590, y: 510, r: 32 }, { x: 300, y: 390, r: 34 }, { x: 660, y: 310, r: 38 }, { x: 150, y: 930, r: 26 }, { x: 770, y: 560, r: 28 }],
+  nodes: [
+    { id: 1, type: 'herb', x: 180, y: 1230 }, { id: 2, type: 'herb', x: 730, y: 1190 }, { id: 3, type: 'herb', x: 130, y: 790 }, { id: 4, type: 'herb', x: 780, y: 900 },
+    { id: 5, type: 'herb', x: 240, y: 520 }, { id: 6, type: 'herb', x: 710, y: 420 },
+    { id: 7, type: 'wreck', x: 590, y: 1160 }, { id: 8, type: 'wreck', x: 280, y: 1010 }, { id: 9, type: 'wreck', x: 770, y: 690 }, { id: 10, type: 'wreck', x: 150, y: 560 }, { id: 11, type: 'wreck', x: 560, y: 320 },
+    { id: 12, type: 'salt', x: 110, y: 1060 }, { id: 13, type: 'salt', x: 810, y: 620 }, { id: 14, type: 'salt', x: 360, y: 270 }, { id: 15, type: 'salt', x: 630, y: 180 }],
+  packs: [{ kind: 'crab', x: 270, y: 1060, n: 2 }, { kind: 'crab', x: 660, y: 1120, n: 2 }, { kind: 'crab', x: 520, y: 930, n: 2 }, { kind: 'acolyte', x: 220, y: 820, n: 1 },
+    { kind: 'crab', x: 710, y: 830, n: 3 }, { kind: 'crab', x: 330, y: 690, n: 2 }, { kind: 'acolyte', x: 610, y: 610, n: 2 }, { kind: 'crab', x: 170, y: 440, n: 3 },
+    { kind: 'crab', x: 520, y: 440, n: 2 }, { kind: 'acolyte', x: 400, y: 280, n: 2 }, { kind: 'crab', x: 720, y: 220, n: 2 }]
+};
+const inCamp = p => Math.hypot(p.x - FIELD.safe.x, p.y - FIELD.safe.y) < FIELD.safe.r;
+function pushOut(p) { for (const r of FIELD.rocks) { const dx = p.x - r.x, dy = p.y - r.y, d = Math.hypot(dx, dy) || .01, m = r.r + p.r; if (d < m) { p.x = r.x + dx / d * m; p.y = r.y + dy / d * m; } } }
 
 /* ---------- events ---------- */
 function ev(G, o) { G.events.push(o); }
@@ -69,7 +95,7 @@ function mkActor(cls, name, spot, pow) {
  * Each player takes the first free seat of their class; every other seat is a bot. */
 function createRun(opts) {
   const lvl = opts.lvl || 1, botPow = 1 + .1 * (lvl - 1);
-  const G = { t: 0, lvl, es: Math.pow(1.13, lvl - 1), state: 'countdown', cd: 3, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
+  const G = { mode: 'dungeon', bw: W, bh: H, t: 0, lvl, es: Math.pow(1.13, lvl - 1), state: 'countdown', cd: 3, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
     boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: !!opts.auto };
   const pending = (opts.players || []).slice(); let dpsN = 0;
   ROSTER.forEach((c, i) => {
@@ -83,10 +109,20 @@ function mkEnemy(G, kind, x, y) {
   const d = ENEMY[kind], s = G.es;
   const e = { id: G.nextId++, kind, def: d, name: d.name, x, y, r: d.r, maxHp: R(d.hp * s), hp: R(d.hp * s), dmg: d.dmg * s, atkT: rand(.4, 1), threat: new Map(),
     fix: null, fixT: 0, target: null, cast: null, stun: 0, boss: kind === 'boss', tm: {}, alive: true, spawnT: .6, face: Math.PI / 2 };
-  if (kind === 'caster') e.tm.cast = rand(1.5, 3.5);
+  if (d.caster) e.tm.cast = rand(1.5, 3.5);
   if (e.boss) { e.tm = { cleave: 5, bells: 8, roar: 12, adds: false, enraged: false }; G.boss = e; }
-  const tank = G.actors.find(a => a.cls === 'tank'); if (tank) e.threat.set(tank, 40);
+  const tank = G.mode !== 'field' && G.actors.find(a => a.cls === 'tank'); if (tank) e.threat.set(tank, 40);
   G.enemies.push(e); return e;
+}
+function spawnMob(G, kind, home) { const e = mkEnemy(G, kind, home.x + rand(-14, 14), home.y + rand(-14, 14)); e.home = home; e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3); e.engaged = false; e.ret = false; return e; }
+/* opts: { lvl, player: { cls, name, pow, id } }. One player, no bots, no timer. */
+function createField(opts) {
+  const lvl = opts.lvl || 1, p = opts.player;
+  const G = { mode: 'field', bw: FIELD.w, bh: FIELD.h, t: 0, lvl, es: Math.pow(1.13, lvl - 1), state: 'run', cd: 0, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
+    boss: null, result: null, nextId: 1, grace: 0, auto: false, respawns: [], nodes: FIELD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, ready: true, t: 0 })) };
+  const a = mkActor(p.cls, p.name, FIELD.spawn, p.pow); a.idx = 0; a.human = true; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; G.actors.push(a);
+  for (const pk of FIELD.packs) for (let i = 0; i < pk.n; i++) spawnMob(G, pk.kind, { x: pk.x + (i - (pk.n - 1) / 2) * 34, y: pk.y + (i % 2) * 22 });
+  return G;
 }
 function nextWave(G) {
   G.wave++; const w = WAVES[G.wave]; if (!w) return;
@@ -111,13 +147,15 @@ function hurtActor(G, a, dmg, avoidable) {
   if (a.hp <= 0) { a.hp = 0; a.alive = false; a.shield = 0; ev(G, { k: 'down', i: a.idx }); }
 }
 function hurtEnemy(G, e, dmg, src, big, noUlt) {
-  if (!e.alive) return;
+  if (!e.alive || e.ret) return;                        // a creature walking back to its spot cannot be hurt
+  if (G.mode === 'field') dmg *= SOLO_BOOST[src.cls] || 1;
   e.hp -= dmg; src.stats.dmg += dmg;
   e.threat.set(src, (e.threat.get(src) || 0) + dmg * src.def.threat);
   if (!noUlt) src.ult = Math.min(100, src.ult + dmg / (src.pow * src.def.ultK));
   ev(G, { k: 'dmg', x: R(e.x), y: R(e.y - e.r - 6), v: R(dmg), big: big ? 1 : 0, by: src.idx });
   if (e.hp <= 0) {
     e.hp = 0; e.alive = false; ring(G, e.x, e.y, e.r * .5, e.r * 2.2, e.boss ? 'brass' : 'rust', .45);
+    if (G.mode === 'field') { G.respawns.push({ kind: e.kind, home: e.home, at: G.t + MOB_RESPAWN }); ev(G, { k: 'kill', kind: e.kind, by: src.idx }); }
     if (e.boss) { for (const o of G.enemies) if (o !== e && o.alive) { o.alive = false; ring(G, o.x, o.y, 6, 30, 'rust', .4); } G.zones.length = 0; shake(G, .6); }
   }
 }
@@ -148,7 +186,7 @@ const SK = {
     const reach = a.def.range < 60 ? 72 : 240; let best = null;
     for (const e of G.enemies) { if (!e.alive || !e.cast || !e.cast.kickable || dist(a, e) > reach + e.r) continue; if (!best || e === a.target || (best !== a.target && e.cast.t / e.cast.dur > best.cast.t / best.cast.dur)) best = e; }
     if (!best) return fail(G, a, '沒有金色讀條可以打斷');
-    best.cast = null; best.stun = 1.2; if (best.kind === 'caster') best.tm.cast = rand(4, 5);
+    best.cast = null; best.stun = 1.2; if (best.def.caster) best.tm.cast = rand(4, 5);
     hurtEnemy(G, best, a.def.atk * a.pow, a); beam(G, a, best, 'brass'); ring(G, best.x, best.y, best.r, best.r + 22, 'brass');
     text(G, best.x, best.y - best.r - 24, '打斷', 'brass', 16, 1.1); a.stats.kicks++;
   },
@@ -184,9 +222,12 @@ function playerThink(G, a, dt) {
   for (let i = 0; i < 4; i++) if (inp.cast[i]) { c.cast[i] = true; inp.cast[i] = false; }
   if (inp.heal >= 0) { c.healOn = G.actors[inp.heal] || null; inp.heal = -1; }
   if (inp.pot) { c.pot = true; inp.pot = false; }
-  if (inp.tg) { const e = G.enemies.find(e => e.id === inp.tg && e.alive); if (e) a.target = e; inp.tg = 0; }
+  if (inp.tg) { const e = G.enemies.find(e => e.id === inp.tg && e.alive); if (e) { a.target = e; a.pick = e.id; } inp.tg = 0; }
   if (!a.alive) return;
-  if (!a.target || !a.target.alive) a.target = nearest(a, G.enemies);
+  if (G.mode === 'field') {      // out here you only fight what is fighting you, or what you tapped
+    const t0 = a.target; if (t0 && (!t0.alive || t0.ret || (!t0.engaged && a.pick !== t0.id))) a.target = null;
+    if (!a.target) { let bd = 1e9; for (const e of G.enemies) if (e.alive && e.engaged && e.threat.has(a)) { const d = dist(a, e); if (d < bd) { bd = d; a.target = e; } } }
+  } else if (!a.target || !a.target.alive) a.target = nearest(a, G.enemies);
   const idle = Math.hypot(c.mx, c.my) < .05; a.idleT = idle ? a.idleT + dt : 0;
   const t = a.target;
   if (idle && a.idleT > .5 && t && !inRange(a, t, -2)) {   // step into range by yourself, but never into a red zone
@@ -277,7 +318,8 @@ function updActor(G, a, dt) {
     if (m > 1) { mx /= m; my /= m; }
     if (m > .05) { a.x += mx * a.def.speed * dt; a.y += my * a.def.speed * dt; if (!a.target) a.face = Math.atan2(my, mx); }
   }
-  a.x = clamp(a.x, a.r + 6, W - a.r - 6); a.y = clamp(a.y, a.r + 36, H - a.r - 8);
+  a.x = clamp(a.x, a.r + 6, G.bw - a.r - 6); a.y = clamp(a.y, a.r + (G.mode === 'field' ? 6 : 36), G.bh - a.r - 8);
+  if (G.mode === 'field') pushOut(a);
   if (a.target) a.face = Math.atan2(a.target.y - a.y, a.target.x - a.x);
   if (c.healOn) { if (a.cls === 'heal') tryCast(G, a, 0, c.healOn); c.healOn = null; }
   for (let i = 0; i < 4; i++) if (c.cast[i]) { c.cast[i] = false; tryCast(G, a, i); }
@@ -295,6 +337,7 @@ function updActor(G, a, dt) {
 }
 function updEnemy(G, e, dt) {
   if (e.spawnT > 0) { e.spawnT -= dt; return; }
+  if (G.mode === 'field' && !fieldMob(G, e, dt)) return;
   if (e.stun > 0) { e.stun -= dt; return; }
   if (e.cast) { e.cast.t += dt; if (e.cast.t >= e.cast.dur) { const k = e.cast; e.cast = null; if (k.done) k.done(); } return; }
   e.fixT -= dt; let tg = null;
@@ -302,7 +345,7 @@ function updEnemy(G, e, dt) {
   else { let best = -1; for (const [p, v] of e.threat) if (p.alive && v > best) { best = v; tg = p; } if (!tg) tg = nearest(e, G.actors); }
   e.target = tg; if (!tg) return;
   const d = dist(e, tg) || 1, dx = (tg.x - e.x) / d, dy = (tg.y - e.y) / d; e.face = Math.atan2(dy, dx);
-  if (e.kind === 'caster') {
+  if (e.def.caster) {
     const edge = d - e.r - tg.r;
     if (edge > e.def.range) { e.x += dx * e.def.speed * dt; e.y += dy * e.def.speed * dt; }
     e.tm.cast -= dt;
@@ -344,7 +387,7 @@ function updWorld(G, dt) {
     const ux = (a.x - b.x) / d, uy = (a.y - b.y) / d, wa = a.boss ? 0 : b.boss ? 1 : .5;
     a.x += ux * ov * wa; a.y += uy * ov * wa; b.x -= ux * ov * (1 - wa); b.y -= uy * ov * (1 - wa);
   }
-  for (const e of en) { e.x = clamp(e.x, e.r, W - e.r); e.y = clamp(e.y, e.r + 30, H - e.r); }
+  for (const e of en) { e.x = clamp(e.x, e.r, G.bw - e.r); e.y = clamp(e.y, e.r + (G.mode === 'field' ? 0 : 30), G.bh - e.r); if (G.mode === 'field') pushOut(e); }
   for (const s of G.shots) {
     const t = s.t; if (!t.alive) { s.dead = true; continue; }
     const d = dist(s, t) || 1, st = s.spd * dt; s.px = s.x; s.py = s.y;
@@ -365,7 +408,69 @@ function finish(G, win) {
   G.state = 'over'; G.result = { win, onTime: win && G.t <= TIME_LIMIT, t: G.t };
   banner(G, win ? '莫葛沉回海底' : '全隊倒下', 1500);
 }
+/* ---------- field rules ---------- */
+/* Returns true when the creature should fight this step; otherwise it has already wandered or walked home. */
+function fieldMob(G, e, dt) {
+  const home = e.home, dHome = Math.hypot(e.x - home.x, e.y - home.y);
+  if (e.ret) {
+    const d = dHome || 1, sp = e.def.speed * 1.6 * dt; e.x += (home.x - e.x) / d * Math.min(sp, d); e.y += (home.y - e.y) / d * Math.min(sp, d);
+    e.hp = Math.min(e.maxHp, e.hp + e.maxHp * .5 * dt); if (dHome < 8) { e.ret = false; e.hp = e.maxHp; }
+    return false;
+  }
+  if (!e.engaged) {
+    const near = nearest(e, G.actors);
+    if (near && !inCamp(near) && dist(e, near) < e.def.aggro + near.r) { e.engaged = true; e.threat.set(near, (e.threat.get(near) || 0) + 1); }
+    else if (e.threat.size) e.engaged = true;          // somebody hit it from a distance
+    else {
+      e.wt -= dt; if (e.wt <= 0) { e.wt = rand(2, 5); const an = rand(0, TAU), rr = rand(0, 40); e.wx = home.x + Math.cos(an) * rr; e.wy = home.y + Math.sin(an) * rr; }
+      const d = Math.hypot(e.wx - e.x, e.wy - e.y); if (d > 3) { e.x += (e.wx - e.x) / d * e.def.speed * .35 * dt; e.y += (e.wy - e.y) / d * e.def.speed * .35 * dt; e.face = Math.atan2(e.wy - e.y, e.wx - e.x); }
+      return false;
+    }
+  }
+  let foe = false; for (const p of e.threat.keys()) if (p.alive && !inCamp(p)) { foe = true; break; }
+  if (dHome > e.def.leash || !foe) { e.engaged = false; e.ret = true; e.threat.clear(); e.cast = null; e.fix = null; e.target = null; return false; }   // dragged too far, or nobody left to fight
+  return true;
+}
+function fieldActor(G, a, dt) {
+  if (!a.alive) {
+    a.gather = null; a.downT += dt;
+    if (a.downT >= 3) { a.downT = 0; a.alive = true; a.hp = a.maxHp; a.x = FIELD.spawn[0]; a.y = FIELD.spawn[1]; a.target = null; banner(G, '你在營火邊醒來', 1800); }
+    return;
+  }
+  const hunted = G.enemies.some(e => e.engaged && e.threat.has(a));
+  a.calm = hunted ? 0 : a.calm + dt;
+  if (a.calm > 3 && a.hp < a.maxHp) a.hp = Math.min(a.maxHp, a.hp + a.maxHp * .08 * dt);   // catch your breath between fights
+  // gathering: stand still next to something worth picking up
+  const still = Math.hypot(a.ctrl.mx, a.ctrl.my) < .05 && a.rollT <= 0; let node = null;
+  if (still && !hunted) for (const n of G.nodes) if (n.ready && Math.hypot(n.x - a.x, n.y - a.y) < 38) { node = n; break; }
+  if (!node) { a.gather = null; return; }
+  if (!a.gather || a.gather.id !== node.id) a.gather = { id: node.id, t: 0 };
+  a.gather.t += dt;
+  if (a.gather.t >= GATHER_TIME) { node.ready = false; node.t = NODE_RESPAWN; a.gather = null; ev(G, { k: 'gathered', id: node.id, type: node.type, by: a.idx }); }
+}
+function stepField(G, dt) {
+  G.t += dt;
+  for (const a of G.actors) if (a.human) playerThink(G, a, dt);
+  for (const a of G.actors) updActor(G, a, dt);
+  for (const e of G.enemies) updEnemy(G, e, dt);
+  updWorld(G, dt);
+  G.enemies = G.enemies.filter(e => e.alive);
+  G.respawns = G.respawns.filter(r => { if (G.t < r.at || G.actors.some(a => Math.hypot(a.x - r.home.x, a.y - r.home.y) < 170)) return true; spawnMob(G, r.kind, r.home); return false; });
+  for (const n of G.nodes) if (!n.ready) { n.t -= dt; if (n.t <= 0) n.ready = true; }
+  for (const a of G.actors) fieldActor(G, a, dt);
+}
+/* What a gather or a kill gives. The server rolls this for online accounts. */
+function fieldYield(what, key) {
+  const m = {};
+  if (what === 'gather') { if (key === 'herb') m.herb = 1 + (Math.random() < .35 ? 1 : 0); else if (key === 'wreck') m.scrap = 2 + Math.floor(Math.random() * 2); else if (key === 'salt') m.salt = 1; }
+  else if (key === 'crab') { if (Math.random() < .6) m.scrap = 1; }
+  else if (key === 'acolyte') { if (Math.random() < .5) m.salt = 1; }
+  return m;
+}
+function grant(p, mats) { fixProfile(p); for (const k of Object.keys(mats)) if (k in MATS) p.inv[k] = Math.min(MAT_CAP, p.inv[k] + mats[k]); }
+
 function step(G, dt) {
+  if (G.mode === 'field') return stepField(G, dt);
   if (G.state === 'countdown') { G.cd -= dt; if (G.cd <= 0) { G.cd = 0; G.state = 'run'; nextWave(G); } return; }
   if (G.state !== 'run') return;
   G.t += dt;
@@ -384,13 +489,13 @@ function step(G, dt) {
 
 /* ---------- progression: the same rules on the server and in the offline client ---------- */
 const LOOT = { w: ['武器', ['鏽潮錨刃', '沉鐘之舌', '霧燈長弓']], a: ['護甲', ['看守者鍊甲', '鹽殼護肩', '潮紋斗篷']], t: ['飾品', ['霧燈碎片', '潮鳴鐘錘', '生鏽的羅盤']] };
-const MATS = { scrap: '鏽鐵屑', salt: '鹽晶', shard: '沉鐘碎片' };
+const MATS = { scrap: '鏽鐵屑', salt: '鹽晶', shard: '沉鐘碎片', herb: '潮草' };
 const POTION_CAP = 5, POTION_HEAL = .35, MAT_CAP = 9999;
 const ilvlOf = gear => Math.round((gear.w + gear.a + gear.t) / 3);
 const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
 const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
 const gearCap = lvl => 10 + lvl * 4 + 7;        // how far tempering can push a slot at this tower level
-function newProfile() { return { lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, q: null }; }
+function newProfile() { return { lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null }; }
 function fixProfile(p) {   // fill in anything an older save does not have
   const d = newProfile();
   for (const k of Object.keys(d)) if (p[k] == null) p[k] = d[k];
@@ -421,7 +526,7 @@ function applyResult(p, lvl, r) {
 const RECIPES = [];
 for (const k of ['w', 'a', 't']) RECIPES.push({ id: 'forge-' + k, kind: 'forge', slot: k, name: '鍛造' + LOOT[k][0], cost: { scrap: 12, salt: 3 } });
 for (const k of ['w', 'a', 't']) RECIPES.push({ id: 'temper-' + k, kind: 'temper', slot: k, name: '淬鍊' + LOOT[k][0], cost: { shard: 2, scrap: 6 } });
-RECIPES.push({ id: 'potion', kind: 'potion', name: '潮息藥水', cost: { salt: 2, scrap: 2 } });
+RECIPES.push({ id: 'potion', kind: 'potion', name: '潮息藥水', cost: { herb: 2, salt: 1 } });   // the herb only grows in the field
 /* What a recipe would do for this profile right now: { can, why, result }. */
 function recipeInfo(p, rc) {
   fixProfile(p);
@@ -467,6 +572,8 @@ const WEEK = [
 const SIDE = [
   { id: 's-party', title: '結伴', goal: '和至少一位其他玩家一起通關', need: 1, online: true, reward: { scrap: 10, potion: 1 }, upd: (v, ev) => isRun(ev) && ev.win && ev.mates > 0 ? 1 : v },
   { id: 's-classes', title: '三種走法', goal: '用三個職業各通關一次', need: 3, reward: { shard: 2 }, upd: (v, ev) => isRun(ev) && ev.win ? v | (CLS_BIT[ev.cls] || 0) : v, have: bits },
+  { id: 's-gather', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
+  { id: 's-hunt', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
   { id: 's-friend', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
 ];
 const weekOf = now => Math.floor((Math.floor((now + 8 * 3600000) / 86400000) + 3) / 7);
@@ -476,7 +583,7 @@ function fixQuests(p, now) {
   let q = p.q; if (!q || typeof q !== 'object') q = p.q = {};
   q.main = qInt(q.main, 0, MAIN.length); q.mp = qInt(q.mp, 0, 999);
   const side = {}, os = q.side && typeof q.side === 'object' ? q.side : {};
-  for (const d of SIDE) { const v = os[d.id]; if (Number.isInteger(v) && v >= -1 && v <= 7) side[d.id] = v; }
+  for (const d of SIDE) { const v = os[d.id]; if (Number.isInteger(v) && v >= -1 && v <= 99) side[d.id] = v; }
   const ow = q.week && typeof q.week === 'object' ? q.week : {}, wk = { n: qInt(ow.n, 0, 1e6), p: {}, c: {} };
   for (const d of WEEK) { const v = ow.p && ow.p[d.id]; if (Number.isInteger(v) && v > 0) wk.p[d.id] = Math.min(d.need, v); if (ow.c && ow.c[d.id]) wk.c[d.id] = 1; }
   if (now != null && wk.n !== weekOf(now)) { wk.n = weekOf(now); wk.p = {}; wk.c = {}; }
@@ -495,7 +602,7 @@ function questList(p, now, online) {
   }
   return { items, mainDone: q.main, mainTotal: MAIN.length };
 }
-/* ev: { type: 'run', win, onTime, cls, kicks, hits, mates } | { type: 'craft', kind } | { type: 'friend' } */
+/* ev: { type: 'run', win, onTime, cls, kicks, hits, mates } | { type: 'craft', kind } | { type: 'friend' } | { type: 'gather' } | { type: 'kill' } */
 function questEvent(p, ev, now) {
   const q = fixQuests(p, now), m = MAIN[q.main];
   if (isRun(ev)) { ev.kicks = qInt(ev.kicks, 0, 50); ev.hits = qInt(ev.hits, 0, 999); }
@@ -530,6 +637,7 @@ function snapshot(G) {
 }
 
 return { W, H, TIME_LIMIT, CLASSES, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
+  FIELD, GATHER_TIME, NODE_RESPAWN, createField, fieldYield, grant,
   MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id) };
 });

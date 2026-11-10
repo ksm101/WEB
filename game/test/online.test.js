@@ -48,14 +48,16 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.deepStrictEqual(Story.ORDER, ['prologue'].concat(Sim.MAIN_IDS)); assert.deepStrictEqual(Object.keys(Story.SCENES).sort(), Story.ORDER.slice().sort());
   for (const id of Story.ORDER) {
     const sc = Story.SCENES[id]; assert.ok(sc.title && sc.lines.length >= 3 && sc.lines.length <= 6, id);
+    if (id !== 'prologue') assert.ok(Sim.FIELD.npcs.some(n => n.id === sc.at), `${id}: nobody at the camp hands this in`);
     for (const [who, text] of sc.lines) { assert.ok(who === 'n' || Story.CAST[who], `${id}: unknown speaker ${who}`); assert.ok(text.length > 0 && text.length <= 48, `${id}: line too long (${text.length})`); }
   }
-  ok('story: a scene for the prologue and for every main quest, known speakers, short lines');
+  for (const n of Sim.FIELD.npcs) { assert.ok(Story.CAST[n.id] && Story.IDLE[n.id].length >= 2, n.id); for (const t of Story.IDLE[n.id]) assert.ok(t.length <= 48, t); }
+  ok('story: a scene for the prologue and for every main quest, each handed in by someone at the camp, short lines');
 
   // accounts
   const A = await named(port, '小明'), B = await named(port, '<b>壞</b>名字超級長');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);
-  { const { q, ...rest } = A.me.profile; assert.deepStrictEqual(rest, { name: '小明', lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
+  { const { q, ...rest } = A.me.profile; assert.deepStrictEqual(rest, { name: '小明', lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
   assert.strictEqual(B.me.profile.name, 'b壞/b名字超級');
   const forged = client(port, { id: A.me.id, token: 'x'.repeat(32) }); await forged.ready;
   assert.notStrictEqual(forged.me.id, A.me.id, 'a wrong token must not open someone else\'s account'); forged.ws.close();
@@ -125,12 +127,12 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
 
   // crafting: the server owns the bag
   A.send({ t: 'craft', id: 'forge-a' }); let cr = await A.wait('crafted'); assert.strictEqual(cr.ok, false); assert.match(cr.msg, /材料不夠/);
-  Object.assign(srv.store.get(A.me.id).inv, { scrap: 40, salt: 10, shard: 4 });
+  Object.assign(srv.store.get(A.me.id).inv, { scrap: 40, salt: 10, shard: 4, herb: 5 });
   const lvlA = cr.profile.lvl, armor = cr.profile.gear.a < 10 + lvlA * 4 + 3;
   A.send({ t: 'craft', id: 'forge-a' }); cr = await A.wait('crafted');
   if (armor) { assert.strictEqual(cr.ok, true); assert.strictEqual(cr.profile.gear.a, 10 + lvlA * 4 + 3); assert.strictEqual(cr.profile.inv.scrap, 28); assert.strictEqual(cr.profile.inv.salt, 7); }
   A.send({ t: 'craft', id: 'temper-a' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, true); assert.strictEqual(cr.profile.inv.shard, 2);
-  A.send({ t: 'craft', id: 'potion' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, true); assert.strictEqual(cr.profile.inv.potion, 2);
+  A.send({ t: 'craft', id: 'potion' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, true); assert.strictEqual(cr.profile.inv.potion, 2); assert.strictEqual(cr.profile.inv.herb, 3, 'the potion uses the field herb');
   A.send({ t: 'craft', id: '__proto__' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, false);
   A.send({ t: 'craft', id: 'nope' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, false);
   ok('crafting spends materials on the server, refuses when short, and rejects unknown recipes');
@@ -150,6 +152,19 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   B2.send({ t: 'claim', id: 's-friend' }); assert.strictEqual((await B2.wait('claimed')).ok, true, 'and for the other side too');
   A.send({ t: 'claim', id: 'constructor' }); cl = await A.wait('claimed'); assert.strictEqual(cl.ok, false);
   ok('quests: the server counts progress, only finished quests pay out, and only once');
+
+  // field ledger: the device says what happened, the server decides what it was worth and how fast it may happen
+  A.send({ t: 'fg', id: 1 }); let fy = await A.wait('fy'); assert.strictEqual(fy.ok, false, 'no field session yet');
+  A.send({ t: 'field0' }); const herb0 = fy.profile.inv.herb;
+  A.send({ t: 'fg', id: 1 }); fy = await A.wait('fy'); assert.strictEqual(fy.ok, true); assert.ok(fy.mats.herb >= 1); assert.strictEqual(fy.profile.inv.herb, herb0 + fy.mats.herb); assert.strictEqual(fy.profile.q.side['s-gather'], 1);
+  A.send({ t: 'fg', id: 1 }); fy = await A.wait('fy'); assert.strictEqual(fy.ok, false, 'the same node has not regrown');
+  A.send({ t: 'fg', id: 7 }); fy = await A.wait('fy'); assert.strictEqual(fy.ok, false, 'two gathers cannot be faster than the gathering time');
+  A.send({ t: 'fg', id: 999 }); fy = await A.wait('fy'); assert.strictEqual(fy.ok, false);
+  let paid = 0; for (let i = 0; i < 9; i++) { A.send({ t: 'fk', kind: 'crab' }); if ((await A.wait('fy')).ok) paid++; }
+  assert.strictEqual(paid, 6, 'kills are paid at a limited rate');
+  for (const kind of ['boss', 'grunt', '__proto__', 'constructor', 7]) { A.send({ t: 'fk', kind }); assert.strictEqual((await A.wait('fy')).ok, false, String(kind)); }
+  assert.strictEqual(A.last.fy.profile.q.side['s-hunt'], 6);
+  ok('field: gathers and kills are rewarded by the server, within regrow time and a kill rate, for field creatures only');
 
   // solo claims
   A.send({ t: 'solo1', win: true, time: 150 }); assert.strictEqual((await A.wait('solo')).ok, false, 'a claim without a started run is refused');
