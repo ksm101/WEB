@@ -33,7 +33,7 @@ function client(port, cred) {
 // sign in and create one character of the given class
 const named = async (port, name, cls) => { const c = client(port), first = await c.ready; c.send({ t: 'char-new', name, cls: cls || 'dps' }); await c.wait('me', m => m !== first); return c; };
 const get = (port, p) => new Promise((res, rej) => http.get({ host: '127.0.0.1', port, path: p }, r => { let b = ''; r.on('data', d => b += d); r.on('end', () => res({ status: r.statusCode, body: b })); }).on('error', rej));
-const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lobbyWait: 600, debug: true, soloMin: .2 }, o)); await new Promise(r => s.server.on('listening', r)); return s; };
+const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lobbyWait: 600, debug: true, soloMin: .2, eventPeriod: 1e13, eventDur: 0 }, o)); await new Promise(r => s.server.on('listening', r)); return s; };
 
 (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'embertide-'));
@@ -260,6 +260,28 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   P1.send({ t: 'join', field: true }); const solo1 = await P1.wait('start', m => m.field && m.code !== 'CAMP'); assert.match(solo1.code, /^[0-9A-F]{4}$/); assert.strictEqual(solo1.roster.length, 1);
   for (const c of [P1, P2, P3, P4, P5]) c.ws.close();
   ok('party field: shared map by code, drop in and out, personal gathering, kill credit for everyone near, four at most');
+
+  // the tide surge: a public event. This server has it switched off (dur 0); a second one has it always open.
+  const Q0 = await named(port, '沒潮', 'dps'); assert.strictEqual(Q0.me.ev.dur, 0); Q0.send({ t: 'join', event: true, x: 450, y: 800 }); assert.match((await Q0.wait('event-no')).msg, /已經退了/); Q0.ws.close();
+  const es = await boot({ dataDir: null, secret: 'ev', eventPeriod: 1e13, eventDur: 1e13 }), ep = es.server.address().port, spot = Sim.FIELD.events[0];
+  const E1 = await named(ep, '浪一', 'dps'), E2 = await named(ep, '浪二', 'tank'); assert.ok(E1.me.ev.dur > 0 && E1.me.ev.period > 0);
+  E1.send({ t: 'join', event: true, x: spot.x - 30, y: spot.y + 60 }); const ev1 = await E1.wait('start'); assert.strictEqual(ev1.event, true); assert.strictEqual(ev1.you, 0);
+  const at1 = await E1.wait('s'); assert.ok(Math.abs(at1.a[0][0] - (spot.x - 30)) < 4 && Math.abs(at1.a[0][1] - (spot.y + 60)) < 4, 'you appear where you walked in, not at the camp');
+  E2.send({ t: 'join', event: true, x: 9e9, y: -9e9 }); const ev2 = await E2.wait('start'); assert.strictEqual(ev2.you, 1); assert.deepStrictEqual(ev2.roster.map(r => r.name), ['浪一', '浪二'], 'strangers land in the same surge');
+  const at2 = await E2.wait('s', m => m.a.length === 2); assert.ok(Math.hypot(at2.a[1][0] - spot.x, at2.a[1][1] - spot.y) < 420, 'a wild position is pulled back near the surge');
+  const w0 = await E1.wait('s', m => m.evs && m.evs[0] === 0 && m.e.some(e => e[1] === 'crab')); assert.ok(w0, 'the first wave comes ashore');
+  const weak = setInterval(() => E1.send({ t: 'dbg', k: 'weak' }), 150);
+  const [d1, d2] = await Promise.all([E1.wait('event-end', null, 60000), E2.wait('event-end', null, 60000)]); clearInterval(weak);
+  assert.strictEqual(d1.win, true); assert.ok(d1.xp >= 150 && d1.mats.shard === 1); assert.deepStrictEqual(d1.mates, ['浪二']); assert.deepStrictEqual(d2.mates, ['浪一']);
+  assert.strictEqual(d1.profile.q.week.p['w-surge'], 1); assert.ok(d2.profile.inv.herb >= 2);
+  E1.send({ t: 'social' }); assert.strictEqual((await E1.wait('social')).recent[0].name, '浪二', 'people met in a surge can be befriended afterwards');
+  E2.send({ t: 'join', event: true, x: spot.x, y: spot.y }); assert.match((await E2.wait('event-no')).msg, /已經結束/);
+  for (const c of [E1, E2]) c.ws.close(); await sleep(100); await es.close();
+  // a surge that runs out of time fails and pays nothing
+  const et = await boot({ dataDir: null, secret: 'ev2', eventPeriod: 1e13, eventDur: 1e13 }), E3 = await named(et.server.address().port, '浪三', 'dps');
+  E3.send({ t: 'join', event: true, x: spot.x, y: spot.y + 60 }); await E3.wait('start'); E3.send({ t: 'dbg', k: 'evtime' });
+  const lost = await E3.wait('event-end'); assert.strictEqual(lost.win, false); assert.strictEqual(lost.xp, 0); assert.strictEqual(lost.profile.inv.shard, 0); E3.ws.close(); await sleep(100); await et.close();
+  ok('tide surge: opens on a schedule, strangers share one field, joining keeps your place, win pays everyone present, timeout pays nothing');
 
   // skill loadouts and aimed casts
   const T = await named(port, '換技', 'tank'); let lr;

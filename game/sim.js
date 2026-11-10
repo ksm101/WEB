@@ -73,6 +73,7 @@ const ENEMY = {
   // field creatures: tuned for one player; aggro and leash are distances
   crab: { name: '鏽灘蟹', hp: 300, dmg: 20, aspd: 1.4, range: 6, speed: 64, r: 11, aggro: 95, leash: 300 },
   acolyte: { name: '鹽咒學徒', hp: 240, dmg: 85, aspd: 0, range: 150, speed: 58, r: 11, aggro: 130, leash: 320, caster: true },
+  brute: { name: '鏽錨巨蟹', hp: 2200, dmg: 34, aspd: 1.6, range: 10, speed: 54, r: 20, aggro: 200, leash: 9999, elite: true },     // only comes ashore with the surge
   boss: { name: '鏽潮看守者 莫葛', hp: 27000, dmg: 80, aspd: 1.5, range: 10, speed: 58, r: 28 }
 };
 const WAVES = [ [['grunt', 3]], [['grunt', 2], ['caster', 1]], [['grunt', 2], ['caster', 2]], [['boss', 1]] ];
@@ -87,6 +88,7 @@ const FIELD = {
   w: 900, h: 1500,
   spawn: [450, 1398], fire: [450, 1330], safe: { x: 450, y: 1325, r: 150 },   // monsters neither enter nor attack into the camp
   gate: { x: 450, y: 120, r: 46 },
+  events: [{ x: 450, y: 790, r: 115 }, { x: 620, y: 430, r: 115 }],             // where the tide surge can come ashore
   npcs: [{ id: 'kol', x: 385, y: 1285 }, { id: 'mira', x: 512, y: 1280 }, { id: 'jin', x: 540, y: 1372 }, { id: 'wu', x: 372, y: 1378 }],
   path: [[450, 1320], [430, 1100], [520, 860], [400, 620], [470, 380], [450, 170]],
   rocks: [{ x: 250, y: 1150, r: 34 }, { x: 650, y: 1010, r: 40 }, { x: 330, y: 900, r: 30 }, { x: 690, y: 740, r: 36 }, { x: 220, y: 660, r: 38 },
@@ -173,27 +175,28 @@ function mkEnemy(G, kind, x, y) {
 }
 function spawnMob(G, pk, home) {
   const def = FIELD.packs[pk], e = mkEnemy(G, def.kind, home.x + rand(-14, 14), home.y + rand(-14, 14));
-  e.pk = pk; e.home = home; e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3); e.engaged = false; e.ret = false; scaleMob(e, mobLevel(def, partyLevel(G)), Math.max(1, present(G).length)); return e;
+  e.pk = pk; e.home = home; e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3); e.engaged = false; e.ret = false; scaleMob(e, mobLevel(def, partyLevel(G)), G.ev ? 1 : Math.max(1, present(G).length)); return e;
 }
-function fieldSeat(p, idx) {
-  const a = mkActor(p.cls, p.name, [FIELD.spawn[0] + (idx - 1.5) * 26, FIELD.spawn[1] + (idx % 2) * 18], p.pow);
+function fieldSeat(p, idx, at) {
+  const a = mkActor(p.cls, p.name, at ? [clamp(at[0], 20, FIELD.w - 20), clamp(at[1], 20, FIELD.h - 20)] : [FIELD.spawn[0] + (idx % 4 - 1.5) * 26, FIELD.spawn[1] + (idx % 2) * 18], p.pow);
   a.lvl = p.lvl > 0 ? p.lvl : 1; if (p.skills) a.skills = skillSet(p.cls, p.skills);
   a.idx = idx; a.human = true; a.out = false; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; return a;
 }
-/* opts: { lvl, players: [{ cls, name, pow, id, lvl, skills }] } (or a single `player`). No bots and no timer.
- * Up to four people share one field; each gathering spot regrows separately for each of them. */
+/* opts: { lvl, players: [{ cls, name, pow, id, lvl, skills }] } (or a single `player`), cap (seats, 4 unless said), event ({ x, y, r }
+ * for a field that holds a tide surge). No bots and no timer. Each gathering spot regrows separately for each person. */
 function createField(opts) {
-  const ps = opts.players || [opts.player];
+  const ps = opts.players || (opts.player ? [opts.player] : []), cap = opts.cap || 4;
   const G = { mode: 'field', bw: FIELD.w, bh: FIELD.h, t: 0, lvl: opts.lvl || 1, elvl: 1, es: 1, state: 'run', cd: 0, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
-    boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: false, respawns: [], nodes: FIELD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, cd: [0, 0, 0, 0] })) };
-  ps.slice(0, 4).forEach((p, i) => G.actors.push(fieldSeat(p, i)));
+    boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: false, respawns: [], cap, nodes: FIELD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, cd: new Array(cap).fill(0) })),
+    ev: opts.event ? { x: opts.event.x, y: opts.event.y, r: opts.event.r, wave: -1, t: 0, gap: 2, done: false } : null };
+  ps.slice(0, cap).forEach((p, i) => G.actors.push(fieldSeat(p, i)));
   FIELD.packs.forEach((pk, k) => { for (let i = 0; i < pk.n; i++) spawnMob(G, k, { x: pk.x + (i - (pk.n - 1) / 2) * 34, y: pk.y + (i % 2) * 22 }); });
   return G;
 }
 /* Someone walks in: they take a seat that was left, or a new one. Returns the seat, or -1 when the field is full. */
-function addFieldActor(G, p) {
-  let idx = G.actors.findIndex(a => a.out); if (idx < 0) { if (G.actors.length >= 4) return -1; idx = G.actors.length; }
-  G.actors[idx] = fieldSeat(p, idx); for (const n of G.nodes) n.cd[idx] = 0; return idx;
+function addFieldActor(G, p, at) {
+  let idx = G.actors.findIndex(a => a.out); if (idx < 0) { if (G.actors.length >= G.cap) return -1; idx = G.actors.length; }
+  G.actors[idx] = fieldSeat(p, idx, at); for (const n of G.nodes) n.cd[idx] = 0; return idx;
 }
 function removeFieldActor(G, idx) {
   const a = G.actors[idx]; if (!a || a.out) return; a.out = true; a.alive = false; a.target = null; a.gather = null;
@@ -231,7 +234,7 @@ function hurtEnemy(G, e, dmg, src, big, noUlt) {
   ev(G, { k: 'dmg', x: R(e.x), y: R(e.y - e.r - 6), v: R(dmg), big: big ? 1 : 0, by: src.idx });
   if (e.hp <= 0) {
     e.hp = 0; e.alive = false; ring(G, e.x, e.y, e.r * .5, e.r * 2.2, e.boss ? 'brass' : 'rust', .45);
-    if (G.mode === 'field') { G.respawns.push({ pk: e.pk, home: e.home, at: G.t + MOB_RESPAWN }); ev(G, { k: 'kill', kind: e.kind, pk: e.pk, by: src.idx, who: present(G).filter(a => a === src || (a.alive && dist(a, e) < 420)).map(a => a.idx) }); }   // everyone nearby gets credit
+    if (G.mode === 'field') { if (!e.evm) G.respawns.push({ pk: e.pk, home: e.home, at: G.t + MOB_RESPAWN }); ev(G, { k: 'kill', kind: e.kind, pk: e.pk, by: src.idx, who: present(G).filter(a => a === src || (a.alive && dist(a, e) < 420)).map(a => a.idx) }); }   // everyone nearby gets credit
     if (e.boss) { for (const o of G.enemies) if (o !== e && o.alive) { o.alive = false; ring(G, o.x, o.y, 6, 30, 'rust', .4); } G.zones.length = 0; shake(G, .6); }
   }
 }
@@ -534,6 +537,10 @@ function updEnemy(G, e, dt) {
   if (d > e.r + tg.r + e.def.range) { e.x += dx * e.def.speed * dt; e.y += dy * e.def.speed * dt; }
   else { e.atkT -= dt; if (e.atkT <= 0) { e.atkT = e.def.aspd / (e.tm.enraged ? 1.3 : 1); hurtActor(G, tg, e.dmg * (e.boss ? bossMul(G) : 1) * rand(.9, 1.1), false); ring(G, tg.x, tg.y, 4, 16, 'danger', .18); } }
   if (e.boss) bossBrain(G, e, dt, tg);
+  if (e.def.elite) {      // the brute slams the ground under whoever it is chasing
+    e.tm.slam = (e.tm.slam === undefined ? 4 : e.tm.slam) - dt;
+    if (e.tm.slam <= 0) { e.tm.slam = 6; addZone(G, { type: 'circle', x: tg.x, y: tg.y, r: 62, dur: 1.5, dmg: 130 * lvF(e.lvl) }); e.cast = { name: '砸地', t: 0, dur: 1.5, kickable: false }; }
+  }
 }
 function bossBrain(G, b, dt, tg) {
   const tm = b.tm, sp = tm.enraged ? 1.3 : 1;
@@ -587,6 +594,7 @@ function finish(G, win) {
 /* ---------- field rules ---------- */
 /* Returns true when the creature should fight this step; otherwise it has already wandered or walked home. */
 function fieldMob(G, e, dt) {
+  if (e.evm) { const foe = nearest(e, present(G)); if (!foe) return false; if (!e.threat.size) e.threat.set(foe, 1); return true; }      // surge creatures never give up
   const home = e.home, dHome = Math.hypot(e.x - home.x, e.y - home.y);
   if (e.ret) {
     const d = dHome || 1, sp = e.def.speed * 1.6 * dt; e.x += (home.x - e.x) / d * Math.min(sp, d); e.y += (home.y - e.y) / d * Math.min(sp, d);
@@ -611,7 +619,8 @@ function fieldActor(G, a, dt) {
   if (a.out) return;
   if (!a.alive) {
     a.gather = null; a.downT += dt;
-    if (a.downT >= 3) { a.downT = 0; a.alive = true; a.hp = a.maxHp; a.x = FIELD.spawn[0]; a.y = FIELD.spawn[1]; a.target = null; ev(G, { k: 'woke', i: a.idx }); }
+    if (a.downT >= 3) { a.downT = 0; a.alive = true; a.hp = a.maxHp; const E = G.ev && !G.ev.done ? G.ev : null;      // during a surge you get back up at its edge, not at the far camp
+      a.x = E ? E.x + (a.idx % 2 ? 1 : -1) * 40 : FIELD.spawn[0]; a.y = E ? Math.min(FIELD.h - 20, E.y + E.r + 40) : FIELD.spawn[1]; a.target = null; ev(G, { k: 'woke', i: a.idx, ev: E ? 1 : 0 }); }
     return;
   }
   const hunted = G.enemies.some(e => e.engaged && e.threat.has(a));
@@ -628,7 +637,7 @@ function fieldActor(G, a, dt) {
 }
 function stepField(G, dt) {
   G.t += dt;
-  const here = present(G), size = Math.max(1, here.length), plv = partyLevel(G);
+  const here = present(G), size = G.ev ? 1 : Math.max(1, here.length), plv = partyLevel(G);      // in a surge field the ordinary creatures stay solo-sized
   for (const a of here) playerThink(G, a, dt);
   for (const a of here) updActor(G, a, dt);
   for (const e of G.enemies) updEnemy(G, e, dt);
@@ -636,10 +645,30 @@ function stepField(G, dt) {
   G.enemies = G.enemies.filter(e => e.alive);
   G.respawns = G.respawns.filter(r => { if (G.t < r.at || here.some(a => Math.hypot(a.x - r.home.x, a.y - r.home.y) < 170)) return true; spawnMob(G, r.pk, r.home); return false; });
   // creatures that are not in a fight follow the party's level, inside their pack's range, and its size
-  for (const e of G.enemies) if (!e.engaged && !e.ret) { const want = mobLevel(FIELD.packs[e.pk], plv); if (e.lvl !== want || e.size !== size) scaleMob(e, want, size); }
-  for (const n of G.nodes) for (let i = 0; i < 4; i++) if (n.cd[i] > 0) n.cd[i] -= dt;
+  for (const e of G.enemies) if (!e.evm && !e.engaged && !e.ret) { const want = mobLevel(FIELD.packs[e.pk], plv); if (e.lvl !== want || e.size !== size) scaleMob(e, want, size); }
+  for (const n of G.nodes) for (let i = 0; i < n.cd.length; i++) if (n.cd[i] > 0) n.cd[i] -= dt;
+  stepEvent(G, dt);
   for (const a of G.actors) fieldActor(G, a, dt);
 }
+/* ---------- the tide surge: a public event in the field ----------
+ * Three waves come ashore at one spot, the last led by a brute. Creatures are sized for however many people are
+ * there when a wave starts, at the group's level held between EV_MIN and EV_MAX. */
+const EV_WAVES = [[['crab', 3]], [['crab', 2], ['acolyte', 1]], [['brute', 1], ['crab', 1]]], EV_MIN = 3, EV_MAX = 16;
+function stepEvent(G, dt) {
+  const E = G.ev; if (!E || E.done) return; const here = present(G); if (!here.length) return;
+  E.t += dt; if (G.enemies.some(e => e.evm && e.alive)) return;
+  if (E.wave >= EV_WAVES.length - 1) { E.done = true; ev(G, { k: 'event-done' }); return; }
+  E.gap -= dt; if (E.gap > 0) return; E.gap = 2.5; E.wave++;
+  const size = here.length, lvl = clamp(partyLevel(G), EV_MIN, EV_MAX); let i = 0;
+  for (const [kind, n] of EV_WAVES[E.wave]) for (let k = 0; k < n + (kind === 'crab' ? Math.floor((size - 1) / 2) : 0); k++) {
+    const an = (i++) * 2.4 + E.wave, e = mkEnemy(G, kind, E.x + Math.cos(an) * 92, E.y + Math.sin(an) * 92);
+    e.evm = true; e.pk = -1; e.home = { x: E.x, y: E.y }; e.wx = e.x; e.wy = e.y; e.wt = 0; e.engaged = true; e.ret = false; scaleMob(e, lvl, 1 + (size - 1) * .7);      // a little gentler per head than a party's own field
+  }
+  banner(G, E.wave === EV_WAVES.length - 1 ? '鏽錨巨蟹上岸了' : `漲潮　第 ${E.wave + 1} 波`, 2000);
+}
+/* What everyone who saw a surge through gets. */
+function eventReward(p) { fixProfile(p); const mats = { shard: 1, scrap: 4, herb: 2 }; grant(p, mats); const x = addXp(p, 150 + 25 * p.cl); return { mats, xp: x.xp, ups: x.ups }; }
+
 /* What a gather or a kill gives. The server rolls this for online accounts. */
 function fieldYield(what, key) {
   const m = {};
@@ -775,6 +804,7 @@ const MAIN = [
 const WEEK = [
   { id: 'w-runs', title: '本週巡塔', goal: '這週通關 5 場', need: 5, reward: { xp: 300, scrap: 15, salt: 4 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
   { id: 'w-kicks', title: '本週斷法', goal: '這週成功打斷 10 次', need: 10, reward: { xp: 250, salt: 5 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
+  { id: 'w-surge', title: '本週漲潮', goal: '這週在鏽灘撐過 2 次漲潮', need: 2, online: true, reward: { xp: 300, shard: 2 }, inc: ev => ev.type === 'event' ? 1 : 0 },
   { id: 'w-ontime', title: '本週準時', goal: '這週三分鐘內通關 3 場', need: 3, reward: { xp: 350, shard: 2 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 }
 ];
 const SIDE = [
@@ -802,7 +832,7 @@ const rewardText = r => Object.keys(r).map(k => `${k === 'xp' ? '經驗' : k ===
 function questList(p, now, online) {
   const q = fixQuests(p, now), items = [], m = MAIN[q.main];
   if (m) { const have = Math.min(m.need, m.value ? m.value(p) : q.mp); items.push({ id: m.id, group: 'main', title: m.title, goal: m.goal, have, need: m.need, ready: have >= m.need, claimed: false, reward: rewardText(m.reward) }); }
-  for (const d of WEEK) { const have = q.week.p[d.id] || 0, claimed = !!q.week.c[d.id]; items.push({ id: d.id, group: 'week', title: d.title, goal: d.goal, have: claimed ? d.need : have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) }); }
+  for (const d of WEEK) { if (d.online && !online) continue; const have = q.week.p[d.id] || 0, claimed = !!q.week.c[d.id]; items.push({ id: d.id, group: 'week', title: d.title, goal: d.goal, have: claimed ? d.need : have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) }); }
   for (const d of SIDE) {
     if (d.online && !online) continue;
     const v = d.id === 's-level' && q.side[d.id] !== -1 ? p.cl : q.side[d.id] || 0, claimed = v === -1, have = claimed ? d.need : Math.min(d.need, d.have ? d.have(v) : v);
@@ -841,13 +871,14 @@ function snapshot(G) {
       e.cast ? [e.cast.name, r2(e.cast.t), e.cast.dur, e.cast.kickable ? 1 : 0, e.cast.victim ? e.cast.victim.idx : -1] : 0, e.lvl, e.engaged ? 1 : 0, e.ret ? 1 : 0]),
     z: G.zones.map(z => [z.id, z.friendly ? (z.heal ? 2 : 1) : 0, z.type === 'circle' ? 0 : 1, r1(z.x), r1(z.y), z.r || 0, r2(z.ang || 0), z.half || 0, z.len || 0, r2(z.t), z.dur, z.done ? 1 : 0]),
     s: G.shots.map(s => [s.id, r1(s.x), r1(s.y), s.big ? 1 : 0, s.src.idx]),
-    nd: G.nodes ? G.nodes.map(n => (n.cd[0] > 0 ? 1 : 0) | (n.cd[1] > 0 ? 2 : 0) | (n.cd[2] > 0 ? 4 : 0) | (n.cd[3] > 0 ? 8 : 0)) : undefined   // per seat: is this spot used up
+    nd: G.nodes ? G.nodes.map(n => n.cd.reduce((m, v, i) => m | (v > 0 ? 1 << i : 0), 0)) : undefined,   // per seat: is this spot used up
+    evs: G.ev ? [G.ev.wave, G.ev.done ? 1 : 0] : undefined
   };
 }
 
 return { W, H, TIME_LIMIT, CLASSES, SKILLS, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
   cleanAim, defaultLoadout, validLoadout, loadoutOf, setLoadout,
-  FIELD, GATHER_TIME, NODE_RESPAWN, createField, addFieldActor, removeFieldActor, present, pushOut, fieldYield, grant, fieldGain,
+  FIELD, GATHER_TIME, NODE_RESPAWN, createField, addFieldActor, removeFieldActor, present, pushOut, fieldYield, grant, fieldGain, eventReward,
   MAX_LEVEL, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id) };

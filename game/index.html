@@ -520,7 +520,7 @@ function handleEvent(o) {
   switch (o.k) {
     case 'text': addText(o.x, o.y, o.s, C[o.c], o.z, o.d); break;
     case 'ring': FX.fx.push({ type: 'ring', x: o.x, y: o.y, r0: o.a, r1: o.b, col: C[o.c], t: 0, dur: o.d }); break;
-    case 'woke': if (o.i === meIdx) banner('你在營火邊醒來', 1800); break;
+    case 'woke': if (o.i === meIdx) banner(o.ev ? '你在漲潮邊上站了起來' : '你在營火邊醒來', 1800); break;
     case 'beam': FX.fx.push({ type: 'beam', x: o.x, y: o.y, x2: o.x2, y2: o.y2, col: C[o.c], t: 0, dur: .22 }); break;
     case 'line': FX.fx.push({ type: 'line', x: o.x, y: o.y, x2: o.x2, y2: o.y2, w: o.w, col: C[o.c], t: 0, dur: .32 }); break;
     case 'cone': FX.fx.push({ type: 'cone', x: o.x, y: o.y, a: o.a, h: o.h, l: o.l, col: C[o.c], t: 0, dur: .32 }); break;
@@ -584,12 +584,13 @@ function camGoal() {
   // while someone talks the view may run past the south edge, so whoever stands at the bottom is not under the box
   return { x: clamp(tx - vw / 2, 0, Math.max(0, FD.w - vw)), y: clamp(ty - vh / 2, 0, Math.max(0, FD.h - vh) + (talk.lines ? 110 : 0)) };
 }
-function startField(then) {
+function startField(then, pos) {
   mode = 'field'; save.cls = chosen in CLASSES ? chosen : 'dps'; writeSave();
   G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', skills: S.loadoutOf(save, save.cls) } });
   V = G; V.me = G.actors[0]; meIdx = 0;
   if (online && net.authed) send({ t: 'field0' });
-  enterRun(); Object.assign(cam, camGoal()); renderQuests(); banner('鏽灘', 1500);
+  if (pos) { V.me.x = pos[0]; V.me.y = pos[1]; }      // stepping back out of a surge: same place, no fanfare
+  enterRun(); Object.assign(cam, camGoal()); renderQuests(); if (pos) return; banner('鏽灘', 1500);
   const pro = Story.SCENES.prologue, go = () => { if (then) then(); };
   if (pro && !box.intro && !AUTO && !qs.has('nostory')) say(pro.lines, () => { box.intro = true; writeSave(); go(); }); else go();
 }
@@ -599,9 +600,26 @@ function fieldFrame(dt) {
   for (const o of evs) { handleEvent(o); if (o.k === 'gathered') fieldReport('fg', { id: o.id }, 'gather', o.type); else if (o.k === 'kill') fieldReport('fk', { kind: o.kind, pk: o.pk }, 'kill', o.kind, o.pk); }
   fieldView(dt);
 }
+/* The tide surge runs on the server's clock. null when there is no server to run it. */
+function eventNow() {
+  const e = net.ev; if (!e || !e.dur || !online || !net.authed) return null;
+  const now = Date.now() + e.off, cycle = Math.floor(now / e.period), into = now % e.period, active = into < e.dur;
+  return { cycle, active, left: active ? e.dur - into : e.period - into, spot: FD.events[(active ? cycle : cycle + 1) % FD.events.length] };
+}
+/* Back to where you came from, a party's field or your own, standing where you stand now. */
+function goHome(msg) {
+  const h = net.home || { code: '' }, pos = [V.me.x, V.me.y]; net.home = null;
+  if (h.code) send({ t: 'join', field: true, room: h.code, x: pos[0], y: pos[1] }); else { send({ t: 'leave' }); startField(null, pos); }
+  if (msg) banner(msg, 2400);
+}
 /* what is within reach, and where the camera should be */
 function fieldView(dt) {
-  const me = V.me;
+  const me = V.me, en = eventNow(); V.evInfo = en;
+  if (en && en.active && me.alive && !talk.lines) {      // walk into an open surge and you are in it, with whoever else is there
+    const d = Math.hypot(me.x - en.spot.x, me.y - en.spot.y), t = performance.now();
+    if (!V.event && d < en.spot.r && net.evSkip !== en.cycle && (!net.evJoin || t - net.evJoin > 3000)) { net.evJoin = t; net.home = { code: mode === 'online' ? V.code : '' }; send({ t: 'join', event: true, x: me.x, y: me.y }); }
+    else if (V.event && d > en.spot.r + 150) return goHome('你離開了漲潮');
+  }
   nearNpc = null; for (const n of FD.npcs) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearNpc = n;
   nearGate = Math.hypot(FD.gate.x - me.x, FD.gate.y - me.y) < FD.gate.r + 34;
   if (gateOpen && !nearGate) { gateOpen = false; $('#gatebox').hidden = true; }
@@ -656,7 +674,7 @@ function doAct() {
 /* ================= Online ================= */
 const INTERP = 100;   // ms the view runs behind the server so there are always two snapshots to blend
 const net = { ws: null, authed: false, kicked: false, backoff: 0, back: false, buf: [], offset: null, rtt: 80, lastSend: 0, sx: NaN, sy: NaN, lastMove: 0, pingT: 0, fresh: true, emap: new Map(),
-  solo: null, social: null, lobby: null, pendingInvite: '', roomHint: '', socialT: 0, claiming: '' };
+  solo: null, social: null, lobby: null, pendingInvite: '', roomHint: '', socialT: 0, claiming: '', ev: null, evJoin: 0, evSkip: -1, home: null };
 function serverUrl() { return qs.get('server') || ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
 function probe() {   // only offer online play when a game server answers
   if (location.protocol === 'file:' && !qs.get('server')) return;
@@ -708,6 +726,7 @@ function onMsg(m) {
     case 'me':
     { const had = box.chars.length;
       box.key.id = m.id; box.key.token = m.token; applyProfile(m, true); net.authed = true;
+      if (m.ev) net.ev = { off: m.ev.now - Date.now(), period: m.ev.period, dur: m.ev.dur };
       if (QUICK && !box.chars.length) send({ t: 'char-new', name: qs.get('qname') || '測試', cls: QUICK in CLASSES ? QUICK : 'dps' });
       if (m.resume === false && mode === 'online' && inField()) send({ t: 'join', field: true, room: V.code });      // reconnected: walk back into the party's field
       else if (m.resume === false && mode === 'online' && V && !V.result) showMenu('這場副本已經結束了。');
@@ -749,6 +768,14 @@ function onMsg(m) {
       if (m.field) toast(`${m.from.name} 邀請你去野外`, [['加入', () => { closeSocial(); goField(String(m.code)); }], ['略過', null]], 15000);
       else toast(m.gate ? `${m.from.name} 在塔門等你，一起進塔` : `${m.from.name} 邀請你一起打`, [['加入', () => { closeSocial(); chosen = save.cls; goOnline(String(m.code)); }], ['略過', null]], 15000);
       break;
+    case 'event-no': net.evJoin = 0; net.evSkip = m.cycle; net.home = null; toast(String(m.msg || ''), [], 3000); break;
+    case 'event-end': {
+      const done = newlyDone(() => applyProfile(m)); net.evSkip = m.cycle;
+      const got = Object.keys(m.mats || {}).map(k => `${S.MATS[k]} +${m.mats[k]}`).join('、'), mates = (m.mates || []).map(String);
+      toast(m.win ? `漲潮退了。經驗 +${m.xp}${got ? '、' + got : ''}。${mates.length ? `一起守住的人：${mates.join('、')}，好友頁的「最近隊友」可以加他們。` : ''}${done.length ? `任務完成：${done.join('、')}。` : ''}` : '時間到了，這次沒守住。', [], 7000);
+      if (mode === 'online' && V && V.event) goHome();
+      break;
+    }
     case 'roster':      // someone walked into or out of the party's field, or levelled up
       if (mode !== 'online' || !inField()) break;
       m.roster.forEach((r, i) => {
@@ -771,16 +798,19 @@ function seatView(r, i, lvl, at) {
     r: 12, hp: r ? r.maxHp : 1, maxHp: r ? r.maxHp : 1, alive: !!r, potions: r ? r.potions || 0 : 0, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null, gather: null };
 }
 function beginOnline(m) {
-  const back = net.back, field = !!m.field; net.back = false;
+  const back = net.back, field = !!m.field, here = field && inField() && V.me ? [V.me.x, V.me.y] : null; net.back = false; net.evJoin = 0;      // here: already standing in the field, so nobody jumps to the camp
   mode = 'online'; if (!field) lastMode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.emap = new Map(); net.sx = net.sy = NaN;
   V = { mode: field ? 'field' : 'dungeon', code: field ? String(m.code || '') : '', t: 0, state: field ? 'run' : 'countdown', cd: field ? 0 : 3, wave: -1, lvl: m.lvl, elvl: m.elvl || 1, enemies: [], zones: [], shots: [], boss: null, result: null,
     nodes: field ? FD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, ready: true })) : [],
-    actors: m.roster.map((r, i) => seatView(r, i, m.lvl, field ? FD.spawn : SPOTS[i])) };
+    event: !!m.event, cycle: m.cycle, evs: null, evInfo: null,
+    actors: m.roster.map((r, i) => seatView(r, i, m.lvl, field ? here || FD.spawn : SPOTS[i])) };
   V.me = V.actors[meIdx];
   enterRun();
   const n = m.roster.filter(r => r && r.human).length;
   if (!field) return banner(back ? '已重新連線' : n > 1 ? `${n} 名玩家，${4 - n} 名 AI 補位` : '沒等到其他玩家，三名 AI 補位', 2400);
-  Object.assign(cam, camGoal()); renderQuests();
+  if (!here) Object.assign(cam, camGoal()); renderQuests();
+  if (V.event) return banner(`漲潮　這裡現在 ${n} 個人`, 2400);
+  if (here) return;
   banner(back ? '已重新連線' : n > 1 ? `隊伍 ${V.code}，現在 ${n} 個人` : `隊伍 ${V.code}　朋友輸入這組房號就會出現`, 3200);
   if (net.pendingInvite) { send({ t: 'invite', id: net.pendingInvite }); net.pendingInvite = ''; }      // the party exists now, so the invite can go out
   const pro = Story.SCENES.prologue; if (pro && !box.intro && !qs.has('nostory')) say(pro.lines, () => { box.intro = true; writeSave(); });
@@ -821,6 +851,7 @@ function buildView(now) {
     if (a !== V.me || net.fresh) { a.x = a.sx; a.y = a.sy; }
   });
   net.fresh = false;
+  V.evs = s1.evs || null;
   if (s1.nd && V.nodes.length) s1.nd.forEach((mask, k) => { if (V.nodes[k]) V.nodes[k].ready = !(mask & (1 << meIdx)); });   // each person has their own gathering spots
   V.zones = s1.z.map(d => { const p = s0.z.find(q => q[0] === d[0]); return { friendly: !!d[1], heal: d[1] === 2, type: d[2] ? 'cone' : 'circle', x: d[3], y: d[4], r: d[5], ang: d[6], half: d[7], len: d[8], t: p ? L(p[9], d[9]) : d[9], dur: d[10], done: !!d[11] }; });
   V.shots = s1.s.map(d => { const p = s0.s.find(q => q[0] === d[0]); const x = p ? L(p[1], d[1]) : d[1], y = p ? L(p[2], d[2]) : d[2]; return { x, y, px: p ? x - (d[1] - p[1]) * .25 : x, py: p ? y - (d[2] - p[2]) * .25 : y, big: !!d[3], col: V.actors[d[4]].def.color }; });
@@ -916,7 +947,7 @@ function drawEnemy(e, dt) {
     const ax = x + Math.cos(e.face) * (r + 6), ay = y + Math.sin(e.face) * (r + 6);   // the anchor it swings
     c.strokeStyle = C.rust; c.lineWidth = 3; c.beginPath(); c.moveTo(x + Math.cos(e.face) * 12, y + Math.sin(e.face) * 12); c.lineTo(ax, ay); c.stroke();
     c.beginPath(); c.arc(ax, ay, 9, e.face - 1.4, e.face + 1.4); c.stroke();
-  } else if (e.kind === 'crab') {
+  } else if (e.kind === 'crab' || e.kind === 'brute') {
     c.fillStyle = fl ? C.foam : C.rust; c.strokeStyle = C.ink; c.beginPath(); c.ellipse(x, y, r + 2, r - 2, e.face + Math.PI / 2, 0, TAU); c.fill(); c.stroke();
     c.strokeStyle = C.rust; c.lineWidth = 3; for (const k of [-.75, .75]) { c.beginPath(); c.arc(x + Math.cos(e.face + k) * (r + 5), y + Math.sin(e.face + k) * (r + 5), 4, e.face + k - 1.9, e.face + k + 1.9); c.stroke(); }
     c.fillStyle = C.ink; for (const k of [-.35, .35]) { c.beginPath(); c.arc(x + Math.cos(e.face + k) * 5, y + Math.sin(e.face + k) * 5, 1.6, 0, TAU); c.fill(); }
@@ -954,6 +985,14 @@ function drawField() {
   const fx = FD.fire[0], fy = FD.fire[1], fg = c.createRadialGradient(fx, fy, 4, fx, fy, 96); fg.addColorStop(0, C.ember); fg.addColorStop(1, 'transparent');
   c.globalAlpha = reduced ? .3 : .28 + .05 * Math.sin(clock * 6); c.fillStyle = fg; c.fillRect(fx - 96, fy - 96, 192, 192);
   c.globalAlpha = 1; c.fillStyle = C.ember; poly(fx, fy, 9, 5, 4, reduced ? 0 : clock * 2); c.fill();
+  const en = V.evInfo;                                                               // the tide surge: open now, or coming soon
+  if (en && (en.active || en.left < 90000)) {
+    const sp = en.spot; c.strokeStyle = C.brass; c.lineWidth = en.active ? 3 : 1.5; c.globalAlpha = en.active ? .8 : .35; c.setLineDash(en.active ? [] : [6, 8]);
+    c.beginPath(); c.arc(sp.x, sp.y, sp.r + (en.active && !reduced ? Math.sin(clock * 3) * 4 : 0), 0, TAU); c.stroke(); c.setLineDash([]);
+    if (en.active) { c.globalAlpha = .07; c.fillStyle = C.brass; c.fill(); }
+    const label = V.event ? (V.evs && V.evs[0] >= 0 ? `漲潮　第 ${V.evs[0] + 1} 波` : '漲潮　快來了') : en.active ? `漲潮　剩 ${fmt(en.left / 1000)}　走進來就加入` : `漲潮　${fmt(en.left / 1000)} 後`;
+    c.globalAlpha = 1; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText(label, sp.x, sp.y - sp.r - 10); c.fillStyle = C.brass; c.fillText(label, sp.x, sp.y - sp.r - 10);
+  }
   const g = FD.gate;                                                                 // the tower gate
   c.fillStyle = C.ink; c.strokeStyle = C.rust; c.lineWidth = 4; c.beginPath(); c.arc(g.x, g.y, g.r, Math.PI, 0); c.lineTo(g.x + g.r, g.y + 22); c.lineTo(g.x - g.r, g.y + 22); c.closePath(); c.fill(); c.stroke();
   c.strokeStyle = C.brass; c.lineWidth = 2; c.globalAlpha = .75; c.beginPath(); c.arc(g.x, g.y - 8, 15, 0, TAU); c.stroke(); c.beginPath(); c.arc(g.x, g.y - 8, 5, 0, TAU); c.stroke();
@@ -986,6 +1025,11 @@ function drawMinimap() {
   dot(FD.gate.x, FD.gate.y, C.brass, 3); dot(FD.fire[0], FD.fire[1], C.ember, 3);
   for (const a of V.actors) if (a !== V.me && !a.out && !a.ghost) dot(a.x, a.y, C.heal, 2);      // the rest of the party
   dot(V.me.x, V.me.y, C.foam, 2.5);
+  const en = V.evInfo;
+  if (en) {      // the surge on the map, with its clock underneath
+    if (en.active || en.left < 90000) { c.strokeStyle = C.brass; c.lineWidth = 1.5; c.globalAlpha = en.active ? 1 : .5; c.beginPath(); c.arc(x + en.spot.x * k, y + en.spot.y * k, 5, 0, TAU); c.stroke(); c.globalAlpha = 1; }
+    const t = (en.active ? '漲潮中 ' : '漲潮 ') + fmt(en.left / 1000); c.font = `700 10px ${F.display}`; c.textAlign = 'right'; c.lineWidth = 2.5; c.strokeStyle = C.ink; c.strokeText(t, x + w, y + h + 13); c.fillStyle = en.active ? C.brass : C.mute; c.fillText(t, x + w, y + h + 13);
+  }
 }
 /* ---------- aiming a skill ----------
  * Touching a skill that needs pointing starts an aim. Let go without moving and it casts at the obvious target.
@@ -1084,7 +1128,7 @@ function updFx(dt) {
 /* ================= HUD ================= */
 let frames = [], skBtns = [];
 function buildHud() {
-  const field = V.mode === 'field'; $('#place').textContent = field ? (V.code ? `鏽灘　隊伍 ${V.code}` : '鏽灘') : '沉鐘塔'; $('#lvl').textContent = field ? '燼港外緣' : `第 ${V.lvl} 層`;
+  const field = V.mode === 'field'; $('#place').textContent = field ? (V.event ? '鏽灘　漲潮' : V.code ? `鏽灘　隊伍 ${V.code}` : '鏽灘') : '沉鐘塔'; $('#lvl').textContent = field ? '燼港外緣' : `第 ${V.lvl} 層`;
   const party = $('#party'); party.textContent = ''; frames = [];
   V.actors.forEach((a, i) => {
     if (a.out || a.ghost) return;      // an empty seat in the party

@@ -62,7 +62,10 @@ function start(opts) {
   opts = opts || {};
   const speed = opts.speed || 1;                       // tests fast-forward the simulation
   const lobbyWait = opts.lobbyWait != null ? opts.lobbyWait : 8000;
-  const soloMin = opts.soloMin != null ? opts.soloMin : 40;   // fastest solo clear the server will believe, in seconds
+  const soloMin = opts.soloMin != null ? opts.soloMin : 40;
+  // the tide surge: every evPeriod ms one starts and stays open for evDur ms, at a spot that rotates
+  const evPeriod = opts.eventPeriod || 360000, evDur = opts.eventDur != null ? opts.eventDur : 240000;
+  const eventNow = now => { const cycle = Math.floor(now / evPeriod), into = now % evPeriod, spots = Sim.FIELD.events; return { cycle, active: into < evDur, endsAt: now - into + evDur, spot: spots[cycle % spots.length] }; };   // fastest solo clear the server will believe, in seconds
   const store = createStore(opts.dataDir !== undefined ? opts.dataDir : (process.env.DATA_DIR || path.join(__dirname, 'data')), opts.secret);
   const rooms = new Map();                             // key -> room
   const seats = new Map();                             // account id -> { room, idx } while a run is going
@@ -90,7 +93,7 @@ function start(opts) {
 
   const send = (ws, o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
   const humans = room => room.slots.filter(Boolean);
-  const sendMe = (ws, extra) => { const r = ws.acc; send(ws, Object.assign({ t: 'me', id: r.id, token: store.token(r.id), bk: store.pack(r), profile: profileOf(r), chars: rosterOf(r), cur: r.cur }, extra)); };
+  const sendMe = (ws, extra) => { const r = ws.acc; send(ws, Object.assign({ t: 'me', id: r.id, token: store.token(r.id), bk: store.pack(r), profile: profileOf(r), chars: rosterOf(r), cur: r.cur, ev: { now: Date.now(), period: evPeriod, dur: evDur } }, extra)); };
 
   /* ---------- accounts ---------- */
   function onHello(ws, m) {
@@ -182,6 +185,7 @@ function start(opts) {
   function onJoin(ws, m) {
     const rec = ws.acc, c = pc(rec);
     if (seats.has(rec.id)) return;                       // already seated in a run
+    if (m.event) return onEventJoin(ws, m);
     if (m.field) return onFieldJoin(ws, m);
     leave(ws);
     const cls = c.cls, code = cleanCode(m.room); let room = null, idx = -1;      // the class is the character's, whatever the client says
@@ -278,17 +282,49 @@ function start(opts) {
     const rec = ws.acc, c = pc(rec); leave(ws);
     let code = cleanCode(m.room); if (!code) do { code = crypto.randomBytes(2).toString('hex').toUpperCase(); } while (rooms.has('f:' + code));
     const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
+    const at = Number.isFinite(m.x) && Number.isFinite(m.y) ? [m.x, m.y] : null;      // coming back from a surge: stand where you were
     let room = rooms.get('f:' + code), idx = 0;
-    if (room) { idx = Sim.addFieldActor(room.G, p); if (idx < 0) return send(ws, { t: 'err', msg: '這個隊伍滿了，最多 4 個人。' }); }
+    if (room) { idx = Sim.addFieldActor(room.G, p, at); if (idx < 0) return send(ws, { t: 'err', msg: '這個隊伍滿了，最多 4 個人。' }); }
     else {
       if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' });
-      room = { key: 'f:' + code, code, kind: 'field', pub: false, state: 'run', slots: [], G: Sim.createField({ lvl: c.lvl, grace: 12, players: [p] }), acc: 0, n: 0, clock: 0, last: Date.now(), goneSince: 0 };
-      rooms.set(room.key, room);
+      room = { key: 'f:' + code, code, kind: 'field', pub: false, state: 'run', slots: [], G: Sim.createField({ lvl: c.lvl, grace: 12, players: [] }), acc: 0, n: 0, clock: 0, last: Date.now(), goneSince: 0 };
+      rooms.set(room.key, room); idx = Sim.addFieldActor(room.G, p, at);
     }
     room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls: c.cls, ws }; ws.info = { room, idx }; ws.field = null;
     send(ws, { t: 'start', field: true, code, you: idx, lvl: room.G.lvl, elvl: 1, roster: fieldRosterOf(room) });
     fieldRoster(room);
   }
+  /* The tide surge. Everyone who walks into it while it is open lands in the same field, strangers included; it is
+   * the one place in the field where you meet people you did not bring. Up to 8 at once. */
+  function onEventJoin(ws, m) {
+    const rec = ws.acc, c = pc(rec), now = Date.now(), en = eventNow(now), key = 'e:' + en.cycle, refuse = msg => send(ws, { t: 'event-no', msg, cycle: en.cycle });
+    if (!en.active) return refuse('漲潮已經退了。');
+    let room = rooms.get(key);
+    if (room && room.done) return refuse('這一次漲潮已經結束了。');
+    if (!room && rooms.size >= MAX_ROOMS) return refuse('伺服器滿了，晚點再試。');
+    const sp = en.spot, far = sp.r + 160;
+    const at = [Math.max(sp.x - far, Math.min(sp.x + far, Number.isFinite(m.x) ? m.x : sp.x)), Math.max(sp.y - far, Math.min(sp.y + far, Number.isFinite(m.y) ? m.y : sp.y + sp.r))];   // where they walked in, kept near the surge
+    const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
+    if (!room) { room = { key, code: '', kind: 'field', event: true, cycle: en.cycle, endsAt: en.endsAt, done: false, closeAt: 0, pub: true, state: 'run', slots: [], G: Sim.createField({ lvl: 1, grace: 12, cap: 8, event: sp, players: [] }), acc: 0, n: 0, clock: 0, last: now, goneSince: 0 }; rooms.set(key, room); }
+    leave(ws);
+    const idx = Sim.addFieldActor(room.G, p, at); if (idx < 0) return refuse('這場漲潮人滿了。');
+    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls: c.cls, ws }; ws.info = { room, idx }; ws.field = null;
+    send(ws, { t: 'start', field: true, event: true, code: '', you: idx, lvl: 1, elvl: 1, cycle: en.cycle, roster: fieldRosterOf(room) });
+    fieldRoster(room);
+  }
+  /* A surge is over, won or timed out: pay those who are there, introduce them to each other, and close the field. */
+  function endEvent(room, win) {
+    if (room.done) return; room.done = true; room.closeAt = Date.now() + 5000;
+    const here = room.slots.filter(Boolean), now = Date.now();
+    for (const s of here) {
+      const rec = store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) continue; let gain = { mats: {}, xp: 0 };
+      if (win) { gain = Sim.eventReward(c); Sim.questEvent(c, { type: 'event' }, now); }
+      for (const o of here) if (o.id !== s.id) rec.recent = [{ id: o.id, name: o.name, cls: o.cls, at: now }].concat(rec.recent.filter(x => x.id !== o.id)).slice(0, 10);   // so they can befriend each other afterwards
+      store.put(rec);
+      send(s.ws, { t: 'event-end', win, cycle: room.cycle, mats: gain.mats, xp: gain.xp, mates: here.filter(o => o.id !== s.id).map(o => o.name), profile: charProfile(c), bk: store.pack(rec) });
+    }
+  }
+
   /* Pay out what the simulation says happened. A gather pays the person who gathered; a kill pays everyone who was near. */
   function fieldRewards(room, events) {
     const G = room.G, now = Date.now(); let grew = false;
@@ -302,6 +338,7 @@ function start(opts) {
     for (const o of events) {
       if (o.k === 'gathered') { const n = Sim.FIELD.nodes.find(q => q.id === o.id); if (n) pay(o.by, 'gather', n.type); }
       else if (o.k === 'kill') for (const i of o.who) pay(i, 'kill', o.kind, o.pk);
+      else if (o.k === 'event-done') endEvent(room, true);
     }
     if (grew) fieldRoster(room);
   }
@@ -355,6 +392,10 @@ function start(opts) {
         continue;
       }
       const G = room.G;
+      if (room.event) {      // a surge closes when it is won, or when its time is up
+        if (!room.done && now >= room.endsAt) endEvent(room, false);
+        if (room.done && now >= room.closeAt) { for (const s of room.slots) if (s && s.ws && s.ws.info && s.ws.info.room === room) s.ws.info = null; rooms.delete(room.key); continue; }
+      }
       if (room.slots.some(s => s && s.ws)) room.goneSince = 0;
       else { if (!room.goneSince) room.goneSince = now; if (now - room.goneSince > 20000) { endRoom(room); rooms.delete(room.key); continue; } }
       room.acc += Math.min(.25, (now - room.last) / 1000) * speed; room.last = now;
@@ -410,6 +451,7 @@ function start(opts) {
         if (m.k === 'hurt') a.hp = Math.round(a.maxHp * .4);
         if (m.k === 'tp' && Number.isFinite(m.x) && Number.isFinite(m.y)) { a.x = m.x; a.y = m.y; }
         if (m.k === 'weak') for (const e of G.enemies) e.hp = 1;
+        if (m.k === 'evtime' && room.event) room.endsAt = Date.now();
       }
     });
     ws.on('close', () => { unseat(ws); if (ws.acc && online.get(ws.acc.id) === ws) online.delete(ws.acc.id); });
