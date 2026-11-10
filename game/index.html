@@ -168,6 +168,13 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 #gatebox p{margin:0 0 2px;font-size:13px;color:var(--mute)}
 #gatebox p b{font-family:var(--f-display);font-size:17px;color:var(--foam);letter-spacing:.08em}
 #gatebox .btn{height:48px;font-size:17px}
+#aim-cancel{position:absolute;left:50%;transform:translateX(-50%);top:8px;padding:9px 16px;border:1.5px dashed var(--mute);border-radius:8px;font-size:12px;color:var(--mute);background:var(--ink);pointer-events:none;white-space:nowrap}
+#aim-cancel.hot{border-color:var(--danger);color:var(--danger)}
+.cards.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+.cards.four .card{padding:10px 2px 8px}
+.cards.four .card b{font-size:24px}
+.cards.four .card span{font-size:11px}
+#lo-body{display:flex;flex-direction:column;gap:14px}
 .pair{display:flex;gap:8px}
 .pair .btn{flex:1;min-width:0;letter-spacing:.06em}
 .chips{display:flex;flex-wrap:wrap;gap:10px}
@@ -248,6 +255,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 
   <footer id="deck">
     <p id="stick-hint">在這一區拖曳就能移動</p>
+    <div id="aim-cancel" hidden>拖到這裡取消</div>
     <div id="stick-base" hidden><div id="stick-nub"></div></div>
     <button class="sk pot" id="pot" type="button" aria-label="潮息藥水：回復血量，每場限用一瓶" hidden><b>藥</b><small>藥水</small></button>
     <div id="skills"></div>
@@ -267,7 +275,8 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <button class="questline" id="m-quest" type="button"></button>
       <div class="cards" id="cards"></div>
       <ul class="kit" id="kit"></ul>
-      <p class="how" id="how">拖曳移動，角色會自動普攻。<br>地上出現紅色範圍就離開。<br>敵人讀條變成金色時按「斷」。</p>
+      <button class="btn ghost" id="lo-open" type="button">換技能</button>
+      <p class="how" id="how">拖曳移動，角色會自動普攻。<br>地上出現紅色範圍就離開。<br>敵人讀條變成金色時按「斷」。<br>技能短按會自動找目標；按住拖曳可以自己瞄準。</p>
       <p class="gear" id="gear"></p>
       <div class="fields" id="fields" hidden>
         <label for="nick">暱稱<input id="nick" type="text" maxlength="8" autocomplete="off" spellcheck="false"></label>
@@ -322,6 +331,17 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div id="quests-body"></div>
     </div>
   </section>
+  <section id="loadout" class="overlay top" hidden>
+    <div class="wrap">
+      <div class="head">
+        <div><p class="eyebrow" id="lo-eyebrow"></p><h2>換技能</h2></div>
+        <button class="chip" id="lo-close" type="button">關閉</button>
+      </div>
+      <p class="lore">一般技能帶三個，大招帶一個。先點上面要換掉的格子，再點下面的技能。新技能隨等級解鎖。</p>
+      <div class="cards four" id="lo-slots"></div>
+      <div id="lo-body"></div>
+    </div>
+  </section>
   <section id="bag" class="overlay top" hidden>
     <div class="wrap">
       <div class="head">
@@ -364,7 +384,7 @@ const F = { display: tok('--f-display'), num: tok('--f-num') };
  * With a game server the account lives there; this is a cache of it plus the key that signs this device in.
  * Without one (a plain copy of this page) progress stays on this device. */
 const SAVE_KEY = 'embertide.v1';
-const save = { lvl: 1, cl: 1, xp: 0, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, q: null, intro: false, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
+const save = { lvl: 1, cl: 1, xp: 0, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, q: null, loadout: {}, intro: false, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
 function loadSave() {
   try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s === 'object') Object.assign(save, s); } catch (e) {}
   if (!save.acct || typeof save.acct !== 'object') save.acct = { id: '', token: '', bk: '' };
@@ -380,7 +400,11 @@ function newlyDone(change) { const before = readyQuests(); change(); levelCheck(
 /* Announce a level-up once, wherever the experience came from, and make it count straight away in the field. */
 let shownCl = 0;
 function levelCheck(quiet) {
-  if (shownCl && !quiet && save.cl > shownCl) { banner(`升到 Lv.${save.cl}`, 2400); if (mode === 'field' && V && V.me) S.setLevel(V.me, save.cl, S.charPower(save)); }
+  if (shownCl && !quiet && save.cl > shownCl) {
+    banner(`升到 Lv.${save.cl}`, 2400); if (mode === 'field' && V && V.me) S.setLevel(V.me, save.cl, S.charPower(save));
+    const d = CLASSES[save.cls], fresh = d ? d.pool.concat(d.ults).map(id => S.SKILLS[id]).filter(k => k.lv > shownCl && k.lv <= save.cl) : [];
+    if (fresh.length) toast(`解鎖新技能：${fresh.map(k => k.name).join('、')}。到主選單的「換技能」換上。`, [], 5000);
+  }
   shownCl = save.cl;
 }
 
@@ -439,6 +463,8 @@ function handleEvent(o) {
     case 'text': addText(o.x, o.y, o.s, C[o.c], o.z, o.d); break;
     case 'ring': FX.fx.push({ type: 'ring', x: o.x, y: o.y, r0: o.a, r1: o.b, col: C[o.c], t: 0, dur: o.d }); break;
     case 'beam': FX.fx.push({ type: 'beam', x: o.x, y: o.y, x2: o.x2, y2: o.y2, col: C[o.c], t: 0, dur: .22 }); break;
+    case 'line': FX.fx.push({ type: 'line', x: o.x, y: o.y, x2: o.x2, y2: o.y2, w: o.w, col: C[o.c], t: 0, dur: .32 }); break;
+    case 'cone': FX.fx.push({ type: 'cone', x: o.x, y: o.y, a: o.a, h: o.h, l: o.l, col: C[o.c], t: 0, dur: .32 }); break;
     case 'banner': banner(o.s, o.ms); break;
     case 'shake': FX.shake = Math.max(FX.shake, o.v); break;
     case 'hurt': { const a = V.actors[o.i]; addText(a.x, a.y - 18, o.v, C.danger, a === me ? 14 : 10); if (a === me) FX.shake = Math.max(FX.shake, o.av ? .35 : .15); break; }
@@ -451,7 +477,7 @@ function handleEvent(o) {
 /* everything the player does goes through here, so solo and online behave the same */
 function act(o) {
   if (!V || !V.me) return;
-  if (mode === 'solo' || mode === 'field') { const inp = V.me.input; if ('c' in o) inp.cast[o.c] = true; else if ('h' in o) inp.heal = o.h; else if ('p' in o) inp.pot = true; else inp.tg = o.g; }
+  if (mode === 'solo' || mode === 'field') { const inp = V.me.input; if ('c' in o) { inp.cast[o.c] = true; inp.aim[o.c] = o.aim || null; } else if ('h' in o) inp.heal = o.h; else if ('p' in o) inp.pot = true; else inp.tg = o.g; }
   else if (mode === 'online') send(Object.assign({ t: 'a' }, o));
 }
 function enterRun() {
@@ -463,7 +489,7 @@ function enterRun() {
 }
 function startSolo(cls) {
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
-  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion }] });
+  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls) }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
   if (net.authed) send({ t: 'solo0', lvl: save.lvl, cls });
   enterRun(); banner('三名 AI 隊友已就位', 2200);
@@ -500,7 +526,7 @@ function camGoal() {
 }
 function startField(then) {
   mode = 'field'; save.cls = chosen in CLASSES ? chosen : 'dps'; writeSave();
-  G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me' } });
+  G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', skills: S.loadoutOf(save, save.cls) } });
   V = G; V.me = G.actors[0]; meIdx = 0;
   if (online && net.authed) send({ t: 'field0' });
   enterRun(); Object.assign(cam, camGoal()); renderQuests(); banner('鏽灘', 1500);
@@ -599,7 +625,7 @@ function goOnline(roomOverride) {
 }
 function applyProfile(m, quiet) {   // the server's word on this account
   if (m.bk) save.acct.bk = m.bk;
-  const p = m.profile; if (p) { save.lvl = p.lvl; save.gear = p.gear; save.best = p.best; save.runs = p.runs; save.nick = p.name; if (p.inv) save.inv = p.inv; if (p.q) save.q = p.q; if (p.cl) { save.cl = p.cl; save.xp = p.xp || 0; } }
+  const p = m.profile; if (p) { save.lvl = p.lvl; save.gear = p.gear; save.best = p.best; save.runs = p.runs; save.nick = p.name; if (p.inv) save.inv = p.inv; if (p.q) save.q = p.q; if (p.cl) { save.cl = p.cl; save.xp = p.xp || 0; } if (p.loadout) save.loadout = p.loadout; }
   writeSave(); levelCheck(quiet);
 }
 function onMsg(m) {
@@ -634,6 +660,7 @@ function onMsg(m) {
       toast(String(m.msg || '') + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); renderBag(); if (!$('#menu').hidden) renderMenu();
       break;
     }
+    case 'loadout': applyProfile(m); if (!m.ok) toast(String(m.msg || ''), [], 4000); renderLoadout(); if (!$('#menu').hidden) renderMenu(); break;
     case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && mode === 'field' && Story.SCENES[id]) say(Story.SCENES[id].lines); break; }
     case 'fy': { const done = newlyDone(() => applyProfile(m)); if (mode === 'field' && m.ok) showYield(m.mats || {}, done, m.xp); break; }
     case 'social': net.social = m; renderSocial(); break;
@@ -650,6 +677,7 @@ function beginOnline(m) {
   mode = 'online'; lastMode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.emap = new Map(); net.sx = net.sy = NaN;
   V = { t: 0, state: 'countdown', cd: 3, wave: -1, lvl: m.lvl, elvl: m.elvl || 1, enemies: [], zones: [], shots: [], boss: null, result: null,
     actors: m.roster.map((r, i) => ({ idx: i, cls: r.cls, def: CLASSES[r.cls], name: String(r.name), lvl: r.lvl > 0 ? r.lvl : m.lvl, human: !!r.human, x: SPOTS[i][0], y: SPOTS[i][1], sx: SPOTS[i][0], sy: SPOTS[i][1],
+      skills: Array.isArray(r.skills) && r.skills.length === 4 && r.skills.every(id => S.SKILLS[id]) ? r.skills.map(id => S.SKILLS[id]) : CLASSES[r.cls].skills,
       r: 12, hp: r.maxHp, maxHp: r.maxHp, alive: true, potions: r.potions || 0, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null })) };
   V.me = V.actors[meIdx];
   enterRun();
@@ -689,7 +717,7 @@ function buildView(now) {
     if (a !== V.me || net.fresh) { a.x = a.sx; a.y = a.sy; }
   });
   net.fresh = false;
-  V.zones = s1.z.map(d => { const p = s0.z.find(q => q[0] === d[0]); return { friendly: !!d[1], type: d[2] ? 'cone' : 'circle', x: d[3], y: d[4], r: d[5], ang: d[6], half: d[7], len: d[8], t: p ? L(p[9], d[9]) : d[9], dur: d[10], done: !!d[11] }; });
+  V.zones = s1.z.map(d => { const p = s0.z.find(q => q[0] === d[0]); return { friendly: !!d[1], heal: d[1] === 2, type: d[2] ? 'cone' : 'circle', x: d[3], y: d[4], r: d[5], ang: d[6], half: d[7], len: d[8], t: p ? L(p[9], d[9]) : d[9], dur: d[10], done: !!d[11] }; });
   V.shots = s1.s.map(d => { const p = s0.s.find(q => q[0] === d[0]); const x = p ? L(p[1], d[1]) : d[1], y = p ? L(p[2], d[2]) : d[2]; return { x, y, px: p ? x - (d[1] - p[1]) * .25 : x, py: p ? y - (d[2] - p[2]) * .25 : y, big: !!d[3], col: V.actors[d[4]].def.color }; });
 }
 /* Your own character moves the moment you drag, without waiting for the server; it is then eased toward
@@ -742,8 +770,9 @@ function shadow(x, y, r) { ctx.fillStyle = C.ink; ctx.globalAlpha = .45; ctx.beg
 function drawZone(z) {
   const c = ctx, p = clamp(z.t / z.dur, 0, 1);
   if (z.friendly) {
-    c.fillStyle = C.ember; c.globalAlpha = .16; c.beginPath(); c.arc(z.x, z.y, z.r, 0, TAU); c.fill();
-    c.globalAlpha = .7; c.strokeStyle = C.ember; c.lineWidth = 1.5; c.stroke();
+    const zc = z.heal ? C.heal : C.ember;      // green water heals, embers burn
+    c.fillStyle = zc; c.globalAlpha = .16; c.beginPath(); c.arc(z.x, z.y, z.r, 0, TAU); c.fill();
+    c.globalAlpha = .7; c.strokeStyle = zc; c.lineWidth = 1.5; c.stroke();
     for (let i = 0; i < 6; i++) { const a = i * 1.7 + z.t * 3, rr = z.r * ((i * .37 + z.t * .9) % 1); c.fillRect(z.x + Math.cos(a) * rr - 1, z.y + Math.sin(a) * rr - 4, 2, 8); }
     c.globalAlpha = 1; return;
   }
@@ -850,6 +879,62 @@ function drawMinimap() {
   const dot = (px, py, col, r) => { c.fillStyle = col; c.beginPath(); c.arc(x + px * k, y + py * k, r, 0, TAU); c.fill(); };
   dot(FD.gate.x, FD.gate.y, C.brass, 3); dot(FD.fire[0], FD.fire[1], C.ember, 3); dot(V.me.x, V.me.y, C.foam, 2.5);
 }
+/* ---------- aiming a skill ----------
+ * Touching a skill that needs pointing starts an aim. Let go without moving and it casts at the obvious target.
+ * Drag and a guide appears: a line or a fan for a direction, a circle for a spot, a ring on whoever you are picking.
+ * Let go to cast there, or over the cancel box to call it off. */
+const aim = { on: false, i: -1, sk: null, pid: -1, sx: 0, sy: 0, vx: 0, vy: 0, live: false, cancel: false };
+function aimStart(ev, i, sk) {
+  if (sk.aim === 'self') return act({ c: i });                 // nothing to point at: cast on touch
+  Object.assign(aim, { on: true, i, sk, pid: ev.pointerId, sx: ev.clientX, sy: ev.clientY, vx: 0, vy: 0, live: false, cancel: false });
+  try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch (e) {}
+}
+function aimMove(ev) {
+  if (!aim.on || ev.pointerId !== aim.pid) return;
+  const dx = ev.clientX - aim.sx, dy = ev.clientY - aim.sy, m = Math.hypot(dx, dy), R = 60, box = $('#aim-cancel');
+  if (m > 14) aim.live = true; aim.vx = m > R ? dx / m : dx / R; aim.vy = m > R ? dy / m : dy / R;
+  box.hidden = !aim.live; const r = box.getBoundingClientRect();
+  aim.cancel = aim.live && ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom; box.classList.toggle('hot', aim.cancel);
+}
+function aimEnd(ev, dropped) {
+  if (!aim.on || ev.pointerId !== aim.pid) return;
+  const i = aim.i, res = aim.live ? aimResolve() : null, off = dropped || aim.cancel; aim.on = false; $('#aim-cancel').hidden = true;
+  if (!off) act(res && res.aim ? { c: i, aim: res.aim } : { c: i });
+}
+/* What the current drag points at. */
+function aimResolve() {
+  const me = V && V.me, sk = aim.sk, m = Math.hypot(aim.vx, aim.vy); if (!me || !sk || m < .05) return null;
+  if (sk.aim === 'dir') return { aim: { k: 'd', x: aim.vx / m, y: aim.vy / m }, dx: aim.vx / m, dy: aim.vy / m };
+  const span = sk.aim === 'point' ? sk.range : clamp(sk.range, 90, 260), px = me.x + aim.vx * span, py = me.y + aim.vy * span;
+  if (sk.aim === 'point') return { aim: { k: 'p', x: px, y: py }, px, py };
+  const ally = sk.aim === 'ally'; let best = null, bd = 80;      // a unit: whoever is nearest to where the drag points
+  for (const u of ally ? V.actors : V.enemies) {
+    if (u.alive === false || u.ret || (!ally && dist(me, u) - me.r - u.r > sk.range)) continue;
+    const d = Math.hypot(u.x - px, u.y - py); if (d < bd) { bd = d; best = u; }
+  }
+  return { aim: best ? { k: 'id', id: ally ? -(best.idx + 1) : best.id } : null, unit: best, px, py };
+}
+function drawAim() {
+  if (!aim.on || !aim.live || !V || !V.me) return;
+  const c = ctx, me = V.me, sk = aim.sk, r = aimResolve(), col = aim.cancel ? C.danger : C.foam;
+  c.save(); c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 1.5;
+  if (sk.aim !== 'dir') { c.globalAlpha = .28; c.setLineDash([5, 6]); c.beginPath(); c.arc(me.x, me.y, Math.min(sk.range, 400) + (sk.aim === 'point' ? 0 : me.r), 0, TAU); c.stroke(); c.setLineDash([]); }   // how far it reaches
+  if (r && sk.aim === 'dir') {
+    const ang = Math.atan2(r.dy, r.dx);
+    if (sk.half) { c.beginPath(); c.moveTo(me.x, me.y); c.arc(me.x, me.y, sk.range, ang - sk.half, ang + sk.half); c.closePath(); c.globalAlpha = .2; c.fill(); c.globalAlpha = .85; c.stroke(); }
+    else {
+      c.translate(me.x, me.y); c.rotate(ang); c.globalAlpha = .2; c.fillRect(0, -sk.w, sk.range, sk.w * 2); c.globalAlpha = .85; c.strokeRect(0, -sk.w, sk.range, sk.w * 2);
+      c.beginPath(); c.moveTo(sk.range + 14, 0); c.lineTo(sk.range, -sk.w - 5); c.lineTo(sk.range, sk.w + 5); c.closePath(); c.fill();
+    }
+  } else if (r && sk.aim === 'point') {
+    const dx = r.px - me.x, dy = r.py - me.y, d = Math.hypot(dx, dy) || 1, k = Math.min(1, sk.range / d);
+    c.beginPath(); c.arc(me.x + dx * k, me.y + dy * k, sk.rad, 0, TAU); c.globalAlpha = .2; c.fill(); c.globalAlpha = .9; c.stroke();
+  } else if (r) {
+    const u = r.unit; c.globalAlpha = u ? .8 : .35; c.beginPath(); c.moveTo(me.x, me.y); c.lineTo(u ? u.x : r.px, u ? u.y : r.py); c.stroke();
+    if (u) { c.globalAlpha = 1; c.lineWidth = 3; c.strokeStyle = aim.cancel ? C.danger : C.brass; c.beginPath(); c.arc(u.x, u.y, u.r + 8, 0, TAU); c.stroke(); }
+  }
+  c.restore();
+}
 function render(dt) {
   const c = ctx, field = !!V && V.mode === 'field'; let sx = 0, sy = 0;
   if (FX.shake > 0 && !reduced) { sx = rand(-1, 1) * FX.shake * 5; sy = rand(-1, 1) * FX.shake * 5; }
@@ -858,6 +943,7 @@ function render(dt) {
   else { if (floor) c.drawImage(floor, sx * dpr, sy * dpr); c.setTransform(dpr * scale, 0, 0, dpr * scale, (offX + sx) * dpr, (offY + sy) * dpr); }
   if (!V) return;
   for (const z of V.zones) drawZone(z);
+  drawAim();
   for (const a of V.actors) if (!a.alive) drawActor(a, dt);
   if (field) { for (const n of V.nodes) drawNode(n); for (const n of FD.npcs) drawNpc(n); }
   for (const e of V.enemies) drawEnemy(e, dt);
@@ -867,6 +953,8 @@ function render(dt) {
   for (const f of FX.fx) {
     const p = f.t / f.dur; c.globalAlpha = 1 - p; c.strokeStyle = f.col;
     if (f.type === 'ring') { c.lineWidth = 2.5; c.beginPath(); c.arc(f.x, f.y, f.r0 + (f.r1 - f.r0) * p, 0, TAU); c.stroke(); }
+    else if (f.type === 'line') { c.globalAlpha = (1 - p) * .6; c.lineWidth = f.w * 2; c.lineCap = 'butt'; c.beginPath(); c.moveTo(f.x, f.y); c.lineTo(f.x2, f.y2); c.stroke(); c.lineCap = 'round'; }
+    else if (f.type === 'cone') { c.globalAlpha = (1 - p) * .5; c.fillStyle = f.col; c.beginPath(); c.moveTo(f.x, f.y); c.arc(f.x, f.y, f.l, f.a - f.h, f.a + f.h); c.closePath(); c.fill(); }
     else { c.lineWidth = 3; c.beginPath(); c.moveTo(f.x, f.y); c.lineTo(f.x2, f.y2); c.stroke(); }
   }
   c.globalAlpha = 1; c.textAlign = 'center';
@@ -902,12 +990,14 @@ function buildHud() {
   $('#pot').hidden = !(V.me.potions > 0);   // only shown when you brought one
   const box = $('#skills'); box.textContent = ''; skBtns = [];
   const posCls = ['main', 's1', 's2', 's3'];
-  V.me.def.skills.forEach((sk, i) => {
+  aim.on = false; $('#aim-cancel').hidden = true;
+  V.me.skills.forEach((sk, i) => {
     const b = el('button', 'sk ' + posCls[i] + (sk.ult ? ' ult' : '')); b.type = 'button'; b.id = 'sk' + i;
     const cdn = el('span', 'cdn'); b.append(el('b', '', sk.seal), el('small', '', sk.name), cdn);
     b.setAttribute('aria-label', `${sk.name}：${sk.desc}`);
     let lastPD = 0;
-    b.addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); lastPD = performance.now(); act({ c: i }); });
+    b.addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); lastPD = performance.now(); aimStart(ev, i, sk); });
+    b.addEventListener('pointermove', aimMove); b.addEventListener('pointerup', ev => aimEnd(ev, false)); b.addEventListener('pointercancel', ev => aimEnd(ev, true));
     b.addEventListener('click', () => { if (performance.now() - lastPD > 500) act({ c: i }); });
     box.appendChild(b); skBtns.push({ el: b, cdn, sk });
   });
@@ -935,7 +1025,7 @@ function hud() {
     const txt = !s.sk.ult && p.cds[i] > 0 ? String(Math.ceil(p.cds[i])) : ''; if (s.cdn.textContent !== txt) s.cdn.textContent = txt;
     s.el.classList.toggle('cool', !s.sk.ult && p.cds[i] > 0);
     if (s.sk.ult) s.el.classList.toggle('ready', p.ult >= 100);
-    if (s.sk.id === 'kick') s.el.classList.toggle('alert', casting && p.cds[i] <= 0 && p.alive);
+    if (s.sk.kick) s.el.classList.toggle('alert', casting && p.cds[i] <= 0 && p.alive);
   });
   $('#pot').classList.toggle('cool', !(p.potions > 0));
   const b = V.boss, bb = $('#bossbar');
@@ -967,7 +1057,7 @@ function renderMenu(msg) {
     cards.appendChild(b);
   }
   const kit = $('#kit'); kit.textContent = '';
-  for (const s of CLASSES[chosen].skills) { const li = el('li'); li.append(el('em', '', s.seal), el('b', '', s.name), el('span', '', s.desc + (s.ult ? '（集滿能量才能放）' : ''))); kit.appendChild(li); }
+  for (const s of S.loadoutOf(save, chosen).map(id => S.SKILLS[id])) { const li = el('li'); li.append(el('em', '', s.seal), el('b', '', s.name), el('span', '', s.desc + (s.ult ? '（集滿能量才能放）' : ''))); kit.appendChild(li); }
   const gear = $('#gear'); gear.textContent = '';
   for (const [k, v] of [['裝等', avgIlvl()], ['武器', save.gear.w], ['護甲', save.gear.a], ['飾品', save.gear.t], ['通關次數', save.runs]]) { const sp = el('span', '', k + ' '); sp.append(el('b', '', v)); gear.appendChild(sp); }
   $('#fields').hidden = !online; $('#go-online').hidden = !online; $('#friends-btn').hidden = !(online && net.authed);
@@ -1051,6 +1141,37 @@ function renderSocial() {
   }), '還沒有好友。打一場線上副本，就能在結算畫面把隊友加進來。');
   group(body, '最近隊友', s.recent.map(r => row(CLASSES[r.cls].mark, C[CLASSES[r.cls].color], r.name, r.friend ? '已在名單' : '', r.friend ? [] : [['加好友', () => send({ t: 'friend', id: r.id }), 'go']])),
     '線上副本裡遇到的玩家會列在這裡。');
+}
+
+/* ---------- skill loadout ---------- */
+const AIM_HINT = { self: '按下就放', enemy: '可拖曳選敵人', ally: '可拖曳選隊友', point: '可拖曳選位置', dir: '可拖曳選方向' };
+const lo = { cls: 'dps', sel: 0 };
+function openLoadout() { lo.cls = chosen; lo.sel = 0; $('#loadout').hidden = false; renderLoadout(); }
+function renderLoadout() {
+  if ($('#loadout').hidden) return;
+  const d = CLASSES[lo.cls], ids = S.loadoutOf(save, lo.cls), slots = $('#lo-slots'), body = $('#lo-body'), waiting = online && !net.authed;
+  $('#lo-eyebrow').textContent = `${d.name}　Lv.${save.cl}`; slots.textContent = ''; body.textContent = '';
+  ids.forEach((id, i) => {
+    const k = S.SKILLS[id], b = el('button', 'card'); b.type = 'button'; b.id = 'lo-slot' + i; b.setAttribute('aria-pressed', String(i === lo.sel));
+    const seal = el('b', '', k.seal); seal.style.color = i === 3 ? C.brass : C[d.color]; b.append(seal, el('span', '', k.name), el('small', '', i === 3 ? '大招' : `第 ${i + 1} 格`));
+    b.addEventListener('click', () => { lo.sel = i; renderLoadout(); }); slots.appendChild(b);
+  });
+  for (const [title, list, ult] of [['一般技能', d.pool, false], ['大招', d.ults, true]]) {
+    const g = el('div', 'group'), ul = el('ul', 'recipes'); g.append(el('h3', '', title), ul);
+    for (const id of list) {
+      const k = S.SKILLS[id], at = ids.indexOf(id), locked = k.lv > save.cl, li = el('li'), left = el('div', 'info'), meta = el('span', 'cost');
+      meta.append(el('span', '', AIM_HINT[k.aim]), el('span', '', k.ult ? '集滿能量' : `冷卻 ${k.cd} 秒`));
+      left.append(el('b', '', `${k.seal}　${k.name}`), el('small', '', k.desc), meta);
+      const b = el('button', 'mini' + (at < 0 && !locked ? ' go' : ''), locked ? `Lv.${k.lv} 解鎖` : at >= 0 ? (at === 3 ? '已帶著' : `在第 ${at + 1} 格`) : '換上'); b.type = 'button'; b.id = 'lo-' + id; b.disabled = locked || at >= 0 || waiting;
+      b.addEventListener('click', () => {
+        const next = ids.slice(), slot = ult ? 3 : lo.sel < 3 ? lo.sel : 0; next[slot] = id; lo.sel = slot; b.disabled = true;
+        if (online) return send({ t: 'loadout', cls: lo.cls, skills: next });      // the server keeps the loadout
+        const r = S.setLoadout(save, lo.cls, next); writeSave(); if (!r.ok) toast(r.msg, [], 4000); renderLoadout(); renderMenu();
+      });
+      li.append(left, b); ul.appendChild(li);
+    }
+    body.appendChild(g);
+  }
 }
 
 /* ---------- bag and workshop ---------- */
@@ -1206,6 +1327,8 @@ $('#lb-friends').addEventListener('click', openSocial);
 $('#friends-btn').addEventListener('click', openSocial);
 $('#so-close').addEventListener('click', closeSocial);
 $('#bag-btn').addEventListener('click', openBag);
+$('#lo-open').addEventListener('click', openLoadout);
+$('#lo-close').addEventListener('click', () => { $('#loadout').hidden = true; });
 $('#go-field').addEventListener('click', () => startField());
 $('#act').addEventListener('click', doAct);
 $('#talk').addEventListener('click', ev => { if (ev.target.closest('#talk-skip')) endSay(); else nextSay(); });   // tap the box, or the world, for the next line

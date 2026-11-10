@@ -26,7 +26,7 @@ const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinit
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';
 const cleanCode = s => typeof s === 'string' ? s.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) : '';
 const cleanId = s => typeof s === 'string' && /^[a-f0-9]{16}$/.test(s) ? s : '';
-const profileOf = r => ({ name: r.name, lvl: r.lvl, cl: r.cl, xp: r.xp, gear: r.gear, best: r.best, runs: r.runs, inv: r.inv, q: r.q });
+const profileOf = r => ({ name: r.name, lvl: r.lvl, cl: r.cl, xp: r.xp, gear: r.gear, best: r.best, runs: r.runs, inv: r.inv, q: r.q, loadout: r.loadout });
 
 function freshRecord(id) {
   return Sim.fixProfile(Object.assign({ id, name: '旅人' + Math.floor(10 + Math.random() * 90), friends: {}, ignored: [], recent: [], created: Date.now() }, Sim.newProfile()));
@@ -36,7 +36,7 @@ function normalize(b) {
   const g = b.gear || {}, v = b.inv || {};
   const rec = { id: b.id, name: cleanName(b.name), lvl: clampInt(b.lvl, 1, 50), cl: clampInt(b.cl, 1, Sim.MAX_LEVEL), xp: clampInt(b.xp, 0, 1e9), gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) },
     best: {}, runs: clampInt(b.runs, 0, 1e9), inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) },
-    q: b.q, friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15) };
+    q: b.q, loadout: b.loadout, friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15) };
   Sim.fixProfile(rec);
   if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const v = Number(b.best[k]); if (/^\d+$/.test(k) && Number.isFinite(v)) rec.best[k] = v; }
   if (b.friends && typeof b.friends === 'object') for (const k of Object.keys(b.friends).slice(0, MAX_FRIENDS)) if (cleanId(k)) rec.friends[k] = cleanName(b.friends[k]);
@@ -181,7 +181,7 @@ function start(opts) {
       if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('q:' + (++publicN), '', true); }
       idx = freeSeat(room);
     }
-    room.slots[idx] = { id: rec.id, name: rec.name, cls, lvl: rec.lvl, cl: rec.cl, pow: Sim.charPower(rec), potions: rec.inv.potion > 0 ? 1 : 0, ws, ready: false };   // level and power come from the account, never from the client
+    room.slots[idx] = { id: rec.id, name: rec.name, cls, lvl: rec.lvl, cl: rec.cl, pow: Sim.charPower(rec), potions: rec.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(rec, cls), ws, ready: false };   // level and power come from the account, never from the client
     ws.info = { room, idx };
     const now = Date.now();
     room.deadline = room.deadline ? Math.max(room.deadline, now + Math.min(3000, lobbyWait)) : now + lobbyWait;
@@ -191,12 +191,12 @@ function start(opts) {
     const G = room.G;
     room.slots.forEach((s, i) => {
       if (!s || (only != null && only !== i)) return;
-      send(s.ws, { t: 'start', you: i, lvl: G.lvl, elvl: G.elvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, lvl: a.lvl, human: a.human, maxHp: a.maxHp, potions: a.potions })) });
+      send(s.ws, { t: 'start', you: i, lvl: G.lvl, elvl: G.elvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, lvl: a.lvl, human: a.human, maxHp: a.maxHp, potions: a.potions, skills: a.skills.map(k => k.id) })) });
     });
   }
   function startRoom(room) {
     const lvl = Math.min.apply(null, humans(room).map(s => s.lvl));
-    room.G = Sim.createRun({ lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.cl, pow: s.pow, id: s.id, potions: s.potions })) });
+    room.G = Sim.createRun({ lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.cl, pow: s.pow, id: s.id, potions: s.potions, skills: s.skills })) });
     // seats and actors share the same order, so slot i drives actor i
     room.slots.forEach((s, i) => { if (s) { if (room.G.actors[i].pid !== s.id) throw new Error('seat mismatch'); seats.set(s.id, { room, idx: i }); } });
     room.state = 'run'; room.acc = 0; room.n = 0; room.clock = 0; room.goneSince = 0; room.last = Date.now();
@@ -312,6 +312,7 @@ function start(opts) {
         case 'invite': return onInvite(ws, m);
         case 'solo0': case 'solo1': return onSolo(ws, m);
         case 'field0': case 'fg': case 'fk': return onField(ws, m);
+        case 'loadout': { const r = Sim.setLoadout(ws.acc, String(m.cls), m.skills); if (r.ok) store.put(ws.acc); return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'claim': { const r = Sim.questClaim(ws.acc, String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'craft': { const r = Sim.craft(ws.acc, String(m.id)); if (r.ok) { Sim.questEvent(ws.acc, { type: 'craft', kind: r.kind }, Date.now()); store.put(ws.acc); } return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
       }
@@ -322,7 +323,7 @@ function start(opts) {
       const a = room.G.actors[info.idx], inp = a.input;
       if (m.t === 'm') { const x = Number(m.x), y = Number(m.y); inp.mx = Number.isFinite(x) ? Math.max(-1, Math.min(1, x)) : 0; inp.my = Number.isFinite(y) ? Math.max(-1, Math.min(1, y)) : 0; }
       else if (m.t === 'a') {
-        if (Number.isInteger(m.c) && m.c >= 0 && m.c < 4) inp.cast[m.c] = true;
+        if (Number.isInteger(m.c) && m.c >= 0 && m.c < 4) { inp.cast[m.c] = true; inp.aim[m.c] = Sim.cleanAim(m.aim); }   // aim is optional: a tap sends none
         else if (Number.isInteger(m.h) && m.h >= 0 && m.h < 4) inp.heal = m.h;
         else if (Number.isInteger(m.g) && m.g > 0) inp.tg = m.g;
         else if (m.p === 1) inp.pot = true;

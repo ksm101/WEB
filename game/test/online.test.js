@@ -68,7 +68,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   // accounts
   const A = await named(port, '小明'), B = await named(port, '<b>壞</b>名字超級長');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);
-  { const { q, ...rest } = A.me.profile; assert.deepStrictEqual(rest, { name: '小明', lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
+  { const { q, loadout, ...rest } = A.me.profile; assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(rest, { name: '小明', lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
   assert.strictEqual(B.me.profile.name, 'b壞/b名字超級');
   const forged = client(port, { id: A.me.id, token: 'x'.repeat(32) }); await forged.ready;
   assert.notStrictEqual(forged.me.id, A.me.id, 'a wrong token must not open someone else\'s account'); forged.ws.close();
@@ -208,6 +208,22 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   const A4 = client(port, { id: credA.id, token: credA.token, bk: tampered }); await A4.ready; assert.strictEqual(A4.me.profile.lvl, 1, 'an edited backup is rejected');
   A4.ws.close();
   ok('accounts survive a restart on disk; with the disk gone they come back from the signed device backup; an edited backup is rejected');
+
+  // skill loadouts and aimed casts
+  const T = await named(port, '換技'); let lr;
+  T.send({ t: 'loadout', cls: 'tank', skills: ['taunt', 'charge', 'bash', 'tankUlt'] }); lr = await T.wait('loadout'); assert.strictEqual(lr.ok, false, 'a level 1 account cannot equip a level 3 skill');
+  srv.store.get(T.me.id).cl = 5;
+  for (const bad of [['taunt', 'taunt', 'bash', 'tankUlt'], ['taunt', 'blast', 'bash', 'tankUlt'], ['taunt', 'charge', 'bash', 'anchor'], ['taunt', 'charge', 'bash'], 'x', null, [1, 2, 3, 4]]) { T.send({ t: 'loadout', cls: 'tank', skills: bad }); assert.strictEqual((await T.wait('loadout')).ok, false, JSON.stringify(bad)); }
+  T.send({ t: 'loadout', cls: 'constructor', skills: [] }); assert.strictEqual((await T.wait('loadout')).ok, false);
+  T.send({ t: 'loadout', cls: 'tank', skills: ['taunt', 'charge', 'quake', 'tankUlt'] }); lr = await T.wait('loadout'); assert.strictEqual(lr.ok, true); assert.deepStrictEqual(lr.profile.loadout.tank, ['taunt', 'charge', 'quake', 'tankUlt']);
+  T.join('tank', 'LOAD'); await T.wait('lobby', m => m.code === 'LOAD'); T.send({ t: 'ready' }); const st = await T.wait('start');
+  assert.deepStrictEqual(st.roster[0].skills, ['taunt', 'charge', 'quake', 'tankUlt'], 'the run uses the account\'s loadout'); assert.deepStrictEqual(st.roster[1].skills, ['mend', 'ring', 'seal', 'healUlt'], 'bots use the starting skills');
+  const t0 = await T.wait('s', m => m.st === 'run');
+  T.send({ t: 'a', c: 1, aim: { k: 'd', x: 0, y: -1 } }); const t1 = await T.wait('s', m => m.a[0][8][1] > 0); assert.ok(t1.a[0][1] < t0.a[0][1] - 40, 'an aimed charge goes where it was pointed');
+  for (const aim of [{ k: 'd', x: 'a', y: 1 }, { k: 'p', x: 1e9, y: 0 }, { k: 'id', id: 1.5 }, 'x', 7, { k: 'zz' }]) T.send({ t: 'a', c: 2, aim });
+  const t2 = await T.wait('s', m => m.a[0][8][2] > 0); assert.ok(t2, 'a malformed aim is dropped and the skill is cast as a tap');
+  T.send({ t: 'leave' }); T.ws.close();
+  ok('loadouts: only unlocked, distinct skills of the class; runs use them; aimed casts are applied and bad aims are ignored');
 
   // public matchmaking
   const D = await named(port, 'D'), E = await named(port, 'E'), F = await named(port, 'F');

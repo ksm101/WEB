@@ -15,27 +15,58 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const norm = a => Math.atan2(Math.sin(a), Math.cos(a));
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 
-/* color values are token names; the client maps them to its palette */
+/* A skill's `aim` says how it is pointed: 'self' needs nothing, 'enemy' and 'ally' take a unit, 'point' a spot on the
+ * ground within `range`, 'dir' a direction (`range` is then how far it reaches; `w` is the half-width of a line and
+ * `half` the half-angle of a cone). A tap with no aim falls back to the current target, the nearest enemy in reach,
+ * or the ally who needs it most. `lv` is the character level that unlocks the skill; `fn` names a shared handler. */
+const SKILLS = {
+  // 盾衛
+  taunt: { seal: '嘲', name: '嘲諷擊', cd: 6, aim: 'enemy', range: 24, lv: 1, desc: '重擊目標，並強迫它攻擊你 4 秒' },
+  wall: { seal: '牆', name: '盾牆', cd: 14, aim: 'self', lv: 1, desc: '4 秒內受到的傷害降低 60%' },
+  bash: { seal: '斷', name: '盾擊', cd: 10, aim: 'enemy', range: 72, kick: true, fn: 'kick', lv: 1, desc: '打斷身邊敵人的金色讀條' },
+  charge: { seal: '衝', name: '衝鋒', cd: 9, aim: 'dir', range: 150, w: 16, lv: 3, desc: '朝指定方向衝出去，撞到的敵人受傷並暈眩' },
+  quake: { seal: '震', name: '震地', cd: 8, aim: 'dir', range: 105, half: .7, lv: 5, desc: '砸向前方的扇形範圍，命中的敵人會轉向你' },
+  guard: { seal: '護', name: '援護', cd: 12, aim: 'ally', range: 230, lv: 8, desc: '替一名隊友套上護盾' },
+  tankUlt: { seal: '鐵', name: '鐵潮', ult: true, aim: 'self', lv: 1, desc: '全場敵人轉向你，全隊獲得護盾' },
+  anchor: { seal: '錨', name: '錨落', ult: true, aim: 'point', range: 170, rad: 80, lv: 10, desc: '把錨砸在指定位置，大範圍重傷並暈眩' },
+  // 潮語者
+  mend: { seal: '泉', name: '湧泉', cd: 2.2, aim: 'ally', range: 600, lv: 1, desc: '治療一名隊友；短按會補血量最低的人' },
+  ring: { seal: '環', name: '潮環', cd: 9, aim: 'self', lv: 1, desc: '治療你身邊的所有隊友' },
+  seal: { seal: '斷', name: '鹽封', cd: 12, aim: 'enemy', range: 240, kick: true, fn: 'kick', lv: 1, desc: '打斷敵人的金色讀條' },
+  wave: { seal: '湧', name: '潮湧', cd: 7, aim: 'dir', range: 210, w: 22, lv: 3, desc: '朝指定方向推出一道潮水，傷害敵人並治療路上的隊友' },
+  pool: { seal: '靜', name: '靜水', cd: 14, aim: 'point', range: 190, rad: 70, lv: 5, desc: '在指定位置留下一片水域，5 秒內持續治療站在裡面的隊友' },
+  barrier: { seal: '幕', name: '潮幕', cd: 10, aim: 'ally', range: 600, lv: 8, desc: '替一名隊友套上護盾' },
+  healUlt: { seal: '漲', name: '漲潮', ult: true, aim: 'self', lv: 1, desc: '全隊回復一半血量，並救起倒地的隊友' },
+  surge: { seal: '逆', name: '逆潮', ult: true, aim: 'self', lv: 10, desc: '全隊獲得護盾，並在 5 秒內持續回血' },
+  // 燼矢
+  blast: { seal: '爆', name: '爆燃箭', cd: 4, aim: 'enemy', range: 210, lv: 1, desc: '對目標造成大量傷害' },
+  roll: { seal: '滾', name: '翻滾', cd: 6, aim: 'dir', range: 104, w: 10, lv: 1, desc: '朝指定方向翻滾，翻滾中不會受傷' },
+  snipe: { seal: '斷', name: '斷法箭', cd: 10, aim: 'enemy', range: 240, kick: true, fn: 'kick', lv: 1, desc: '打斷敵人的金色讀條' },
+  pierce: { seal: '穿', name: '穿刺箭', cd: 6, aim: 'dir', range: 250, w: 14, lv: 3, desc: '朝指定方向射出一箭，貫穿路上所有敵人' },
+  volley: { seal: '散', name: '散射', cd: 7, aim: 'dir', range: 160, half: .5, lv: 5, desc: '朝前方扇形範圍射出一排箭' },
+  mark: { seal: '印', name: '獵印', cd: 14, aim: 'enemy', range: 210, lv: 8, desc: '標記一個敵人，6 秒內所有人對它的傷害提高 25%' },
+  dpsUlt: { seal: '雨', name: '燼雨', ult: true, aim: 'point', range: 210, rad: 72, lv: 1, desc: '在指定位置降下 4 秒火雨' },
+  sunshot: { seal: '日', name: '貫日', ult: true, aim: 'dir', range: 320, w: 30, lv: 10, desc: '朝指定方向射出一道貫穿全場的重箭' }
+};
+for (const id of Object.keys(SKILLS)) SKILLS[id].id = id;
+/* color values are token names; the client maps them to its palette. pool = the regular skills a class can pick
+ * three of, ults = the ultimates it can pick one of. `skills` is the starting loadout, which is also what bots use. */
 const CLASSES = {
   tank: { name: '盾衛', role: '坦克', mark: '盾', color: 'tank', hp: 1500, atk: 30, aspd: 0.9, range: 14, speed: 92, threat: 8, ultK: 14,
-    skills: [
-      { id: 'taunt', seal: '嘲', name: '嘲諷擊', cd: 6, desc: '重擊目標，並強迫它攻擊你 4 秒' },
-      { id: 'wall', seal: '牆', name: '盾牆', cd: 14, desc: '4 秒內受到的傷害降低 60%' },
-      { id: 'kick', seal: '斷', name: '盾擊', cd: 10, desc: '打斷身邊敵人的金色讀條' },
-      { id: 'tankUlt', seal: '鐵', name: '鐵潮', ult: true, desc: '全場敵人轉向你，全隊獲得護盾' } ] },
+    pool: ['taunt', 'wall', 'bash', 'charge', 'quake', 'guard'], ults: ['tankUlt', 'anchor'] },
   heal: { name: '潮語者', role: '治療', mark: '潮', color: 'heal', hp: 900, atk: 16, aspd: 1.0, range: 180, speed: 98, threat: 1, ultK: 8,
-    skills: [
-      { id: 'mend', seal: '泉', name: '湧泉', cd: 2.2, desc: '治療血量最低的隊友，點隊友血條可以指定' },
-      { id: 'ring', seal: '環', name: '潮環', cd: 9, desc: '治療你身邊的所有隊友' },
-      { id: 'kick', seal: '斷', name: '鹽封', cd: 12, desc: '打斷敵人的金色讀條' },
-      { id: 'healUlt', seal: '漲', name: '漲潮', ult: true, desc: '全隊回復一半血量，並救起倒地的隊友' } ] },
+    pool: ['mend', 'ring', 'seal', 'wave', 'pool', 'barrier'], ults: ['healUlt', 'surge'] },
   dps: { name: '燼矢', role: '輸出', mark: '矢', color: 'ember', hp: 950, atk: 44, aspd: 0.7, range: 190, speed: 104, threat: 1, ultK: 36,
-    skills: [
-      { id: 'blast', seal: '爆', name: '爆燃箭', cd: 4, desc: '對目標造成大量傷害' },
-      { id: 'roll', seal: '滾', name: '翻滾', cd: 6, desc: '朝移動方向翻滾，翻滾中不會受傷' },
-      { id: 'kick', seal: '斷', name: '斷法箭', cd: 10, desc: '打斷敵人的金色讀條' },
-      { id: 'dpsUlt', seal: '雨', name: '燼雨', ult: true, desc: '在目標腳下降下 4 秒火雨' } ] }
+    pool: ['blast', 'roll', 'snipe', 'pierce', 'volley', 'mark'], ults: ['dpsUlt', 'sunshot'] }
 };
+for (const k of Object.keys(CLASSES)) { const d = CLASSES[k]; d.skills = d.pool.slice(0, 3).concat(d.ults[0]).map(id => SKILLS[id]); for (const id of d.pool.concat(d.ults)) SKILLS[id].cls = k; }
+const defaultLoadout = cls => CLASSES[cls].skills.map(s => s.id);
+/* three different unlocked regular skills of the class, then one unlocked ultimate */
+function validLoadout(cls, ids, cl) {
+  const d = CLASSES[cls];
+  return !!d && Array.isArray(ids) && ids.length === 4 && ids.slice(0, 3).every((id, i) => d.pool.includes(id) && ids.indexOf(id) === i && SKILLS[id].lv <= cl) && d.ults.includes(ids[3]) && SKILLS[ids[3]].lv <= cl;
+}
+const skillSet = (cls, ids) => validLoadout(cls, ids, 99) ? ids.map(id => SKILLS[id]) : CLASSES[cls].skills;
 const ENEMY = {
   grunt: { name: '鏽蝕水鬼', hp: 1000, dmg: 34, aspd: 1.3, range: 8, speed: 70, r: 13 },
   caster: { name: '鹽咒祭司', hp: 800, dmg: 150, aspd: 0, range: 165, speed: 60, r: 12, caster: true },
@@ -106,12 +137,13 @@ function mkActor(cls, name, spot, pow) {
   const d = CLASSES[cls];
   return { cls, def: d, name, x: spot[0], y: spot[1], r: 12, pow, maxHp: R(d.hp * pow), hp: R(d.hp * pow), alive: true, human: false, pid: null, idx: 0,
     target: null, atkT: rand(0, .5), cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rollT: 0, rvx: 0, rvy: 0, face: -Math.PI / 2, idleT: 0, potions: 0,
-    ctrl: { mx: 0, my: 0, cast: [false, false, false, false], healOn: null, pot: false },
-    input: { mx: 0, my: 0, cast: [false, false, false, false], heal: -1, tg: 0, pot: false },
+    skills: d.skills, hotT: 0, hotPer: 0,
+    ctrl: { mx: 0, my: 0, cast: [false, false, false, false], aim: [null, null, null, null], healOn: null, pot: false },
+    input: { mx: 0, my: 0, cast: [false, false, false, false], aim: [null, null, null, null], heal: -1, tg: 0, pot: false },
     stats: { dmg: 0, heal: 0, kicks: 0, hits: 0, pots: 0 },
     ai: { react: 0, delay: rand(.3, .75), kick: new WeakMap(), wob: rand(0, TAU), gcd: rand(0, .4) } };
 }
-/* opts: { lvl, players: [{ cls, name, pow, id, potions, lvl }], grace, auto }
+/* opts: { lvl, players: [{ cls, name, pow, id, potions, lvl, skills }], grace, auto }
  * Each player takes the first free seat of their class; every other seat is a bot. */
 function createRun(opts) {
   const lvl = opts.lvl || 1, botPow = 1 + .1 * (lvl - 1);
@@ -122,7 +154,7 @@ function createRun(opts) {
     const k = pending.findIndex(p => p.cls === c), p = k >= 0 ? pending.splice(k, 1)[0] : null;
     const a = mkActor(c, p ? p.name : (c === 'dps' ? BOT_NAMES.dps[dpsN++] : BOT_NAMES[c]), SPOTS[i], p ? p.pow : botPow);
     a.lvl = p && p.lvl > 0 ? p.lvl : G.elvl;   // a player shows their own level; a bot shows the level the floor is meant for
-    a.idx = i; a.human = !!p; a.pid = p ? p.id : null; a.potions = p && p.potions > 0 ? 1 : 0; G.actors.push(a);   // one potion per run
+    a.idx = i; a.human = !!p; a.pid = p ? p.id : null; a.potions = p && p.potions > 0 ? 1 : 0; if (p && p.skills) a.skills = skillSet(c, p.skills); G.actors.push(a);   // one potion per run
   });
   return G;
 }
@@ -144,7 +176,7 @@ function createField(opts) {
   const lvl = opts.lvl || 1, p = opts.player;
   const G = { mode: 'field', bw: FIELD.w, bh: FIELD.h, t: 0, lvl, elvl: 1, es: 1, state: 'run', cd: 0, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
     boss: null, result: null, nextId: 1, grace: 0, auto: false, respawns: [], nodes: FIELD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, ready: true, t: 0 })) };
-  const a = mkActor(p.cls, p.name, FIELD.spawn, p.pow); a.lvl = p.lvl > 0 ? p.lvl : 1; a.idx = 0; a.human = true; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; G.actors.push(a);
+  const a = mkActor(p.cls, p.name, FIELD.spawn, p.pow); a.lvl = p.lvl > 0 ? p.lvl : 1; if (p.skills) a.skills = skillSet(p.cls, p.skills); a.idx = 0; a.human = true; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; G.actors.push(a);
   FIELD.packs.forEach((pk, k) => { for (let i = 0; i < pk.n; i++) spawnMob(G, k, { x: pk.x + (i - (pk.n - 1) / 2) * 34, y: pk.y + (i % 2) * 22 }); });
   return G;
 }
@@ -173,6 +205,7 @@ function hurtActor(G, a, dmg, avoidable) {
 function hurtEnemy(G, e, dmg, src, big, noUlt) {
   if (!e.alive || e.ret) return;                        // a creature walking back to its spot cannot be hurt
   if (G.mode === 'field') dmg *= SOLO_BOOST[src.cls] || 1;
+  if (e.vulnT > 0) dmg *= 1.25;                         // marked by a hunter
   e.hp -= dmg; src.stats.dmg += dmg;
   e.threat.set(src, (e.threat.get(src) || 0) + dmg * src.def.threat);
   if (!noUlt) src.ult = Math.min(100, src.ult + dmg / (src.pow * src.def.ultK));
@@ -202,39 +235,135 @@ function inZone(z, p, m) {
 }
 function pointDanger(G, p, a) { for (const z of G.zones) { if (z.friendly || z.done) continue; if (z.ign.has(a)) continue; if (inZone(z, p, 14)) return true; } return false; }
 
-/* ---------- skills ---------- */
+/* ---------- aiming ----------
+ * An aim is { k: 'id', id } (an enemy id, or -(seat + 1) for an ally), { k: 'd', x, y } (a direction) or
+ * { k: 'p', x, y } (a spot). It is null for a plain tap, and each resolver then picks something sensible. */
+function cleanAim(o) {
+  if (!o || typeof o !== 'object') return null; const x = Number(o.x), y = Number(o.y);
+  if (o.k === 'id' && Number.isInteger(o.id) && Math.abs(o.id) < 1e6) return { k: 'id', id: o.id };
+  if ((o.k === 'd' || o.k === 'p') && Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) < 1e5 && Math.abs(y) < 1e5) return { k: o.k, x, y };
+  return null;
+}
+function nearestFoe(G, a, reach) { let b = null, bd = 1e9; for (const e of G.enemies) if (e.alive && !e.ret) { const d = dist(a, e) - a.r - e.r; if (d <= reach && d < bd) { bd = d; b = e; } } return b; }
+/* The enemy a skill should hit: the one that was dragged onto, else the current target, else the nearest in reach.
+ * Whoever it is becomes the locked target. Returns null when nothing valid is within reach. */
+function aimEnemy(G, a, aim, reach) {
+  const ok = e => e && e.alive && !e.ret && dist(a, e) - a.r - e.r <= reach;
+  let t = aim && aim.k === 'id' && aim.id > 0 ? G.enemies.find(e => e.id === aim.id) : null;
+  if (aim && aim.k === 'id' && aim.id > 0) { if (!ok(t)) return null; }
+  else t = ok(a.target) ? a.target : nearestFoe(G, a, reach);
+  if (!t) return null; a.target = t; a.pick = t.id; return t;
+}
+function aimAlly(G, a, aim, others) {
+  if (aim && aim.k === 'id' && aim.id < 0) { const p = G.actors[-aim.id - 1]; if (p && p.alive) return p; }
+  let t = null, br = 2; for (const p of G.actors) { if (!p.alive || (others && p === a && G.actors.length > 1)) continue; const r = p.hp / p.maxHp; if (r < br) { br = r; t = p; } }
+  return t || a;
+}
+function aimDir(G, a, aim) {
+  if (aim && aim.k === 'd') { const m = Math.hypot(aim.x, aim.y); if (m > .001) return { x: aim.x / m, y: aim.y / m }; }
+  const t = a.target && a.target.alive ? a.target : nearestFoe(G, a, 320);
+  if (t) { const d = dist(a, t) || 1; return { x: (t.x - a.x) / d, y: (t.y - a.y) / d }; }
+  return { x: Math.cos(a.face), y: Math.sin(a.face) };
+}
+function aimPoint(G, a, aim, range, fallback) {
+  let p = aim && aim.k === 'p' ? { x: aim.x, y: aim.y } : fallback; if (!p) return null;
+  const dx = p.x - a.x, dy = p.y - a.y, d = Math.hypot(dx, dy); if (d > range) p = { x: a.x + dx / d * range, y: a.y + dy / d * range };
+  return { x: clamp(p.x, 0, G.bw), y: clamp(p.y, 0, G.bh) };
+}
+function inLine(p, o, d, len, hw) { const rx = p.x - o.x, ry = p.y - o.y, f = rx * d.x + ry * d.y; return f >= -p.r && f <= len + p.r && Math.abs(rx * d.y - ry * d.x) <= hw + p.r; }
+function inCone(p, o, ang, half, len) { const dx = p.x - o.x, dy = p.y - o.y, dd = Math.hypot(dx, dy); if (dd > len + p.r) return false; return dd < 12 || Math.abs(norm(Math.atan2(dy, dx) - ang)) <= half + p.r / dd; }
+function lineFx(G, o, d, len, w, c) { ev(G, { k: 'line', x: R(o.x), y: R(o.y), x2: R(o.x + d.x * len), y2: R(o.y + d.y * len), w, c }); }
+function coneFx(G, o, ang, half, len, c) { ev(G, { k: 'cone', x: R(o.x), y: R(o.y), a: r2(ang), h: half, l: len, c }); }
+function stunFoe(G, a, e, t) {      // bosses shrug it off; a stun also breaks a gold cast
+  if (e.boss) return; e.stun = Math.max(e.stun, t);
+  if (e.cast && e.cast.kickable) { e.cast = null; if (e.def.caster) e.tm.cast = rand(4, 5); a.stats.kicks++; text(G, e.x, e.y - e.r - 24, '打斷', 'brass', 16, 1.1); }
+}
+
+/* ---------- skills: SK[id](G, caster, aim, skill) ---------- */
 const SK = {
-  taunt(G, a) { const t = a.target; if (!t || !inRange(a, t, 10)) return fail(G, a, '離目標太遠'); hurtEnemy(G, t, a.def.atk * a.pow * 2.4, a, true); t.fix = a; t.fixT = 4; ring(G, t.x, t.y, 8, 36, 'tank'); },
+  taunt(G, a, aim, sk) { const t = aimEnemy(G, a, aim, sk.range); if (!t) return fail(G, a, '離目標太遠'); hurtEnemy(G, t, a.def.atk * a.pow * 2.4, a, true); t.fix = a; t.fixT = 4; ring(G, t.x, t.y, 8, 36, 'tank'); },
   wall(G, a) { a.wallT = 4; ring(G, a.x, a.y, 8, 32, 'tank'); },
-  kick(G, a) {
-    const reach = a.def.range < 60 ? 72 : 240; let best = null;
-    for (const e of G.enemies) { if (!e.alive || !e.cast || !e.cast.kickable || dist(a, e) > reach + e.r) continue; if (!best || e === a.target || (best !== a.target && e.cast.t / e.cast.dur > best.cast.t / best.cast.dur)) best = e; }
+  kick(G, a, aim, sk) {
+    const want = aim && aim.k === 'id' ? aim.id : 0; let best = null;
+    for (const e of G.enemies) {
+      if (!e.alive || !e.cast || !e.cast.kickable || dist(a, e) > sk.range + e.r) continue;
+      const score = (e.id === want ? 4 : 0) + (e === a.target ? 2 : 0) + e.cast.t / e.cast.dur; if (!best || score > best.s) best = { e, s: score };
+    }
     if (!best) return fail(G, a, '沒有金色讀條可以打斷');
-    best.cast = null; best.stun = 1.2; if (best.def.caster) best.tm.cast = rand(4, 5);
-    hurtEnemy(G, best, a.def.atk * a.pow, a); beam(G, a, best, 'brass'); ring(G, best.x, best.y, best.r, best.r + 22, 'brass');
-    text(G, best.x, best.y - best.r - 24, '打斷', 'brass', 16, 1.1); a.stats.kicks++;
+    const e = best.e; e.cast = null; e.stun = 1.2; if (e.def.caster) e.tm.cast = rand(4, 5);
+    hurtEnemy(G, e, a.def.atk * a.pow, a); beam(G, a, e, 'brass'); ring(G, e.x, e.y, e.r, e.r + 22, 'brass');
+    text(G, e.x, e.y - e.r - 24, '打斷', 'brass', 16, 1.1); a.stats.kicks++;
   },
+  charge(G, a, aim, sk) {
+    const d = aimDir(G, a, aim), o = { x: a.x, y: a.y };
+    a.rvx = d.x * sk.range / .22; a.rvy = d.y * sk.range / .22; a.rollT = .22; a.iframe = Math.max(a.iframe, .25);
+    for (const e of G.enemies) if (e.alive && inLine(e, o, d, sk.range, sk.w)) { hurtEnemy(G, e, a.def.atk * a.pow * 2.2, a, true); stunFoe(G, a, e, .9); }
+    lineFx(G, o, d, sk.range, sk.w, 'tank');
+  },
+  quake(G, a, aim, sk) {
+    const d = aimDir(G, a, aim), ang = Math.atan2(d.y, d.x);
+    for (const e of G.enemies) if (e.alive && inCone(e, a, ang, sk.half, sk.range)) { hurtEnemy(G, e, a.def.atk * a.pow * 2.6, a, true); e.fix = a; e.fixT = 3; }
+    coneFx(G, a, ang, sk.half, sk.range, 'tank'); shake(G, .2);
+  },
+  guard(G, a, aim) { const t = aimAlly(G, a, aim, true); t.shield = Math.max(t.shield, 360 * a.pow); if (t !== a) beam(G, a, t, 'tank'); ring(G, t.x, t.y, 8, 30, 'tank'); },
   tankUlt(G, a) { for (const e of G.enemies) { e.fix = a; e.fixT = 5; } for (const p of G.actors) if (p.alive) p.shield = Math.max(p.shield, 260 * a.pow); ring(G, a.x, a.y, 10, 170, 'tank', .55); },
-  mend(G, a, on) {
-    let t = on && on.alive ? on : null;
+  anchor(G, a, aim, sk) {
+    const t = a.target && a.target.alive ? a.target : nearestFoe(G, a, sk.range), p = aimPoint(G, a, aim, sk.range, t); if (!p) return fail(G, a, '沒有目標');
+    for (const e of G.enemies) if (e.alive && Math.hypot(e.x - p.x, e.y - p.y) <= sk.rad + e.r) { hurtEnemy(G, e, a.def.atk * a.pow * 8, a, true); stunFoe(G, a, e, 1.5); }
+    ring(G, p.x, p.y, 10, sk.rad, 'tank', .5); shake(G, .5);
+  },
+  mend(G, a, aim) {
+    let t = aim && aim.k === 'id' && aim.id < 0 ? G.actors[-aim.id - 1] : null; if (t && !t.alive) t = null;
     if (!t) { let br = 1; for (const p of G.actors) { if (!p.alive) continue; const r = p.hp / p.maxHp; if (r < br) { br = r; t = p; } } }
     if (!t) return fail(G, a, '隊友都是滿血');
     healActor(G, t, 280 * a.pow, a); if (t !== a) beam(G, a, t, 'heal'); ring(G, t.x, t.y, 6, 22, 'heal');
   },
   ring(G, a) { for (const p of G.actors) if (p.alive && dist(a, p) <= 120) healActor(G, p, 170 * a.pow, a); ring(G, a.x, a.y, 10, 120, 'heal', .45); },
+  wave(G, a, aim, sk) {
+    const d = aimDir(G, a, aim);
+    for (const e of G.enemies) if (e.alive && inLine(e, a, d, sk.range, sk.w)) hurtEnemy(G, e, a.def.atk * a.pow * 3, a, true);
+    for (const p of G.actors) if (p.alive && p !== a && inLine(p, a, d, sk.range, sk.w)) healActor(G, p, 150 * a.pow, a);
+    lineFx(G, a, d, sk.range, sk.w, 'heal');
+  },
+  pool(G, a, aim, sk) {
+    const p = aimPoint(G, a, aim, sk.range, aimAlly(G, a, null, false));
+    G.zones.push({ id: G.nextId++, friendly: true, heal: true, type: 'circle', x: p.x, y: p.y, r: sk.rad, t: 0, dur: 5, tick: 0, dmg: 45 * a.pow, src: a, ign: new Set() });
+  },
+  barrier(G, a, aim) { const t = aimAlly(G, a, aim, false); t.shield = Math.max(t.shield, 320 * a.pow); if (t !== a) beam(G, a, t, 'heal'); ring(G, t.x, t.y, 8, 30, 'heal'); },
   healUlt(G, a) { for (const p of G.actors) { if (!p.alive) revive(G, p); else healActor(G, p, p.maxHp * .5, a); } ring(G, a.x, a.y, 10, 240, 'heal', .7); },
-  blast(G, a) { const t = a.target; if (!t || !inRange(a, t, 20)) return fail(G, a, '離目標太遠'); shoot(G, a, t, a.def.atk * a.pow * 3.6, true); },
-  roll(G, a) {
+  surge(G, a) { for (const p of G.actors) if (p.alive) { p.shield = Math.max(p.shield, 300 * a.pow); p.hotT = 5; p.hotPer = p.maxHp * .06; } ring(G, a.x, a.y, 10, 240, 'heal', .7); },
+  blast(G, a, aim, sk) { const t = aimEnemy(G, a, aim, sk.range); if (!t) return fail(G, a, '離目標太遠'); shoot(G, a, t, a.def.atk * a.pow * 3.6, true); },
+  roll(G, a, aim) {
     let mx = a.ctrl.mx, my = a.ctrl.my, m = Math.hypot(mx, my);
-    if (m < .2) { mx = -Math.cos(a.face); my = -Math.sin(a.face); m = 1; }
+    if (aim && aim.k === 'd' && Math.hypot(aim.x, aim.y) > .001) { mx = aim.x; my = aim.y; m = Math.hypot(mx, my); }   // an aimed roll goes where you pointed
+    else if (m < .2) { mx = -Math.cos(a.face); my = -Math.sin(a.face); m = 1; }
     a.rvx = mx / m * 400; a.rvy = my / m * 400; a.rollT = .26; a.iframe = .42;
   },
-  dpsUlt(G, a) { const t = a.target; if (!t) return fail(G, a, '沒有目標'); G.zones.push({ id: G.nextId++, friendly: true, type: 'circle', x: t.x, y: t.y, r: 72, t: 0, dur: 4, tick: 0, dmg: a.def.atk * a.pow * 1.6, src: a, ign: new Set() }); }
+  pierce(G, a, aim, sk) {
+    const d = aimDir(G, a, aim);
+    for (const e of G.enemies) if (e.alive && inLine(e, a, d, sk.range, sk.w)) hurtEnemy(G, e, a.def.atk * a.pow * 3.2, a, true);
+    lineFx(G, a, d, sk.range, sk.w, 'ember');
+  },
+  volley(G, a, aim, sk) {
+    const d = aimDir(G, a, aim), ang = Math.atan2(d.y, d.x);
+    for (const e of G.enemies) if (e.alive && inCone(e, a, ang, sk.half, sk.range)) hurtEnemy(G, e, a.def.atk * a.pow * 2.2, a, true);
+    coneFx(G, a, ang, sk.half, sk.range, 'ember');
+  },
+  mark(G, a, aim, sk) { const t = aimEnemy(G, a, aim, sk.range); if (!t) return fail(G, a, '離目標太遠'); t.vulnT = 6; text(G, t.x, t.y - t.r - 24, '獵印', 'ember', 14, 1.1); ring(G, t.x, t.y, t.r, t.r + 20, 'ember'); },
+  dpsUlt(G, a, aim, sk) {
+    const t = a.target && a.target.alive ? a.target : nearestFoe(G, a, sk.range), p = aimPoint(G, a, aim, sk.range, t); if (!p) return fail(G, a, '沒有目標');
+    G.zones.push({ id: G.nextId++, friendly: true, type: 'circle', x: p.x, y: p.y, r: sk.rad, t: 0, dur: 4, tick: 0, dmg: a.def.atk * a.pow * 1.6, src: a, ign: new Set() });
+  },
+  sunshot(G, a, aim, sk) {
+    const d = aimDir(G, a, aim);
+    for (const e of G.enemies) if (e.alive && inLine(e, a, d, sk.range, sk.w)) hurtEnemy(G, e, a.def.atk * a.pow * 14, a, true);
+    lineFx(G, a, d, sk.range, sk.w, 'brass'); shake(G, .4);
+  }
 };
-function tryCast(G, a, i, on) {
-  const sk = a.def.skills[i]; if (!a.alive) return false;
+function tryCast(G, a, i, aim) {
+  const sk = a.skills[i]; if (!a.alive || !sk) return false;
   if (sk.ult) { if (a.ult < 100) return false; } else if (a.cds[i] > 0) return false;
-  if (SK[sk.id](G, a, on) === false) return false;
+  if (SK[sk.fn || sk.id](G, a, aim || null, sk) === false) return false;
   if (sk.ult) a.ult = 0; else a.cds[i] = sk.cd;
   return true;
 }
@@ -243,7 +372,7 @@ function tryCast(G, a, i, on) {
 function playerThink(G, a, dt) {
   const c = a.ctrl, inp = a.input;
   c.mx = clamp(+inp.mx || 0, -1, 1); c.my = clamp(+inp.my || 0, -1, 1);
-  for (let i = 0; i < 4; i++) if (inp.cast[i]) { c.cast[i] = true; inp.cast[i] = false; }
+  for (let i = 0; i < 4; i++) if (inp.cast[i]) { c.cast[i] = true; c.aim[i] = inp.aim[i]; inp.cast[i] = false; inp.aim[i] = null; }
   if (inp.heal >= 0) { c.healOn = G.actors[inp.heal] || null; inp.heal = -1; }
   if (inp.pot) { c.pot = true; inp.pot = false; }
   if (inp.tg) { const e = G.enemies.find(e => e.id === inp.tg && e.alive); if (e) { a.target = e; a.pick = e.id; } inp.tg = 0; }
@@ -283,7 +412,7 @@ function botThink(G, a, dt) {
   }
   a.target = tg;
   const dv = dangerVec(G, a); let moved = false;
-  if (dv) { a.ai.react += dt; if (a.ai.react >= a.ai.delay) { c.mx = dv.x; c.my = dv.y; moved = true; if (a.cls === 'dps' && a.cds[1] <= 0 && Math.random() < dt * 2) c.cast[1] = true; } }
+  if (dv) { a.ai.react += dt; if (a.ai.react >= a.ai.delay) { c.mx = dv.x; c.my = dv.y; moved = true; const rk = a.skills.findIndex(k => k.id === 'roll'); if (rk >= 0 && a.cds[rk] <= 0 && Math.random() < dt * 2) c.cast[rk] = true; } }
   else a.ai.react = 0;
   if (!moved && tg) {
     const d = dist(a, tg) || 1, dx = (tg.x - a.x) / d, dy = (tg.y - a.y) / d;
@@ -304,28 +433,30 @@ function botThink(G, a, dt) {
   }
   botSkills(G, a, dt);
 }
+/* Bots know the starting skills. If a seat they take over carries other skills, they use the ones they recognise. */
 function botSkills(G, a, dt) {
-  const c = a.ctrl.cast, ai = a.ai;
+  const c = a.ctrl.cast, ai = a.ai, kk = a.skills.findIndex(k => k.kick), ult = a.skills[3].id;
+  const use = (id, ok) => { const k = a.skills.findIndex(q => q.id === id); if (k < 0 || a.cds[k] > 0 || !ok) return false; c[k] = true; return true; };
   for (const e of G.enemies) {   // each bot only tries some interrupts, and late, so a quick player matters
     const k = e.cast; if (!k || !k.kickable) continue;
     let plan = ai.kick.get(k); if (plan === undefined) { plan = Math.random() < .34 ? rand(.45, .85) * k.dur : -1; ai.kick.set(k, plan); }
-    if (plan >= 0 && k.t >= plan && a.cds[2] <= 0) c[2] = true;
+    if (kk >= 0 && plan >= 0 && k.t >= plan && a.cds[kk] <= 0) c[kk] = true;
   }
   ai.gcd -= dt; if (ai.gcd > 0) return; ai.gcd = .4;
   const t = a.target, live = G.actors.filter(p => p.alive), ratio = p => p.hp / p.maxHp;
   if (a.cls === 'tank') {
     const loose = G.enemies.filter(e => e.alive && e.target && e.target !== a).length;
-    if (a.ult >= 100 && (loose >= 2 || live.reduce((s, p) => s + ratio(p), 0) / live.length < .55)) c[3] = true;
-    if (t && a.cds[0] <= 0 && inRange(a, t, 10) && (t.target !== a || t.boss)) c[0] = true;
-    if (a.cds[1] <= 0 && ratio(a) < .5) c[1] = true;
+    if (a.ult >= 100 && ult === 'tankUlt' && (loose >= 2 || live.reduce((s, p) => s + ratio(p), 0) / live.length < .55)) c[3] = true;
+    use('taunt', t && inRange(a, t, 10) && (t.target !== a || t.boss));
+    use('wall', ratio(a) < .5);
   } else if (a.cls === 'heal') {
     const low = live.filter(p => ratio(p) < .35).length, down = G.actors.length - live.length;
-    if (a.ult >= 100 && (down > 0 || low >= 2)) { c[3] = true; return; }
-    if (a.cds[1] <= 0 && live.filter(p => ratio(p) < .7 && dist(a, p) <= 120).length >= 2) { c[1] = true; return; }
-    if (a.cds[0] <= 0 && live.some(p => ratio(p) < .8)) c[0] = true;
+    if (a.ult >= 100 && ult === 'healUlt' && (down > 0 || low >= 2)) { c[3] = true; return; }
+    if (use('ring', live.filter(p => ratio(p) < .7 && dist(a, p) <= 120).length >= 2)) return;
+    use('mend', live.some(p => ratio(p) < .8));
   } else {
-    if (t && a.cds[0] <= 0 && inRange(a, t, 20)) c[0] = true;
-    if (t && a.ult >= 100 && ((G.boss && G.boss.alive) || G.enemies.length >= 3)) c[3] = true;
+    use('blast', t && inRange(a, t, 20));
+    if (t && a.ult >= 100 && ult === 'dpsUlt' && ((G.boss && G.boss.alive) || G.enemies.length >= 3)) c[3] = true;
   }
 }
 
@@ -333,8 +464,9 @@ function botSkills(G, a, dt) {
 function updActor(G, a, dt) {
   for (let i = 0; i < 4; i++) if (a.cds[i] > 0) a.cds[i] = Math.max(0, a.cds[i] - dt);
   a.wallT = Math.max(0, a.wallT - dt); a.iframe = Math.max(0, a.iframe - dt);
+  if (a.hotT > 0) { a.hotT -= dt; if (a.alive && a.hp < a.maxHp) a.hp = Math.min(a.maxHp, a.hp + a.hotPer * dt); }
   const c = a.ctrl;
-  if (!a.alive) { c.cast.fill(false); c.healOn = null; c.pot = false; return; }
+  if (!a.alive) { c.cast.fill(false); c.aim.fill(null); c.healOn = null; c.pot = false; return; }
   if (a.target && !a.target.alive) a.target = null;
   if (a.rollT > 0) { a.rollT -= dt; a.x += a.rvx * dt; a.y += a.rvy * dt; }
   else {
@@ -345,8 +477,8 @@ function updActor(G, a, dt) {
   a.x = clamp(a.x, a.r + 6, G.bw - a.r - 6); a.y = clamp(a.y, a.r + (G.mode === 'field' ? 6 : 36), G.bh - a.r - 8);
   if (G.mode === 'field') pushOut(a);
   if (a.target) a.face = Math.atan2(a.target.y - a.y, a.target.x - a.x);
-  if (c.healOn) { if (a.cls === 'heal') tryCast(G, a, 0, c.healOn); c.healOn = null; }
-  for (let i = 0; i < 4; i++) if (c.cast[i]) { c.cast[i] = false; tryCast(G, a, i); }
+  if (c.healOn) { const k = a.skills.findIndex(q => q.aim === 'ally'); if (k >= 0) tryCast(G, a, k, { k: 'id', id: -(c.healOn.idx + 1) }); c.healOn = null; }   // a tap on a party frame
+  for (let i = 0; i < 4; i++) if (c.cast[i]) { const aim = c.aim[i]; c.cast[i] = false; c.aim[i] = null; tryCast(G, a, i, aim); }
   if (c.pot) {
     c.pot = false;
     if (a.potions <= 0) fail(G, a, '這場的藥水用過了');
@@ -360,6 +492,7 @@ function updActor(G, a, dt) {
   }
 }
 function updEnemy(G, e, dt) {
+  if (e.vulnT > 0) e.vulnT -= dt;
   if (e.spawnT > 0) { e.spawnT -= dt; return; }
   if (G.mode === 'field' && !fieldMob(G, e, dt)) return;
   if (e.stun > 0) { e.stun -= dt; return; }
@@ -421,7 +554,7 @@ function updWorld(G, dt) {
   G.shots = G.shots.filter(s => !s.dead);
   for (const z of G.zones) {
     z.t += dt;
-    if (z.friendly) { z.tick -= dt; if (z.tick <= 0) { z.tick = .5; for (const e of en) if (e.alive && Math.hypot(e.x - z.x, e.y - z.y) <= z.r + e.r) hurtEnemy(G, e, z.dmg, z.src, false, true); } }
+    if (z.friendly) { z.tick -= dt; if (z.tick <= 0) { z.tick = .5; if (z.heal) { for (const p of G.actors) if (p.alive && Math.hypot(p.x - z.x, p.y - z.y) <= z.r + p.r) healActor(G, p, z.dmg, z.src); } else for (const e of en) if (e.alive && Math.hypot(e.x - z.x, e.y - z.y) <= z.r + e.r) hurtEnemy(G, e, z.dmg, z.src, false, true); } }
     // people playing over a network see the zone a moment late, so they get a little slack
     else if (z.t >= z.dur && !z.done) { z.done = true; for (const a of G.actors) if (a.alive && inZone(z, a, a.human ? -G.grace : 0)) hurtActor(G, a, z.dmg, true); }
   }
@@ -530,13 +663,16 @@ const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
 const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
 const gearCap = lvl => 10 + lvl * 4 + 7;        // how far tempering can push a slot at this tower level
 const charPower = p => powerOf(p.gear) * lvF(p.cl);     // what a character brings to a fight: gear and level
-function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null }; }
+function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {} }; }
 function fixProfile(p) {   // fill in anything an older save does not have
   const d = newProfile();
   for (const k of Object.keys(d)) if (p[k] == null) p[k] = d[k];
   for (const k of Object.keys(d.inv)) if (!(p.inv[k] >= 0)) p.inv[k] = 0;
   p.cl = Number.isInteger(p.cl) ? clamp(p.cl, 1, MAX_LEVEL) : 1; p.xp = p.xp >= 0 && p.cl < MAX_LEVEL ? Math.min(Math.floor(p.xp), xpNeed(p.cl)) : 0;
   fixQuests(p);
+  const lo = {}, old = p.loadout && typeof p.loadout === 'object' ? p.loadout : {};      // keep only loadouts that are still allowed
+  for (const k of Object.keys(CLASSES)) if (validLoadout(k, old[k], p.cl)) lo[k] = old[k].slice();
+  p.loadout = lo;
   return p;
 }
 function addXp(p, n) {
@@ -562,6 +698,14 @@ function applyResult(p, lvl, r) {
   if (!p.best[lvl] || r.t < p.best[lvl]) p.best[lvl] = Math.round(r.t * 10) / 10;
   if (r.onTime) p.lvl = Math.max(p.lvl, Math.min(50, lvl + 1));
   return { loot: { slot: LOOT[k][0], name: pick(LOOT[k][1]), il, old, up }, mats, xp: x.xp, ups: x.ups };
+}
+
+/* ---------- skill loadouts ---------- */
+function loadoutOf(p, cls) { const ids = p.loadout && p.loadout[cls]; return validLoadout(cls, ids, p.cl || 1) ? ids.slice() : defaultLoadout(cls); }
+function setLoadout(p, cls, ids) {
+  fixProfile(p); if (!Object.prototype.hasOwnProperty.call(CLASSES, cls)) return { ok: false, msg: '沒有這個職業。' };
+  if (!validLoadout(cls, ids, p.cl)) return { ok: false, msg: '這組技能不能用：要三個不重複的一般技能加一個大招，而且都已經解鎖。' };
+  p.loadout[cls] = ids.slice(); return { ok: true, msg: '技能換好了。' };
 }
 
 /* ---------- crafting ---------- */
@@ -673,12 +817,13 @@ function snapshot(G) {
       a.target ? a.target.id : 0, a.cds.map(r1), R(a.ult), a.potions]),
     e: G.enemies.map(e => [e.id, e.kind, r1(e.x), r1(e.y), R(e.hp), e.maxHp, r2(e.face), r2(Math.max(0, e.spawnT)), e.stun > 0 ? 1 : 0, e.tm.enraged ? 1 : 0,
       e.cast ? [e.cast.name, r2(e.cast.t), e.cast.dur, e.cast.kickable ? 1 : 0, e.cast.victim ? e.cast.victim.idx : -1] : 0]),
-    z: G.zones.map(z => [z.id, z.friendly ? 1 : 0, z.type === 'circle' ? 0 : 1, r1(z.x), r1(z.y), z.r || 0, r2(z.ang || 0), z.half || 0, z.len || 0, r2(z.t), z.dur, z.done ? 1 : 0]),
+    z: G.zones.map(z => [z.id, z.friendly ? (z.heal ? 2 : 1) : 0, z.type === 'circle' ? 0 : 1, r1(z.x), r1(z.y), z.r || 0, r2(z.ang || 0), z.half || 0, z.len || 0, r2(z.t), z.dur, z.done ? 1 : 0]),
     s: G.shots.map(s => [s.id, r1(s.x), r1(s.y), s.big ? 1 : 0, s.src.idx])
   };
 }
 
-return { W, H, TIME_LIMIT, CLASSES, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
+return { W, H, TIME_LIMIT, CLASSES, SKILLS, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
+  cleanAim, defaultLoadout, validLoadout, loadoutOf, setLoadout,
   FIELD, GATHER_TIME, NODE_RESPAWN, createField, fieldYield, grant, fieldGain,
   MAX_LEVEL, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
