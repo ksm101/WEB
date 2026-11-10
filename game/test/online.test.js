@@ -33,7 +33,7 @@ function client(port, cred) {
 // sign in and create one character of the given class
 const named = async (port, name, cls) => { const c = client(port), first = await c.ready; c.send({ t: 'char-new', name, cls: cls || 'dps' }); await c.wait('me', m => m !== first); return c; };
 const get = (port, p) => new Promise((res, rej) => http.get({ host: '127.0.0.1', port, path: p }, r => { let b = ''; r.on('data', d => b += d); r.on('end', () => res({ status: r.statusCode, body: b })); }).on('error', rej));
-const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lobbyWait: 600, debug: true, soloMin: .2, eventPeriod: 1e13, eventDur: 0 }, o)); await new Promise(r => s.server.on('listening', r)); return s; };
+const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lobbyWait: 600, debug: true, soloMin: .2, eventPeriod: 1e13, eventDur: 0, backupEvery: 300 }, o)); await new Promise(r => s.server.on('listening', r)); return s; };
 
 (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'embertide-'));
@@ -69,7 +69,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   // accounts
   const A = await named(port, '小明', 'dps'), B = await named(port, '<b>壞</b>名字超級長', 'heal');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);
-  { const { q, loadout, ...rest } = A.me.profile; assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(rest, { name: '小明', cls: 'dps', lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
+  { const { q, loadout, talents, ...rest } = A.me.profile; assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(talents, {}); assert.deepStrictEqual(rest, { name: '小明', cls: 'dps', lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, coin: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
   assert.strictEqual(B.me.profile.name, 'b壞/b名字超級');
   const forged = client(port, { id: A.me.id, token: 'x'.repeat(32) }); await forged.ready;
   assert.notStrictEqual(forged.me.id, A.me.id, 'a wrong token must not open someone else\'s account'); forged.ws.close();
@@ -118,7 +118,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.strictEqual(endA.win, true); assert.strictEqual(endA.stats.length, 4); assert.ok(endA.stats[2].dmg > 0);
   assert.strictEqual(endA.profile.runs, 1); assert.ok(endA.loot && endA.loot.il >= 14); assert.strictEqual(endA.profile.lvl, endA.onTime ? 2 : 1);
   assert.ok(Object.values(endA.profile.gear).some(v => v === endA.loot.il), 'the dropped item is on the account');
-  assert.ok(endA.xp >= 150 && endA.profile.cl >= 2, 'a clear gives experience');
+  assert.ok(endA.xp >= 150 && endA.profile.cl >= 2, 'a clear gives experience'); assert.ok(endA.coin >= 30 && endA.profile.coin === endA.coin, 'and coin');
   assert.ok(endA.mats.scrap >= 3 && endA.mats.salt >= 1); assert.strictEqual(endA.profile.inv.scrap, endA.mats.scrap); assert.strictEqual(endA.profile.inv.potion, 1, 'the potion that was drunk is gone');
   assert.deepStrictEqual(endA.mates.map(m => m.name), ['b壞/b名字超級']); assert.strictEqual(endA.mates[0].friend, false); assert.strictEqual(endA.again, 'TEST');
   assert.ok(JSON.stringify(A.last.s).length < 4000);
@@ -282,6 +282,26 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   E3.send({ t: 'join', event: true, x: spot.x, y: spot.y + 60 }); await E3.wait('start'); E3.send({ t: 'dbg', k: 'evtime' });
   const lost = await E3.wait('event-end'); assert.strictEqual(lost.win, false); assert.strictEqual(lost.xp, 0); assert.strictEqual(lost.profile.inv.shard, 0); E3.ws.close(); await sleep(100); await et.close();
   ok('tide surge: opens on a schedule, strangers share one field, joining keeps your place, win pays everyone present, timeout pays nothing');
+
+  // coin, the merchant and talents: all kept and checked by the server
+  const M = await named(port, '買家', 'dps'); const mc = srv.store.get(M.me.id).chars[0]; mc.coin = 200; mc.cl = 8; mc.inv.scrap = 10;
+  const act = async o => { const prev = M.last.ack; M.send(o); return M.wait('ack', m => m !== prev); };
+  let ak = await act({ t: 'shop', op: 'buy', key: 'potion', n: 2 }); assert.strictEqual(ak.ok, true); assert.strictEqual(ak.profile.coin, 80); assert.strictEqual(ak.profile.inv.potion, 2);
+  ak = await act({ t: 'shop', op: 'buy', key: 'potion', n: 2 }); assert.strictEqual(ak.ok, false, 'not enough coin'); assert.strictEqual(ak.profile.coin, 80);
+  for (const bad of [{ key: 'shard', n: 1 }, { key: 'potion', n: -1 }, { key: 'potion', n: 1e9 }, { key: 'constructor', n: 1 }, { key: 'herb', n: '1' }]) assert.strictEqual((await act(Object.assign({ t: 'shop', op: 'buy' }, bad))).ok, false, JSON.stringify(bad));
+  ak = await act({ t: 'shop', op: 'sell', key: 'scrap', n: 10 }); assert.strictEqual(ak.ok, true); assert.strictEqual(ak.profile.coin, 100); assert.strictEqual(ak.profile.inv.scrap, 0);
+  ak = await act({ t: 'shop', op: 'sell', key: 'scrap', n: 1 }); assert.strictEqual(ak.ok, false, 'nothing left to sell');
+  ak = await act({ t: 'talent', id: 'd-cdr' }); assert.strictEqual(ak.ok, false, 'a deeper row needs points spent first');
+  ak = await act({ t: 'talent', id: 't-hp' }); assert.strictEqual(ak.ok, false, 'another class\'s talent');
+  for (let i = 0; i < 3; i++) ak = await act({ t: 'talent', id: 'd-hp' }); assert.strictEqual(ak.profile.talents['d-hp'], 3); ak = await act({ t: 'talent', id: 'd-hp' }); assert.strictEqual(ak.ok, false);
+  for (let i = 0; i < 2; i++) ak = await act({ t: 'talent', id: 'd-speed' }); for (let i = 0; i < 2; i++) ak = await act({ t: 'talent', id: 'd-blast' }); assert.strictEqual(ak.ok, true);
+  ak = await act({ t: 'talent', id: 'd-dmg' }); assert.strictEqual(ak.ok, false, 'seven points at level 8, all spent');
+  M.join('dps', 'TAL'); await M.wait('lobby', m => m.code === 'TAL'); M.send({ t: 'ready' }); const ts = await M.wait('start');
+  assert.strictEqual(ts.roster[2].maxHp, Math.round(950 * Sim.lvF(8) * 1.15), 'talents change the character that enters the run'); assert.strictEqual(ts.roster[2].spd, 1.1); assert.strictEqual(ts.roster[0].spd, 1, 'bots have no talents');
+  const th = await M.wait('s', m => m.st === 'run' && m.e.some(e => Array.isArray(e[15]) && e[14] >= 0)); const e0 = th.e.find(e => Array.isArray(e[15]) && e[14] >= 0);      // once a creature has picked someone assert.strictEqual(e0[15].length, 4); assert.ok(e0[14] >= 0 && e0[14] < 4 && Math.max(...e0[15]) === 100, 'snapshots say who each creature is on and how the seats rank');
+  M.send({ t: 'leave' }); ak = await act({ t: 'talent-reset' }); assert.strictEqual(ak.ok, true); assert.strictEqual(ak.profile.coin, 70); assert.deepStrictEqual(ak.profile.talents, {});
+  const bkm = await M.wait('bk', null, 3000); assert.ok(bkm.bk.length > 100, 'the backup follows a little later instead of riding on every reply'); M.ws.close();
+  ok('coin, merchant and talents: prices and limits enforced, rows and points enforced, talents shape the run, threat is reported');
 
   // skill loadouts and aimed casts
   const T = await named(port, '換技', 'tank'); let lr;

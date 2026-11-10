@@ -60,6 +60,50 @@ const CLASSES = {
     pool: ['blast', 'roll', 'snipe', 'pierce', 'volley', 'mark'], ults: ['dpsUlt', 'sunshot'] }
 };
 for (const k of Object.keys(CLASSES)) { const d = CLASSES[k]; d.skills = d.pool.slice(0, 3).concat(d.ults[0]).map(id => SKILLS[id]); for (const id of d.pool.concat(d.ults)) SKILLS[id].cls = k; }
+/* Talents. One point per level after the first. A row opens once 3 points per row above it are spent. Every talent
+ * is `max` ranks of one modifier: hp, dmg, heal, taken (damage taken), speed, threat, ult (ultimate charge),
+ * cdr (all cooldowns) or cd:<skill> (one skill's cooldown). */
+const TALENTS = {
+  tank: [
+    { id: 't-hp', row: 0, max: 3, name: '厚殼', eff: ['hp', .05], desc: '生命上限 +5%' },
+    { id: 't-threat', row: 0, max: 3, name: '挑釁姿態', eff: ['threat', .12], desc: '造成的仇恨 +12%' },
+    { id: 't-taken', row: 0, max: 3, name: '卸力', eff: ['taken', -.03], desc: '受到的傷害 -3%' },
+    { id: 't-wall', row: 1, max: 2, name: '久守', eff: ['cd:wall', -.12], desc: '盾牆冷卻 -12%' },
+    { id: 't-dmg', row: 1, max: 3, name: '反擊', eff: ['dmg', .04], desc: '造成的傷害 +4%' },
+    { id: 't-taunt', row: 1, max: 2, name: '喝斥', eff: ['cd:taunt', -.12], desc: '嘲諷擊冷卻 -12%' },
+    { id: 't-ult', row: 2, max: 2, name: '鐵潮湧動', eff: ['ult', .15], desc: '大招能量累積 +15%' },
+    { id: 't-speed', row: 2, max: 2, name: '踏浪', eff: ['speed', .05], desc: '移動速度 +5%' },
+    { id: 't-cdr', row: 2, max: 2, name: '老練', eff: ['cdr', -.05], desc: '所有技能冷卻 -5%' } ],
+  heal: [
+    { id: 'h-heal', row: 0, max: 3, name: '深泉', eff: ['heal', .05], desc: '治療量 +5%' },
+    { id: 'h-hp', row: 0, max: 3, name: '潮護', eff: ['hp', .05], desc: '生命上限 +5%' },
+    { id: 'h-speed', row: 0, max: 2, name: '輕步', eff: ['speed', .05], desc: '移動速度 +5%' },
+    { id: 'h-mend', row: 1, max: 2, name: '湧流', eff: ['cd:mend', -.1], desc: '湧泉冷卻 -10%' },
+    { id: 'h-ring', row: 1, max: 2, name: '回波', eff: ['cd:ring', -.12], desc: '潮環冷卻 -12%' },
+    { id: 'h-taken', row: 1, max: 3, name: '水幕', eff: ['taken', -.03], desc: '受到的傷害 -3%' },
+    { id: 'h-ult', row: 2, max: 2, name: '漲潮之兆', eff: ['ult', .15], desc: '大招能量累積 +15%' },
+    { id: 'h-dmg', row: 2, max: 3, name: '鹽刺', eff: ['dmg', .06], desc: '造成的傷害 +6%' },
+    { id: 'h-cdr', row: 2, max: 2, name: '從容', eff: ['cdr', -.05], desc: '所有技能冷卻 -5%' } ],
+  dps: [
+    { id: 'd-dmg', row: 0, max: 3, name: '餘燼', eff: ['dmg', .04], desc: '造成的傷害 +4%' },
+    { id: 'd-speed', row: 0, max: 2, name: '快腿', eff: ['speed', .05], desc: '移動速度 +5%' },
+    { id: 'd-hp', row: 0, max: 3, name: '硬骨頭', eff: ['hp', .05], desc: '生命上限 +5%' },
+    { id: 'd-blast', row: 1, max: 2, name: '連燃', eff: ['cd:blast', -.1], desc: '爆燃箭冷卻 -10%' },
+    { id: 'd-roll', row: 1, max: 2, name: '滑步', eff: ['cd:roll', -.12], desc: '翻滾冷卻 -12%' },
+    { id: 'd-ult', row: 1, max: 2, name: '積火', eff: ['ult', .15], desc: '大招能量累積 +15%' },
+    { id: 'd-focus', row: 2, max: 3, name: '專注', eff: ['dmg', .04], desc: '造成的傷害 +4%' },
+    { id: 'd-taken', row: 2, max: 2, name: '側身', eff: ['taken', -.04], desc: '受到的傷害 -4%' },
+    { id: 'd-cdr', row: 2, max: 2, name: '熟手', eff: ['cdr', -.05], desc: '所有技能冷卻 -5%' } ]
+};
+const NO_MODS = { hp: 1, dmg: 1, heal: 1, taken: 1, speed: 1, threat: 1, ult: 1, cdr: 1, cd: {} };
+const talentPoints = cl => Math.max(0, cl - 1), talentSpent = t => Object.keys(t || {}).reduce((n, k) => n + t[k], 0);
+/* what a character's talents add up to; safe on anything */
+function modsOf(talents, cls) {
+  const m = { hp: 1, dmg: 1, heal: 1, taken: 1, speed: 1, threat: 1, ult: 1, cdr: 1, cd: {} }, list = TALENTS[cls] || [];
+  for (const t of list) { const r = talents && talents[t.id]; if (!(r > 0)) continue; const k = t.eff[0], v = t.eff[1] * Math.min(r, t.max); if (k.startsWith('cd:')) m.cd[k.slice(3)] = 1 + v; else m[k] += v; }
+  return m;
+}
+
 const defaultLoadout = cls => CLASSES[cls].skills.map(s => s.id);
 /* three different unlocked regular skills of the class, then one unlocked ultimate */
 function validLoadout(cls, ids, cl) {
@@ -90,6 +134,7 @@ const FIELD = {
   gate: { x: 450, y: 120, r: 46 },
   events: [{ x: 450, y: 790, r: 115 }, { x: 620, y: 430, r: 115 }],             // where the tide surge can come ashore
   npcs: [{ id: 'kol', x: 385, y: 1285 }, { id: 'mira', x: 512, y: 1280 }, { id: 'jin', x: 540, y: 1372 }, { id: 'wu', x: 372, y: 1378 }],
+  stalls: [{ id: 'shop', name: '老錨', title: '商人', x: 318, y: 1318 }],      // people at the camp who run a service rather than a story
   path: [[450, 1320], [430, 1100], [520, 860], [400, 620], [470, 380], [450, 170]],
   rocks: [{ x: 250, y: 1150, r: 34 }, { x: 650, y: 1010, r: 40 }, { x: 330, y: 900, r: 30 }, { x: 690, y: 740, r: 36 }, { x: 220, y: 660, r: 38 },
     { x: 590, y: 510, r: 32 }, { x: 300, y: 390, r: 34 }, { x: 660, y: 310, r: 38 }, { x: 150, y: 930, r: 26 }, { x: 770, y: 560, r: 28 }],
@@ -124,7 +169,7 @@ function scaleMob(e, lvl, size) { const k = e.maxHp ? e.hp / e.maxHp : 1; e.lvl 
 /* Who is actually in the field (a seat whose player left stays in the list, marked out), and the level creatures follow. */
 const present = G => G.actors.filter(a => !a.out);
 function partyLevel(G) { const ps = present(G); return ps.length ? Math.max(1, Math.round(ps.reduce((n, a) => n + a.lvl, 0) / ps.length)) : 1; }
-function setLevel(a, lvl, pow) { a.lvl = lvl; a.pow = pow; a.maxHp = R(a.def.hp * pow); a.hp = a.maxHp; }   // levelling up refills your health
+function setLevel(a, lvl, pow) { a.lvl = lvl; a.pow = pow; a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.maxHp; }   // levelling up refills your health
 
 const inCamp = p => Math.hypot(p.x - FIELD.safe.x, p.y - FIELD.safe.y) < FIELD.safe.r;
 function pushOut(p) { for (const r of FIELD.rocks) { const dx = p.x - r.x, dy = p.y - r.y, d = Math.hypot(dx, dy) || .01, m = r.r + p.r; if (d < m) { p.x = r.x + dx / d * m; p.y = r.y + dy / d * m; } } }
@@ -139,9 +184,9 @@ function shake(G, v) { ev(G, { k: 'shake', v }); }
 function fail(G, a, s) { if (a.human) ev(G, { k: 'fail', i: a.idx, s }); return false; }
 
 /* ---------- setup ---------- */
-function mkActor(cls, name, spot, pow) {
-  const d = CLASSES[cls];
-  return { cls, def: d, name, x: spot[0], y: spot[1], r: 12, pow, maxHp: R(d.hp * pow), hp: R(d.hp * pow), alive: true, human: false, pid: null, idx: 0,
+function mkActor(cls, name, spot, pow, mods) {
+  const d = CLASSES[cls], md = mods || NO_MODS;
+  return { cls, def: d, name, x: spot[0], y: spot[1], r: 12, pow, mods: md, maxHp: R(d.hp * pow * md.hp), hp: R(d.hp * pow * md.hp), alive: true, human: false, pid: null, idx: 0,
     target: null, atkT: rand(0, .5), cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rollT: 0, rvx: 0, rvy: 0, face: -Math.PI / 2, idleT: 0, potions: 0,
     skills: d.skills, hotT: 0, hotPer: 0,
     ctrl: { mx: 0, my: 0, cast: [false, false, false, false], aim: [null, null, null, null], healOn: null, pot: false },
@@ -158,7 +203,7 @@ function createRun(opts) {
   const pending = (opts.players || []).slice(); let dpsN = 0;
   ROSTER.forEach((c, i) => {
     const k = pending.findIndex(p => p.cls === c), p = k >= 0 ? pending.splice(k, 1)[0] : null;
-    const a = mkActor(c, p ? p.name : (c === 'dps' ? BOT_NAMES.dps[dpsN++] : BOT_NAMES[c]), SPOTS[i], p ? p.pow : botPow);
+    const a = mkActor(c, p ? p.name : (c === 'dps' ? BOT_NAMES.dps[dpsN++] : BOT_NAMES[c]), SPOTS[i], p ? p.pow : botPow, p ? p.mods : null);
     a.lvl = p && p.lvl > 0 ? p.lvl : G.elvl;   // a player shows their own level; a bot shows the level the floor is meant for
     a.idx = i; a.human = !!p; a.pid = p ? p.id : null; a.potions = p && p.potions > 0 ? 1 : 0; if (p && p.skills) a.skills = skillSet(c, p.skills); G.actors.push(a);   // one potion per run
   });
@@ -178,7 +223,7 @@ function spawnMob(G, pk, home) {
   e.pk = pk; e.home = home; e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3); e.engaged = false; e.ret = false; scaleMob(e, mobLevel(def, partyLevel(G)), G.ev ? 1 : Math.max(1, present(G).length)); return e;
 }
 function fieldSeat(p, idx, at) {
-  const a = mkActor(p.cls, p.name, at ? [clamp(at[0], 20, FIELD.w - 20), clamp(at[1], 20, FIELD.h - 20)] : [FIELD.spawn[0] + (idx % 4 - 1.5) * 26, FIELD.spawn[1] + (idx % 2) * 18], p.pow);
+  const a = mkActor(p.cls, p.name, at ? [clamp(at[0], 20, FIELD.w - 20), clamp(at[1], 20, FIELD.h - 20)] : [FIELD.spawn[0] + (idx % 4 - 1.5) * 26, FIELD.spawn[1] + (idx % 2) * 18], p.pow, p.mods);
   a.lvl = p.lvl > 0 ? p.lvl : 1; if (p.skills) a.skills = skillSet(p.cls, p.skills);
   a.idx = idx; a.human = true; a.out = false; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; return a;
 }
@@ -216,7 +261,7 @@ const bossMul = G => G.t > TIME_LIMIT ? 1 + (G.t - TIME_LIMIT) / 15 : 1;
 
 function hurtActor(G, a, dmg, avoidable) {
   if (!a.alive || a.iframe > 0) return;
-  if (a.wallT > 0) dmg *= .4;
+  dmg *= a.mods.taken; if (a.wallT > 0) dmg *= .4;
   if (a.shield > 0) { const s = Math.min(a.shield, dmg); a.shield -= s; dmg -= s; }
   if (dmg <= 0) return;
   a.hp -= dmg; a.ult = Math.min(100, a.ult + dmg / a.maxHp * 40);
@@ -227,10 +272,10 @@ function hurtActor(G, a, dmg, avoidable) {
 function hurtEnemy(G, e, dmg, src, big, noUlt) {
   if (!e.alive || e.ret) return;                        // a creature walking back to its spot cannot be hurt
   if (G.mode === 'field' && present(G).length < 2) dmg *= SOLO_BOOST[src.cls] || 1;     // the boost is for hunting alone
-  if (e.vulnT > 0) dmg *= 1.25;                         // marked by a hunter
+  dmg *= src.mods.dmg; if (e.vulnT > 0) dmg *= 1.25;                         // marked by a hunter
   e.hp -= dmg; src.stats.dmg += dmg;
-  e.threat.set(src, (e.threat.get(src) || 0) + dmg * src.def.threat);
-  if (!noUlt) src.ult = Math.min(100, src.ult + dmg / (src.pow * src.def.ultK));
+  e.threat.set(src, (e.threat.get(src) || 0) + dmg * src.def.threat * src.mods.threat);
+  if (!noUlt) src.ult = Math.min(100, src.ult + dmg / (src.pow * src.def.ultK) * src.mods.ult);
   ev(G, { k: 'dmg', x: R(e.x), y: R(e.y - e.r - 6), v: R(dmg), big: big ? 1 : 0, by: src.idx });
   if (e.hp <= 0) {
     e.hp = 0; e.alive = false; ring(G, e.x, e.y, e.r * .5, e.r * 2.2, e.boss ? 'brass' : 'rust', .45);
@@ -240,9 +285,9 @@ function hurtEnemy(G, e, dmg, src, big, noUlt) {
 }
 function healActor(G, a, amt, src) {
   if (!a.alive) return;
-  const real = Math.min(amt, a.maxHp - a.hp); if (real < 1) return;
+  const real = Math.min(amt * src.mods.heal, a.maxHp - a.hp); if (real < 1) return;
   a.hp += real; src.stats.heal += real;
-  src.ult = Math.min(100, src.ult + real / (src.pow * 22));
+  src.ult = Math.min(100, src.ult + real / (src.pow * 22) * src.mods.ult);
   ev(G, { k: 'heal', i: a.idx, v: R(real), by: src.idx });
   for (const e of G.enemies) e.threat.set(src, (e.threat.get(src) || 0) + real * .2);
 }
@@ -386,7 +431,7 @@ function tryCast(G, a, i, aim) {
   const sk = a.skills[i]; if (!a.alive || !sk) return false;
   if (sk.ult) { if (a.ult < 100) return false; } else if (a.cds[i] > 0) return false;
   if (SK[sk.fn || sk.id](G, a, aim || null, sk) === false) return false;
-  if (sk.ult) a.ult = 0; else a.cds[i] = sk.cd;
+  if (sk.ult) a.ult = 0; else a.cds[i] = sk.cd * a.mods.cdr * (a.mods.cd[sk.id] || 1);
   return true;
 }
 
@@ -494,7 +539,7 @@ function updActor(G, a, dt) {
   else {
     let mx = c.mx, my = c.my; const m = Math.hypot(mx, my);
     if (m > 1) { mx /= m; my /= m; }
-    if (m > .05) { a.x += mx * a.def.speed * dt; a.y += my * a.def.speed * dt; if (!a.target) a.face = Math.atan2(my, mx); }
+    if (m > .05) { const sp = a.def.speed * a.mods.speed; a.x += mx * sp * dt; a.y += my * sp * dt; if (!a.target) a.face = Math.atan2(my, mx); }
   }
   a.x = clamp(a.x, a.r + 6, G.bw - a.r - 6); a.y = clamp(a.y, a.r + (G.mode === 'field' ? 6 : 36), G.bh - a.r - 8);
   if (G.mode === 'field') pushOut(a);
@@ -667,7 +712,7 @@ function stepEvent(G, dt) {
   banner(G, E.wave === EV_WAVES.length - 1 ? '鏽錨巨蟹上岸了' : `漲潮　第 ${E.wave + 1} 波`, 2000);
 }
 /* What everyone who saw a surge through gets. */
-function eventReward(p) { fixProfile(p); const mats = { shard: 1, scrap: 4, herb: 2 }; grant(p, mats); const x = addXp(p, 150 + 25 * p.cl); return { mats, xp: x.xp, ups: x.ups }; }
+function eventReward(p) { fixProfile(p); const mats = { shard: 1, scrap: 4, herb: 2 }; grant(p, mats); const x = addXp(p, 150 + 25 * p.cl), coin = addCoin(p, 40); return { mats, xp: x.xp, ups: x.ups, coin }; }
 
 /* What a gather or a kill gives. The server rolls this for online accounts. */
 function fieldYield(what, key) {
@@ -684,7 +729,8 @@ function fieldGain(p, what, key, pk) {
   fixProfile(p); let xp = 5;
   if (what === 'kill') { const def = Number.isInteger(pk) ? FIELD.packs[pk] : null; if (!def || def.kind !== key) return null; xp = xpForKill(key, mobLevel(def, p.cl), p.cl); }
   const mats = fieldYield(what, key); grant(p, mats); const x = addXp(p, xp);
-  return { mats, xp: x.xp, ups: x.ups };
+  const coin = what === 'kill' && Math.random() < .6 ? addCoin(p, 1 + Math.floor(Math.random() * 2) + Math.floor(p.cl / 6)) : 0;      // creatures sometimes carry a little coin
+  return { mats, xp: x.xp, ups: x.ups, coin };
 }
 
 function step(G, dt) {
@@ -714,11 +760,16 @@ const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
 const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
 const gearCap = lvl => 10 + lvl * 4 + 7;        // how far tempering can push a slot at this tower level
 const charPower = p => powerOf(p.gear) * lvF(p.cl);     // what a character brings to a fight: gear and level
-function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {} }; }
+function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {}, coin: 0, talents: {} }; }
+const COIN_CAP = 9999999;
+function addCoin(p, n) { n = Math.max(0, Math.round(n)); p.coin = Math.min(COIN_CAP, (p.coin || 0) + n); return n; }
 function fixProfile(p) {   // fill in anything an older save does not have
   const d = newProfile();
   for (const k of Object.keys(d)) if (p[k] == null) p[k] = d[k];
   for (const k of Object.keys(d.inv)) if (!(p.inv[k] >= 0)) p.inv[k] = 0;
+  p.coin = p.coin >= 0 ? Math.min(COIN_CAP, Math.floor(p.coin)) : 0;
+  { const t = {}, old = p.talents && typeof p.talents === 'object' ? p.talents : {};      // keep only real talents at real ranks
+    for (const list of Object.values(TALENTS)) for (const d of list) if (Number.isInteger(old[d.id]) && old[d.id] > 0) t[d.id] = Math.min(d.max, old[d.id]); p.talents = t; }
   p.cl = Number.isInteger(p.cl) ? clamp(p.cl, 1, MAX_LEVEL) : 1; p.xp = p.xp >= 0 && p.cl < MAX_LEVEL ? Math.min(Math.floor(p.xp), xpNeed(p.cl)) : 0;
   fixQuests(p);
   const lo = {}, old = p.loadout && typeof p.loadout === 'object' ? p.loadout : {};      // keep only loadouts that are still allowed
@@ -739,8 +790,8 @@ function applyResult(p, lvl, r) {
     ? { scrap: 3 + Math.floor(Math.random() * 3) + Math.floor(lvl / 3), salt: 1 + (Math.random() < .5 ? 1 : 0), shard: r.onTime ? 1 : (Math.random() < .3 ? 1 : 0) }
     : { scrap: 1 + Math.floor(Math.random() * 2), salt: 0, shard: 0 };
   for (const k of Object.keys(mats)) p.inv[k] = Math.min(MAT_CAP, p.inv[k] + mats[k]);
-  const x = addXp(p, r.win ? (100 + 50 * lvl) * (r.onTime ? 1.25 : 1) : 25);
-  if (!r.win) return { loot: null, mats, xp: x.xp, ups: x.ups };
+  const x = addXp(p, r.win ? (100 + 50 * lvl) * (r.onTime ? 1.25 : 1) : 25), coin = addCoin(p, r.win ? (20 + 10 * lvl) * (r.onTime ? 1.25 : 1) : 5);
+  if (!r.win) return { loot: null, mats, xp: x.xp, ups: x.ups, coin };
   p.runs++;
   const ks = ['w', 'a', 't']; let k = pick(ks);
   if (Math.random() < .5) k = ks.reduce((m, x) => p.gear[x] < p.gear[m] ? x : m, 'w');
@@ -748,7 +799,7 @@ function applyResult(p, lvl, r) {
   if (up) p.gear[k] = il;
   if (!p.best[lvl] || r.t < p.best[lvl]) p.best[lvl] = Math.round(r.t * 10) / 10;
   if (r.onTime) p.lvl = Math.max(p.lvl, Math.min(50, lvl + 1));
-  return { loot: { slot: LOOT[k][0], name: pick(LOOT[k][1]), il, old, up }, mats, xp: x.xp, ups: x.ups };
+  return { loot: { slot: LOOT[k][0], name: pick(LOOT[k][1]), il, old, up }, mats, xp: x.xp, ups: x.ups, coin };
 }
 
 /* ---------- skill loadouts ---------- */
@@ -757,6 +808,37 @@ function setLoadout(p, cls, ids) {
   fixProfile(p); if (!Object.prototype.hasOwnProperty.call(CLASSES, cls)) return { ok: false, msg: '沒有這個職業。' };
   if (!validLoadout(cls, ids, p.cl)) return { ok: false, msg: '這組技能不能用：要三個不重複的一般技能加一個大招，而且都已經解鎖。' };
   p.loadout[cls] = ids.slice(); return { ok: true, msg: '技能換好了。' };
+}
+
+/* ---------- talents on a profile ---------- */
+function learnTalent(p, cls, id) {
+  fixProfile(p); const d = (TALENTS[cls] || []).find(t => t.id === id); if (!d) return { ok: false, msg: '沒有這個天賦。' };
+  const spent = talentSpent(p.talents), have = p.talents[id] || 0;
+  if (spent >= talentPoints(p.cl)) return { ok: false, msg: '沒有天賦點了，升級會再得到一點。' };
+  if (have >= d.max) return { ok: false, msg: `「${d.name}」已經點滿了。` };
+  if (spent < d.row * 3) return { ok: false, msg: `這一排要先在別的天賦投入 ${d.row * 3} 點。` };
+  p.talents[id] = have + 1; return { ok: true, msg: `「${d.name}」${have + 1} / ${d.max}。` };
+}
+const RESPEC_COST = 30;
+function resetTalents(p) {
+  fixProfile(p); if (!talentSpent(p.talents)) return { ok: false, msg: '還沒有點任何天賦。' };
+  if (p.coin < RESPEC_COST) return { ok: false, msg: `重置要 ${RESPEC_COST} 鐘幣，你只有 ${p.coin}。` };
+  p.coin -= RESPEC_COST; p.talents = {}; return { ok: true, msg: `天賦重置了，花了 ${RESPEC_COST} 鐘幣。` };
+}
+
+/* ---------- the merchant ---------- */
+const SHOP = { buy: { potion: 60, herb: 12, salt: 16, scrap: 7 }, sell: { scrap: 2, salt: 4, herb: 3, shard: 35 } };
+const itemName = k => k === 'potion' ? '潮息藥水' : MATS[k];
+function shopBuy(p, key, n) {
+  fixProfile(p); const price = Object.prototype.hasOwnProperty.call(SHOP.buy, key) ? SHOP.buy[key] : 0; if (!price || !Number.isInteger(n) || n < 1 || n > 99) return { ok: false, msg: '商人不賣這個。' };
+  const cap = key === 'potion' ? POTION_CAP : MAT_CAP; if (p.inv[key] + n > cap) return { ok: false, msg: `${itemName(key)}帶不了那麼多，上限 ${cap}。` };
+  if (p.coin < price * n) return { ok: false, msg: `鐘幣不夠，要 ${price * n}，你只有 ${p.coin}。` };
+  p.coin -= price * n; p.inv[key] += n; return { ok: true, msg: `買了 ${itemName(key)} ×${n}，花了 ${price * n} 鐘幣。` };
+}
+function shopSell(p, key, n) {
+  fixProfile(p); const price = Object.prototype.hasOwnProperty.call(SHOP.sell, key) ? SHOP.sell[key] : 0; if (!price || !Number.isInteger(n) || n < 1 || n > 9999) return { ok: false, msg: '商人不收這個。' };
+  if (p.inv[key] < n) return { ok: false, msg: `你沒有那麼多${itemName(key)}。` };
+  p.inv[key] -= n; const got = addCoin(p, price * n); return { ok: true, msg: `賣掉 ${itemName(key)} ×${n}，拿到 ${got} 鐘幣。` };
 }
 
 /* ---------- crafting ---------- */
@@ -792,27 +874,27 @@ const isRun = ev => ev.type === 'run';
 const CLS_BIT = { tank: 1, heal: 2, dps: 4 };
 const bits = n => (n & 1) + (n >> 1 & 1) + (n >> 2 & 1);
 const MAIN = [
-  { id: 'bell', title: '第一聲鐘響', goal: '通關沉鐘塔一次', need: 1, reward: { xp: 120, scrap: 6, salt: 2 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
-  { id: 'kick', title: '斷其咒語', goal: '成功打斷敵人的金色讀條 3 次', need: 3, reward: { xp: 120, salt: 3 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
-  { id: 'craft', title: '工坊開張', goal: '在背包裡製作任何一樣東西', need: 1, reward: { xp: 150, scrap: 8, salt: 2 }, inc: ev => ev.type === 'craft' ? 1 : 0 },
-  { id: 'ontime', title: '搶在潮水之前', goal: '三分鐘內通關一次', need: 1, reward: { xp: 200, potion: 1 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 },
-  { id: 'clean', title: '乾淨的腳步', goal: '通關一場，而且整場沒有踩到紅圈', need: 1, reward: { xp: 250, shard: 1, scrap: 6 }, inc: ev => isRun(ev) && ev.win && ev.hits === 0 ? 1 : 0 },
-  { id: 'lvl3', title: '更深一層', goal: '抵達第 3 層', need: 3, reward: { xp: 300, salt: 4, scrap: 8 }, value: p => p.lvl },
-  { id: 'temper', title: '淬火', goal: '淬鍊任何一個部位一次', need: 1, reward: { xp: 300, shard: 2 }, inc: ev => ev.type === 'craft' && ev.kind === 'temper' ? 1 : 0 },
-  { id: 'lvl5', title: '鐘塔中段', goal: '抵達第 5 層', need: 5, reward: { xp: 500, shard: 2, potion: 1, scrap: 12 }, value: p => p.lvl }
+  { id: 'bell', title: '第一聲鐘響', goal: '通關沉鐘塔一次', need: 1, reward: { coin: 30, xp: 120, scrap: 6, salt: 2 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
+  { id: 'kick', title: '斷其咒語', goal: '成功打斷敵人的金色讀條 3 次', need: 3, reward: { coin: 30, xp: 120, salt: 3 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
+  { id: 'craft', title: '工坊開張', goal: '在背包裡製作任何一樣東西', need: 1, reward: { coin: 40, xp: 150, scrap: 8, salt: 2 }, inc: ev => ev.type === 'craft' ? 1 : 0 },
+  { id: 'ontime', title: '搶在潮水之前', goal: '三分鐘內通關一次', need: 1, reward: { coin: 50, xp: 200, potion: 1 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 },
+  { id: 'clean', title: '乾淨的腳步', goal: '通關一場，而且整場沒有踩到紅圈', need: 1, reward: { coin: 60, xp: 250, shard: 1, scrap: 6 }, inc: ev => isRun(ev) && ev.win && ev.hits === 0 ? 1 : 0 },
+  { id: 'lvl3', title: '更深一層', goal: '抵達第 3 層', need: 3, reward: { coin: 70, xp: 300, salt: 4, scrap: 8 }, value: p => p.lvl },
+  { id: 'temper', title: '淬火', goal: '淬鍊任何一個部位一次', need: 1, reward: { coin: 70, xp: 300, shard: 2 }, inc: ev => ev.type === 'craft' && ev.kind === 'temper' ? 1 : 0 },
+  { id: 'lvl5', title: '鐘塔中段', goal: '抵達第 5 層', need: 5, reward: { coin: 120, xp: 500, shard: 2, potion: 1, scrap: 12 }, value: p => p.lvl }
 ];
 const WEEK = [
-  { id: 'w-runs', title: '本週巡塔', goal: '這週通關 5 場', need: 5, reward: { xp: 300, scrap: 15, salt: 4 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
-  { id: 'w-kicks', title: '本週斷法', goal: '這週成功打斷 10 次', need: 10, reward: { xp: 250, salt: 5 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
-  { id: 'w-surge', title: '本週漲潮', goal: '這週在鏽灘撐過 2 次漲潮', need: 2, online: true, reward: { xp: 300, shard: 2 }, inc: ev => ev.type === 'event' ? 1 : 0 },
-  { id: 'w-ontime', title: '本週準時', goal: '這週三分鐘內通關 3 場', need: 3, reward: { xp: 350, shard: 2 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 }
+  { id: 'w-runs', title: '本週巡塔', goal: '這週通關 5 場', need: 5, reward: { coin: 80, xp: 300, scrap: 15, salt: 4 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
+  { id: 'w-kicks', title: '本週斷法', goal: '這週成功打斷 10 次', need: 10, reward: { coin: 60, xp: 250, salt: 5 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
+  { id: 'w-surge', title: '本週漲潮', goal: '這週在鏽灘撐過 2 次漲潮', need: 2, online: true, reward: { coin: 80, xp: 300, shard: 2 }, inc: ev => ev.type === 'event' ? 1 : 0 },
+  { id: 'w-ontime', title: '本週準時', goal: '這週三分鐘內通關 3 場', need: 3, reward: { coin: 80, xp: 350, shard: 2 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 }
 ];
 const SIDE = [
-  { id: 's-party', title: '結伴', goal: '和至少一位其他玩家一起通關', need: 1, online: true, reward: { xp: 200, scrap: 10, potion: 1 }, upd: (v, ev) => isRun(ev) && ev.win && ev.mates > 0 ? 1 : v },
-  { id: 's-level', title: '站穩腳步', goal: '升到 5 級', need: 5, reward: { shard: 2, potion: 1 }, upd: (v, ev, p) => p.cl, have: v => v },
-  { id: 's-gather', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { xp: 150, scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
-  { id: 's-hunt', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { xp: 200, salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
-  { id: 's-friend', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { xp: 100, salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
+  { id: 's-party', title: '結伴', goal: '和至少一位其他玩家一起通關', need: 1, online: true, reward: { coin: 50, xp: 200, scrap: 10, potion: 1 }, upd: (v, ev) => isRun(ev) && ev.win && ev.mates > 0 ? 1 : v },
+  { id: 's-level', title: '站穩腳步', goal: '升到 5 級', need: 5, reward: { coin: 60, shard: 2, potion: 1 }, upd: (v, ev, p) => p.cl, have: v => v },
+  { id: 's-gather', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { coin: 40, xp: 150, scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
+  { id: 's-hunt', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { coin: 50, xp: 200, salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
+  { id: 's-friend', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { coin: 30, xp: 100, salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
 ];
 const weekOf = now => Math.floor((Math.floor((now + 8 * 3600000) / 86400000) + 3) / 7);
 const qInt = (v, a, b) => Number.isInteger(v) ? Math.min(b, Math.max(a, v)) : a;
@@ -827,7 +909,7 @@ function fixQuests(p, now) {
   if (now != null && wk.n !== weekOf(now)) { wk.n = weekOf(now); wk.p = {}; wk.c = {}; }
   q.side = side; q.week = wk; return q;
 }
-const rewardText = r => Object.keys(r).map(k => `${k === 'xp' ? '經驗' : k === 'potion' ? '潮息藥水' : MATS[k]} +${r[k]}`).join('、');
+const rewardText = r => Object.keys(r).map(k => `${k === 'xp' ? '經驗' : k === 'coin' ? '鐘幣' : k === 'potion' ? '潮息藥水' : MATS[k]} +${r[k]}`).join('、');
 /* Everything the quest screen needs. online = false hides quests that need other players. */
 function questList(p, now, online) {
   const q = fixQuests(p, now), items = [], m = MAIN[q.main];
@@ -854,13 +936,15 @@ function questClaim(p, id, now) {
   if (it.claimed) return { ok: false, msg: '這個任務的獎勵已經領過了。' };
   if (!it.ready) return { ok: false, msg: `「${it.title}」還沒完成。` };
   const d = MAIN.concat(WEEK, SIDE).find(x => x.id === id);
-  for (const k of Object.keys(d.reward)) { if (k === 'xp') addXp(p, d.reward.xp); else p.inv[k] = Math.min(k === 'potion' ? POTION_CAP : MAT_CAP, p.inv[k] + d.reward[k]); }
+  for (const k of Object.keys(d.reward)) { if (k === 'xp') addXp(p, d.reward.xp); else if (k === 'coin') addCoin(p, d.reward.coin); else p.inv[k] = Math.min(k === 'potion' ? POTION_CAP : MAT_CAP, p.inv[k] + d.reward[k]); }
   if (it.group === 'main') { q.main++; q.mp = 0; } else if (it.group === 'week') q.week.c[id] = 1; else q.side[id] = -1;
   return { ok: true, msg: `「${it.title}」完成，領到 ${it.reward}。` };
 }
 
 /* ---------- network snapshot: compact arrays, read back by the client ---------- */
 const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100;
+/* each seat's threat on a creature as a share of the highest, 0 to 100; 0 when nobody has any */
+function threatList(G, e) { if (!e.threat.size) return 0; let top = 0; for (const v of e.threat.values()) if (v > top) top = v; if (top <= 0) return 0; return G.actors.map(a => { const v = e.threat.get(a); return v > 0 && a.alive ? R(v / top * 100) : 0; }); }
 function snapshot(G) {
   return {
     tm: r2(G.t), st: G.state, cd: r2(G.cd), w: G.wave,
@@ -868,7 +952,7 @@ function snapshot(G) {
       (a.wallT > 0 ? 1 : 0) | (a.shield > 0 ? 2 : 0) | (a.iframe > 0 ? 4 : 0) | (a.rollT > 0 ? 8 : 0) | (a.human ? 16 : 0),
       a.target ? a.target.id : 0, a.cds.map(r1), R(a.ult), a.potions, a.gather ? [a.gather.id, r2(a.gather.t)] : 0, a.out ? 1 : 0]),
     e: G.enemies.map(e => [e.id, e.kind, r1(e.x), r1(e.y), R(e.hp), e.maxHp, r2(e.face), r2(Math.max(0, e.spawnT)), e.stun > 0 ? 1 : 0, e.tm.enraged ? 1 : 0,
-      e.cast ? [e.cast.name, r2(e.cast.t), e.cast.dur, e.cast.kickable ? 1 : 0, e.cast.victim ? e.cast.victim.idx : -1] : 0, e.lvl, e.engaged ? 1 : 0, e.ret ? 1 : 0]),
+      e.cast ? [e.cast.name, r2(e.cast.t), e.cast.dur, e.cast.kickable ? 1 : 0, e.cast.victim ? e.cast.victim.idx : -1] : 0, e.lvl, e.engaged ? 1 : 0, e.ret ? 1 : 0, e.target ? e.target.idx : -1, threatList(G, e)]),
     z: G.zones.map(z => [z.id, z.friendly ? (z.heal ? 2 : 1) : 0, z.type === 'circle' ? 0 : 1, r1(z.x), r1(z.y), z.r || 0, r2(z.ang || 0), z.half || 0, z.len || 0, r2(z.t), z.dur, z.done ? 1 : 0]),
     s: G.shots.map(s => [s.id, r1(s.x), r1(s.y), s.big ? 1 : 0, s.src.idx]),
     nd: G.nodes ? G.nodes.map(n => n.cd.reduce((m, v, i) => m | (v > 0 ? 1 << i : 0), 0)) : undefined,   // per seat: is this spot used up
@@ -881,5 +965,6 @@ return { W, H, TIME_LIMIT, CLASSES, SKILLS, ENEMY, WAVES, ROSTER, SPOTS, createR
   FIELD, GATHER_TIME, NODE_RESPAWN, createField, addFieldActor, removeFieldActor, present, pushOut, fieldYield, grant, fieldGain, eventReward,
   MAX_LEVEL, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
-  weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id) };
+  weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id),
+  TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, RESPEC_COST, SHOP, shopBuy, shopSell, itemName, addCoin, threatList };
 });
