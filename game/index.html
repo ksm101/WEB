@@ -186,6 +186,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .mini:disabled{opacity:.45}
 .fields.one{grid-template-columns:minmax(0,1fr)}
 #toast{position:absolute;z-index:9;left:var(--gl);right:var(--gr);top:10px;display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--brass);border-radius:8px;background:var(--slate);font-size:13px;line-height:1.5}
+#toast.passive{pointer-events:none}
 #toast-msg{flex:1;min-width:0}
 #toast-btns{display:flex;gap:6px;flex:none}
 .clock{font-family:var(--f-num);font-weight:700;font-size:56px;line-height:1;font-variant-numeric:tabular-nums}
@@ -843,6 +844,7 @@ function group(parent, title, rows, empty) {
 function toast(msg, acts, ms) {
   const t = $('#toast'), box = $('#toast-btns'); $('#toast-msg').textContent = msg; box.textContent = '';
   for (const [label, fn] of acts || []) { const b = el('button', 'mini' + (fn ? ' go' : ''), label); b.type = 'button'; b.addEventListener('click', () => { t.hidden = true; if (fn) fn(); }); box.appendChild(b); }
+  t.classList.toggle('passive', !(acts && acts.length));   // a plain notice never blocks what is under it
   t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, ms || 3500);
 }
 
