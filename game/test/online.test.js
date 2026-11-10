@@ -79,6 +79,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   const [sa, sb] = await Promise.all([A.wait('start'), B.wait('start')]);
   assert.strictEqual(sa.you, 2); assert.strictEqual(sb.you, 1); assert.deepStrictEqual(sa.roster.map(r => r.human), [false, true, true, false]);
   assert.deepStrictEqual(sa.roster.map(r => r.potions), [0, 0, 1, 0], 'one potion per run, only for the player who owns some');
+  assert.deepStrictEqual(sa.roster.map(r => r.lvl), [1, 1, 1, 1], 'everyone in the roster carries a level for their nameplate');
   X.join('tank', 'TEST'); assert.match((await X.wait('err', m => /正在打副本/.test(m.msg))).msg, /正在打副本/);
   ok('private room: seats by class, refuses a taken seat, starts when everyone present is ready, refuses joins mid-run');
 

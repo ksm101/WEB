@@ -14,11 +14,11 @@
 'use strict';
 
 const CAST = {
-  kol: { name: '柯爾', color: 'tank' },     // the shield: a shipwright before the tide, blunt, means well
-  mira: { name: '蜜拉', color: 'heal' },    // the healer: listens to the tide, knows the tower's past
-  jin: { name: '阿燼', color: 'ember' },    // the archer: impatient, counts everything in seconds
-  wu: { name: '小霧', color: 'brass' },     // the youngest: a lamp-keeper's apprentice, curious
-  mog: { name: '莫葛', color: 'rust' }      // the warden: once the bell-ringer
+  kol: { lvl: 28, name: '柯爾', color: 'tank' },     // the shield: a shipwright before the tide, blunt, means well
+  mira: { lvl: 31, name: '蜜拉', color: 'heal' },    // the healer: listens to the tide, knows the tower's past
+  jin: { lvl: 24, name: '阿燼', color: 'ember' },    // the archer: impatient, counts everything in seconds
+  wu: { lvl: 12, name: '小霧', color: 'brass' },     // the youngest: a lamp-keeper's apprentice, curious
+  mog: { lvl: 40, name: '莫葛', color: 'rust' }      // the warden: once the bell-ringer
 };
 
 const SCENES = {

@@ -191,12 +191,12 @@ function start(opts) {
     const G = room.G;
     room.slots.forEach((s, i) => {
       if (!s || (only != null && only !== i)) return;
-      send(s.ws, { t: 'start', you: i, lvl: G.lvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, human: a.human, maxHp: a.maxHp, potions: a.potions })) });
+      send(s.ws, { t: 'start', you: i, lvl: G.lvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, lvl: a.lvl, human: a.human, maxHp: a.maxHp, potions: a.potions })) });
     });
   }
   function startRoom(room) {
     const lvl = Math.min.apply(null, humans(room).map(s => s.lvl));
-    room.G = Sim.createRun({ lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, pow: s.pow, id: s.id, potions: s.potions })) });
+    room.G = Sim.createRun({ lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.lvl, pow: s.pow, id: s.id, potions: s.potions })) });
     // seats and actors share the same order, so slot i drives actor i
     room.slots.forEach((s, i) => { if (s) { if (room.G.actors[i].pid !== s.id) throw new Error('seat mismatch'); seats.set(s.id, { room, idx: i }); } });
     room.state = 'run'; room.acc = 0; room.n = 0; room.clock = 0; room.goneSince = 0; room.last = Date.now();

@@ -91,7 +91,7 @@ function mkActor(cls, name, spot, pow) {
     stats: { dmg: 0, heal: 0, kicks: 0, hits: 0, pots: 0 },
     ai: { react: 0, delay: rand(.3, .75), kick: new WeakMap(), wob: rand(0, TAU), gcd: rand(0, .4) } };
 }
-/* opts: { lvl, players: [{ cls, name, pow, id, potions }], grace, auto }
+/* opts: { lvl, players: [{ cls, name, pow, id, potions, lvl }], grace, auto }
  * Each player takes the first free seat of their class; every other seat is a bot. */
 function createRun(opts) {
   const lvl = opts.lvl || 1, botPow = 1 + .1 * (lvl - 1);
@@ -101,13 +101,14 @@ function createRun(opts) {
   ROSTER.forEach((c, i) => {
     const k = pending.findIndex(p => p.cls === c), p = k >= 0 ? pending.splice(k, 1)[0] : null;
     const a = mkActor(c, p ? p.name : (c === 'dps' ? BOT_NAMES.dps[dpsN++] : BOT_NAMES[c]), SPOTS[i], p ? p.pow : botPow);
+    a.lvl = p && p.lvl > 0 ? p.lvl : lvl;      // a player shows their own level; a bot shows the level of the run
     a.idx = i; a.human = !!p; a.pid = p ? p.id : null; a.potions = p && p.potions > 0 ? 1 : 0; G.actors.push(a);   // one potion per run
   });
   return G;
 }
 function mkEnemy(G, kind, x, y) {
   const d = ENEMY[kind], s = G.es;
-  const e = { id: G.nextId++, kind, def: d, name: d.name, x, y, r: d.r, maxHp: R(d.hp * s), hp: R(d.hp * s), dmg: d.dmg * s, atkT: rand(.4, 1), threat: new Map(),
+  const e = { id: G.nextId++, kind, def: d, name: d.name, lvl: G.lvl, x, y, r: d.r, maxHp: R(d.hp * s), hp: R(d.hp * s), dmg: d.dmg * s, atkT: rand(.4, 1), threat: new Map(),
     fix: null, fixT: 0, target: null, cast: null, stun: 0, boss: kind === 'boss', tm: {}, alive: true, spawnT: .6, face: Math.PI / 2 };
   if (d.caster) e.tm.cast = rand(1.5, 3.5);
   if (e.boss) { e.tm = { cleave: 5, bells: 8, roar: 12, adds: false, enraged: false }; G.boss = e; }
@@ -120,7 +121,7 @@ function createField(opts) {
   const lvl = opts.lvl || 1, p = opts.player;
   const G = { mode: 'field', bw: FIELD.w, bh: FIELD.h, t: 0, lvl, es: Math.pow(1.13, lvl - 1), state: 'run', cd: 0, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
     boss: null, result: null, nextId: 1, grace: 0, auto: false, respawns: [], nodes: FIELD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, ready: true, t: 0 })) };
-  const a = mkActor(p.cls, p.name, FIELD.spawn, p.pow); a.idx = 0; a.human = true; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; G.actors.push(a);
+  const a = mkActor(p.cls, p.name, FIELD.spawn, p.pow); a.lvl = lvl; a.idx = 0; a.human = true; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; G.actors.push(a);
   for (const pk of FIELD.packs) for (let i = 0; i < pk.n; i++) spawnMob(G, pk.kind, { x: pk.x + (i - (pk.n - 1) / 2) * 34, y: pk.y + (i % 2) * 22 });
   return G;
 }

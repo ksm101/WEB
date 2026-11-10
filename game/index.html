@@ -451,7 +451,7 @@ function enterRun() {
 }
 function startSolo(cls) {
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
-  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: '你', pow: S.powerOf(save.gear), id: 'me', potions: save.inv.potion }] });
+  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.lvl, pow: S.powerOf(save.gear), id: 'me', potions: save.inv.potion }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
   if (net.authed) send({ t: 'solo0', lvl: save.lvl, cls });
   enterRun(); banner('三名 AI 隊友已就位', 2200);
@@ -488,7 +488,7 @@ function camGoal() {
 }
 function startField(then) {
   mode = 'field'; save.cls = chosen in CLASSES ? chosen : 'dps'; writeSave();
-  G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: '你', pow: S.powerOf(save.gear), id: 'me' } });
+  G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', pow: S.powerOf(save.gear), id: 'me' } });
   V = G; V.me = G.actors[0]; meIdx = 0;
   if (online && net.authed) send({ t: 'field0' });
   enterRun(); Object.assign(cam, camGoal()); renderQuests(); banner('鏽灘', 1500);
@@ -636,9 +636,9 @@ function beginOnline(m) {
   const back = net.back; net.back = false;
   mode = 'online'; lastMode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.emap = new Map(); net.sx = net.sy = NaN;
   V = { t: 0, state: 'countdown', cd: 3, wave: -1, lvl: m.lvl, enemies: [], zones: [], shots: [], boss: null, result: null,
-    actors: m.roster.map((r, i) => ({ idx: i, cls: r.cls, def: CLASSES[r.cls], name: String(r.name), human: !!r.human, x: SPOTS[i][0], y: SPOTS[i][1], sx: SPOTS[i][0], sy: SPOTS[i][1],
+    actors: m.roster.map((r, i) => ({ idx: i, cls: r.cls, def: CLASSES[r.cls], name: String(r.name), lvl: r.lvl > 0 ? r.lvl : m.lvl, human: !!r.human, x: SPOTS[i][0], y: SPOTS[i][1], sx: SPOTS[i][0], sy: SPOTS[i][1],
       r: 12, hp: r.maxHp, maxHp: r.maxHp, alive: true, potions: r.potions || 0, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null })) };
-  V.me = V.actors[meIdx]; V.me.name = '你';
+  V.me = V.actors[meIdx];
   enterRun();
   const n = m.roster.filter(r => r.human).length;
   banner(back ? '已重新連線' : n > 1 ? `${n} 名玩家，${4 - n} 名 AI 補位` : '沒等到其他玩家，三名 AI 補位', 2400);
@@ -659,7 +659,7 @@ function buildView(now) {
   const em = net.emap, seen = new Set(); V.boss = null;
   for (const d of s1.e) {
     let e = em.get(d[0]);
-    if (!e) { const def = ENEMY[d[1]]; e = { id: d[0], kind: d[1], def, name: def.name, r: def.r, boss: d[1] === 'boss', tm: { enraged: false }, alive: true }; em.set(d[0], e); }
+    if (!e) { const def = ENEMY[d[1]]; e = { id: d[0], kind: d[1], def, name: def.name, lvl: V.lvl, r: def.r, boss: d[1] === 'boss', tm: { enraged: false }, alive: true }; em.set(d[0], e); }
     const p = s0.e.find(q => q[0] === d[0]) || d;
     e.x = L(p[2], d[2]); e.y = L(p[3], d[3]); e.hp = d[4]; e.maxHp = d[5]; e.face = d[6]; e.spawnT = L(p[7], d[7]); e.stun = d[8]; e.tm.enraged = !!d[9];
     const c = d[10], pc = p[10];
@@ -709,6 +709,20 @@ function pushMove(now) {
 
 /* ================= Rendering ================= */
 function flashing(o, dt) { if (o._hp !== undefined && o.hp < o._hp - .5) o._fl = .12; o._hp = o.hp; if (o._fl > 0) { o._fl -= dt; return true; } return false; }
+/* The line above a health bar: level and name. Labels are queued and drawn together, most important first;
+ * one that would land on top of a more important one is left out, so a crowd stays readable (its bar still shows). */
+let plates = [];
+function plate(x, y, lvl, name, col, pri) { plates.push({ x, y, t: `Lv.${lvl > 0 ? lvl : 1} ${name}`, col, pri: pri || 0 }); }
+function flushPlates() {
+  const c = ctx, placed = []; c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.lineJoin = 'round'; c.lineWidth = 2.5; c.strokeStyle = C.ink;
+  plates.sort((a, b) => b.pri - a.pri);
+  for (const p of plates) {
+    const w = c.measureText(p.t).width / 2 + 2;
+    if (placed.some(q => Math.abs(q.x - p.x) < q.w + w && Math.abs(q.y - p.y) < 11)) continue;
+    placed.push({ x: p.x, y: p.y, w }); c.strokeText(p.t, p.x, p.y); c.fillStyle = p.col; c.fillText(p.t, p.x, p.y);
+  }
+  plates = [];
+}
 function bar(x, y, w, h, frac, col) { ctx.fillStyle = C.ink; ctx.fillRect(x - 1, y - 1, w + 2, h + 2); ctx.fillStyle = col; ctx.fillRect(x, y, w * clamp(frac, 0, 1), h); }
 function poly(x, y, r1, r2, n, rot) { ctx.beginPath(); for (let i = 0; i < n * 2; i++) { const r = i % 2 ? r2 : r1, a = rot + i * Math.PI / n; ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.closePath(); }
 function shadow(x, y, r) { ctx.fillStyle = C.ink; ctx.globalAlpha = .45; ctx.beginPath(); ctx.ellipse(x, y + r * .7, r * 1.05, r * .45, 0, 0, TAU); ctx.fill(); ctx.globalAlpha = 1; }
@@ -739,8 +753,8 @@ function drawActor(a, dt) {
   c.fillStyle = C.ink; c.beginPath(); c.arc(x + Math.cos(a.face) * (r - 5), y + Math.sin(a.face) * (r - 5), 2.4, 0, TAU); c.fill();
   if (a.cls === 'heal') { c.strokeStyle = C.ink; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, r - 5, 0, TAU); c.stroke(); }
   c.globalAlpha = 1;
-  bar(x - 14, y - r - 10, 28, 3.5, a.hp / a.maxHp, a.hp / a.maxHp < .35 ? C.danger : C.heal);
-  if (me || a.human) { c.fillStyle = me ? C.brass : C.foam; c.font = me ? `900 11px ${F.display}` : `700 10px ${F.display}`; c.textAlign = 'center'; c.fillText(me ? '你' : a.name, x, y - r - 14); }
+  bar(x - 16, y - r - 10, 32, 4, a.hp / a.maxHp, a.hp / a.maxHp < .35 ? C.danger : C.heal);
+  plate(x, y - r - 14, a.lvl, a.name, me ? C.brass : a.human ? C.foam : C.mute, me ? 5 : a.human ? 3 : 2);      // yours in brass, other players bright, AI dimmer
 }
 function drawEnemy(e, dt) {
   const c = ctx, { x, y, r } = e, fl = flashing(e, dt);
@@ -766,10 +780,12 @@ function drawEnemy(e, dt) {
     c.fillStyle = fl ? C.foam : C.line; c.strokeStyle = C.rust; poly(x, y, r + 2, r - 3, 7, e.id * 1.3); c.fill(); c.stroke();
     c.fillStyle = C.ember; for (const s of [-.45, .45]) { c.beginPath(); c.arc(x + Math.cos(e.face + s) * 6, y + Math.sin(e.face + s) * 6, 1.8, 0, TAU); c.fill(); }
   }
-  if (e.stun > 0) { c.fillStyle = C.brass; c.font = `700 10px ${F.num}`; c.textAlign = 'center'; c.fillText('✕', x, y - r - 12); }
+  if (e.stun > 0) { c.fillStyle = C.brass; c.font = `700 11px ${F.num}`; c.textAlign = 'center'; c.fillText('✕', x + r + 8, y + 4); }
   if (!e.boss) {
-    bar(x - 15, y - r - 9, 30, 3.5, e.hp / e.maxHp, C.rust);
-    if (e.cast) { bar(x - 20, y - r - 17, 40, 5, e.cast.t / e.cast.dur, e.cast.kickable ? C.brass : C.mute); c.fillStyle = C.brass; c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.fillText(e.cast.name, x, y - r - 21); }
+    const mine = !!V.me && V.me.target === e, hot = mine || e.engaged || !!e.target;
+    bar(x - 16, y - r - 9, 32, 4, e.hp / e.maxHp, C.rust);
+    plate(x, y - r - 13, e.lvl, e.name, hot ? C.foam : C.mute, mine ? 4 : e.cast ? 3 : hot ? 1 : 0);
+    if (e.cast) { bar(x - 20, y - r - 30, 40, 5, e.cast.t / e.cast.dur, e.cast.kickable ? C.brass : C.mute); c.fillStyle = C.brass; c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.fillText(e.cast.name, x, y - r - 34); }
   }
   c.globalAlpha = 1;
 }
@@ -811,8 +827,9 @@ function drawNpc(n) {
   if (cls === 'tank') poly(x, y, r + 1, r - 1, 3, face); else if (cls === 'dps') poly(x, y, r + 3, r - 4, 2, face); else { c.beginPath(); c.arc(x, y, r, 0, TAU); }
   c.fill(); c.stroke();
   c.fillStyle = C.ink; c.beginPath(); c.arc(x + Math.cos(face) * (r - 5), y + Math.sin(face) * (r - 5), 2.4, 0, TAU); c.fill();
-  c.textAlign = 'center'; c.font = `700 11px ${F.display}`; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText(cast ? cast.name : '', x, y - r - 8); c.fillStyle = C.foam; c.fillText(cast ? cast.name : '', x, y - r - 8);
-  if (quest.giver === n.id && !talk.lines) { c.font = `900 22px ${F.display}`; c.fillStyle = C.brass; c.strokeText('！', x, y - r - 24); c.fillText('！', x, y - r - 24 + (reduced ? 0 : Math.sin(clock * 4) * 2)); }
+  bar(x - 16, y - r - 10, 32, 4, 1, C.heal); plate(x, y - r - 14, cast ? cast.lvl : 1, cast ? cast.name : '', C.foam, 2);
+  c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink;
+  if (quest.giver === n.id && !talk.lines) { c.font = `900 22px ${F.display}`; c.fillStyle = C.brass; const my = y - r - 30 + (reduced ? 0 : Math.sin(clock * 4) * 2); c.strokeText('！', x, my); c.fillText('！', x, my); }
 }
 function drawMinimap() {
   const c = ctx, w = 46, h = w * FD.h / FD.w, x = stageW - w - 10, y = 10, k = w / FD.w;
@@ -832,6 +849,7 @@ function render(dt) {
   if (field) { for (const n of V.nodes) drawNode(n); for (const n of FD.npcs) drawNpc(n); }
   for (const e of V.enemies) drawEnemy(e, dt);
   for (const a of V.actors) if (a.alive) drawActor(a, dt);
+  flushPlates();
   for (const s of V.shots) { c.strokeStyle = C[s.col]; c.lineWidth = s.big ? 4 : 2; c.lineCap = 'round'; c.beginPath(); c.moveTo(s.px, s.py); c.lineTo(s.x, s.y); c.stroke(); c.fillStyle = C.foam; c.beginPath(); c.arc(s.x, s.y, s.big ? 3 : 1.8, 0, TAU); c.fill(); }
   for (const f of FX.fx) {
     const p = f.t / f.dur; c.globalAlpha = 1 - p; c.strokeStyle = f.col;
@@ -904,7 +922,7 @@ function hud() {
   $('#pot').classList.toggle('cool', !(p.potions > 0));
   const b = V.boss, bb = $('#bossbar');
   if (b && b.alive) {
-    bb.hidden = false; $('#bossname').textContent = b.name; $('#bosspct').textContent = Math.ceil(b.hp / b.maxHp * 100) + '%'; $('#bosshp').style.width = (b.hp / b.maxHp * 100) + '%';
+    bb.hidden = false; $('#bossname').textContent = `Lv.${b.lvl || V.lvl} ${b.name}`; $('#bosspct').textContent = Math.ceil(b.hp / b.maxHp * 100) + '%'; $('#bosshp').style.width = (b.hp / b.maxHp * 100) + '%';
     const bc = $('#bosscast');
     if (b.cast) { bc.hidden = false; bc.classList.toggle('kick', !!b.cast.kickable); bc.firstElementChild.style.width = clamp(b.cast.t / b.cast.dur * 100, 0, 100) + '%'; bc.lastElementChild.textContent = b.cast.kickable ? b.cast.name + '　快打斷' : b.cast.name + '　離開正面'; }
     else bc.hidden = true;
