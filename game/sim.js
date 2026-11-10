@@ -120,6 +120,7 @@ const ENEMY = {
   brute: { name: '鏽錨巨蟹', hp: 2200, dmg: 34, aspd: 1.6, range: 10, speed: 54, r: 20, aggro: 200, leash: 9999, elite: true },     // only comes ashore with the surge
   boss: { name: '鏽潮看守者 莫葛', hp: 27000, dmg: 80, aspd: 1.5, range: 10, speed: 58, r: 28 }
 };
+const TRASH_DROP = .1;      // the chance that an ordinary creature in the tower leaves a piece of gear
 const WAVES = [ [['grunt', 3]], [['grunt', 2], ['caster', 1]], [['grunt', 2], ['caster', 2]], [['boss', 1]] ];
 const ROSTER = ['tank', 'heal', 'dps', 'dps'];
 const SPOTS = [[180, H - 150], [128, H - 84], [236, H - 96], [184, H - 58]];
@@ -169,6 +170,8 @@ function scaleMob(e, lvl, size) { const k = e.maxHp ? e.hp / e.maxHp : 1; e.lvl 
 /* Who is actually in the field (a seat whose player left stays in the list, marked out), and the level creatures follow. */
 const present = G => G.actors.filter(a => !a.out);
 function partyLevel(G) { const ps = present(G); return ps.length ? Math.max(1, Math.round(ps.reduce((n, a) => n + a.lvl, 0) / ps.length)) : 1; }
+/* Gear or talents changed while out in the world: new strength, the same share of health. */
+function refit(a, lvl, pow, mods) { const k = a.maxHp ? a.hp / a.maxHp : 1; a.lvl = lvl; a.pow = pow; if (mods) a.mods = mods; a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.alive ? Math.max(1, R(a.maxHp * k)) : 0; }
 function setLevel(a, lvl, pow) { a.lvl = lvl; a.pow = pow; a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.maxHp; }   // levelling up refills your health
 
 const inCamp = p => Math.hypot(p.x - FIELD.safe.x, p.y - FIELD.safe.y) < FIELD.safe.r;
@@ -199,7 +202,7 @@ function mkActor(cls, name, spot, pow, mods) {
 function createRun(opts) {
   const lvl = opts.lvl || 1, botPow = 1 + .1 * (lvl - 1);
   const G = { mode: 'dungeon', bw: W, bh: H, t: 0, lvl, elvl: recLevel(lvl), es: Math.pow(1.13, lvl - 1), state: 'countdown', cd: 3, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
-    boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: !!opts.auto };
+    boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: !!opts.auto, drops: 0 };
   const pending = (opts.players || []).slice(); let dpsN = 0;
   ROSTER.forEach((c, i) => {
     const k = pending.findIndex(p => p.cls === c), p = k >= 0 ? pending.splice(k, 1)[0] : null;
@@ -280,6 +283,7 @@ function hurtEnemy(G, e, dmg, src, big, noUlt) {
   if (e.hp <= 0) {
     e.hp = 0; e.alive = false; ring(G, e.x, e.y, e.r * .5, e.r * 2.2, e.boss ? 'brass' : 'rust', .45);
     if (G.mode === 'field') { if (!e.evm) G.respawns.push({ pk: e.pk, home: e.home, at: G.t + MOB_RESPAWN }); ev(G, { k: 'kill', kind: e.kind, pk: e.pk, by: src.idx, who: present(G).filter(a => a === src || (a.alive && dist(a, e) < 420)).map(a => a.idx) }); }   // everyone nearby gets credit
+    if (G.mode !== 'field' && !e.boss && Math.random() < TRASH_DROP) { G.drops++; text(G, e.x, e.y - e.r - 20, '掉了東西', 'brass', 12, 1.3); }
     if (e.boss) { for (const o of G.enemies) if (o !== e && o.alive) { o.alive = false; ring(G, o.x, o.y, 6, 30, 'rust', .4); } G.zones.length = 0; shake(G, .6); }
   }
 }
@@ -712,7 +716,11 @@ function stepEvent(G, dt) {
   banner(G, E.wave === EV_WAVES.length - 1 ? '鏽錨巨蟹上岸了' : `漲潮　第 ${E.wave + 1} 波`, 2000);
 }
 /* What everyone who saw a surge through gets. */
-function eventReward(p) { fixProfile(p); const mats = { shard: 1, scrap: 4, herb: 2 }; grant(p, mats); const x = addXp(p, 150 + 25 * p.cl), coin = addCoin(p, 40); return { mats, xp: x.xp, ups: x.ups, coin }; }
+function eventReward(p) {
+  fixProfile(p); const mats = { shard: 1, scrap: 4, herb: 2 }; grant(p, mats); const x = addXp(p, 150 + 25 * p.cl), coin = addCoin(p, 40);
+  const item = Math.random() < DROP.event ? giveItem(p, rollItem(fieldIlvl(clamp(p.cl, EV_MIN, EV_MAX)) + 2, null, DROP.eventSet)) : null;
+  return { mats, xp: x.xp, ups: x.ups, coin, item };
+}
 
 /* What a gather or a kill gives. The server rolls this for online accounts. */
 function fieldYield(what, key) {
@@ -726,11 +734,12 @@ function grant(p, mats) { fixProfile(p); for (const k of Object.keys(mats)) if (
 /* Everything one gather or one kill gives this profile: materials and experience. For a kill, pk says which pack the
  * creature belonged to; null when the claim does not name a real pack of that creature. */
 function fieldGain(p, what, key, pk) {
-  fixProfile(p); let xp = 5;
-  if (what === 'kill') { const def = Number.isInteger(pk) ? FIELD.packs[pk] : null; if (!def || def.kind !== key) return null; xp = xpForKill(key, mobLevel(def, p.cl), p.cl); }
+  fixProfile(p); let xp = 5, ml = 0;
+  if (what === 'kill') { const def = Number.isInteger(pk) ? FIELD.packs[pk] : null; if (!def || def.kind !== key) return null; ml = mobLevel(def, p.cl); xp = xpForKill(key, ml, p.cl); }
   const mats = fieldYield(what, key); grant(p, mats); const x = addXp(p, xp);
   const coin = what === 'kill' && Math.random() < .6 ? addCoin(p, 1 + Math.floor(Math.random() * 2) + Math.floor(p.cl / 6)) : 0;      // creatures sometimes carry a little coin
-  return { mats, xp: x.xp, ups: x.ups, coin };
+  const item = ml && Math.random() < DROP.field ? giveItem(p, rollItem(fieldIlvl(ml), null, DROP.fieldSet)) : null;      // and, now and then, something to wear
+  return { mats, xp: x.xp, ups: x.ups, coin, item };
 }
 
 function step(G, dt) {
@@ -752,7 +761,7 @@ function step(G, dt) {
 }
 
 /* ---------- progression: the same rules on the server and in the offline client ---------- */
-const LOOT = { w: ['武器', ['鏽潮錨刃', '沉鐘之舌', '霧燈長弓']], a: ['護甲', ['看守者鍊甲', '鹽殼護肩', '潮紋斗篷']], t: ['飾品', ['霧燈碎片', '潮鳴鐘錘', '生鏽的羅盤']] };
+const LOOT = { w: ['武器'], a: ['護甲'], t: ['飾品'] };
 const MATS = { scrap: '鏽鐵屑', salt: '鹽晶', shard: '沉鐘碎片', herb: '潮草' };
 const POTION_CAP = 5, POTION_HEAL = .35, MAT_CAP = 9999;
 const ilvlOf = gear => Math.round((gear.w + gear.a + gear.t) / 3);
@@ -760,7 +769,7 @@ const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
 const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
 const gearCap = lvl => 10 + lvl * 4 + 7;        // how far tempering can push a slot at this tower level
 const charPower = p => powerOf(p.gear) * lvF(p.cl);     // what a character brings to a fight: gear and level
-function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {}, coin: 0, talents: {} }; }
+function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, eq: { w: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } }, bag: [], best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {}, coin: 0, talents: {} }; }
 const COIN_CAP = 9999999;
 function addCoin(p, n) { n = Math.max(0, Math.round(n)); p.coin = Math.min(COIN_CAP, (p.coin || 0) + n); return n; }
 function fixProfile(p) {   // fill in anything an older save does not have
@@ -770,6 +779,10 @@ function fixProfile(p) {   // fill in anything an older save does not have
   p.coin = p.coin >= 0 ? Math.min(COIN_CAP, Math.floor(p.coin)) : 0;
   { const t = {}, old = p.talents && typeof p.talents === 'object' ? p.talents : {};      // keep only real talents at real ranks
     for (const list of Object.values(TALENTS)) for (const d of list) if (Number.isInteger(old[d.id]) && old[d.id] > 0) t[d.id] = Math.min(d.max, old[d.id]); p.talents = t; }
+  { const bag = [], eq = {}, old = p.eq && typeof p.eq === 'object' ? p.eq : {};      // keep only real items
+    if (Array.isArray(p.bag)) for (const o of p.bag.slice(0, BAG_CAP)) { const it = fixItem(o); if (it) bag.push(it); }
+    for (const k of SLOTS) { const o = old[k]; eq[k] = o && typeof o === 'object' && typeof o.n === 'string' && NAME_SLOT[o.n] === k ? { n: o.n, q: qInt(o.q, 0, 2) } : { n: '', q: 0 }; }
+    p.bag = bag; p.eq = eq; }
   p.cl = Number.isInteger(p.cl) ? clamp(p.cl, 1, MAX_LEVEL) : 1; p.xp = p.xp >= 0 && p.cl < MAX_LEVEL ? Math.min(Math.floor(p.xp), xpNeed(p.cl)) : 0;
   fixQuests(p);
   const lo = {}, old = p.loadout && typeof p.loadout === 'object' ? p.loadout : {};      // keep only loadouts that are still allowed
@@ -782,24 +795,88 @@ function addXp(p, n) {
   p.xp += n; while (p.cl < MAX_LEVEL && p.xp >= xpNeed(p.cl)) { p.xp -= xpNeed(p.cl); p.cl++; ups++; }
   if (p.cl >= MAX_LEVEL) p.xp = 0; return { xp: n, ups };
 }
-/* r: { win, onTime, t }. Updates the profile p and returns { loot, mats, xp, ups }: the item that dropped (null for a wipe)
- * and the crafting materials picked up. */
-function applyResult(p, lvl, r) {
-  fixProfile(p);
+/* ---------- gear as things you can hold ----------
+ * An item is { s: slot, il: item level, q: quality 0 to 2, n: name }. What you wear is p.gear (the item levels, which
+ * are what make you stronger) together with p.eq (each piece's name and quality). Everything else waits in p.bag.
+ * A name can belong to a set: wearing two or three pieces of one set adds its bonuses. */
+const SLOTS = ['w', 'a', 't'], BAG_CAP = 16, QUALITY = ['普通', '精良', '稀有'];
+const PLAIN = { w: ['鏽潮錨刃', '沉鐘之舌', '拆船鉤'], a: ['鹽殼護肩', '潮紋斗篷', '纜繩綁腿'], t: ['生鏽的羅盤', '舊船釘', '潮音貝'] };
+const SETS = {
+  warden: { name: '看守者', pieces: { w: '看守者鐘錘', a: '看守者鍊甲', t: '看守者徽記' }, two: ['hp', .06, '生命 +6%'], three: ['taken', -.05, '受到的傷害 -5%'] },
+  lamp: { name: '霧燈', pieces: { w: '霧燈之芯', a: '霧燈披風', t: '霧燈碎片' }, two: ['speed', .05, '移動速度 +5%'], three: ['dmg', .08, '造成的傷害 +8%'] },
+  tide: { name: '潮鳴', pieces: { w: '潮鳴之舌', a: '潮鳴法衣', t: '潮鳴鐘錘' }, two: ['heal', .08, '治療量 +8%'], three: ['cdr', -.06, '所有技能冷卻 -6%'] }
+};
+/* How often gear drops, and how often a drop is a set piece. */
+const DROP = { field: .05, fieldSet: .08, event: .4, eventSet: .3, bossSet: .4, trashSet: .1 };
+const NAME_SLOT = {}, NAME_SET = {};
+for (const k of SLOTS) { for (const n of PLAIN[k]) NAME_SLOT[n] = k; NAME_SLOT['工坊' + LOOT[k][0]] = k; NAME_SLOT['用舊的' + LOOT[k][0]] = k; }
+for (const id of Object.keys(SETS)) for (const k of SLOTS) { NAME_SLOT[SETS[id].pieces[k]] = k; NAME_SET[SETS[id].pieces[k]] = id; }
+const fieldIlvl = mobLvl => 10 + Math.round(mobLvl * 1.5) + Math.floor(Math.random() * 3);
+function rollItem(base, slot, setChance) {
+  const k = slot || pick(SLOTS), q = Math.random() < .06 ? 2 : Math.random() < .25 ? 1 : 0;
+  return { s: k, il: base + q * 2, q, n: Math.random() < (setChance || 0) ? SETS[pick(Object.keys(SETS))].pieces[k] : pick(PLAIN[k]) };
+}
+function fixItem(o) { return o && typeof o === 'object' && typeof o.n === 'string' && SLOTS.includes(o.s) && NAME_SLOT[o.n] === o.s ? { s: o.s, il: qInt(o.il, 10, 999), q: qInt(o.q, 0, 2), n: o.n } : null; }
+const itemPrice = it => Math.round(it.il * (1 + it.q) * 1.5);       // what the merchant pays for it
+const itemSet = it => NAME_SET[it.n] || '';
+const itemText = it => `${it.n}（${LOOT[it.s][0]}・裝等 ${it.il}${it.q ? '・' + QUALITY[it.q] : ''}）`;
+const wornItem = (p, k) => ({ s: k, il: p.gear[k], q: p.eq[k].q, n: p.eq[k].n || '用舊的' + LOOT[k][0] });
+function setCount(p) { const n = {}; for (const k of SLOTS) { const id = p.eq && p.eq[k] ? NAME_SET[p.eq[k].n] : ''; if (id) n[id] = (n[id] || 0) + 1; } return n; }
+/* Everything that changes how a character fights apart from raw power: talents plus set bonuses. */
+function modsFor(p, cls) {
+  const m = modsOf(p.talents, cls), n = setCount(p);
+  for (const id of Object.keys(n)) { const d = SETS[id]; if (n[id] >= 2) m[d.two[0]] += d.two[1]; if (n[id] >= 3) m[d.three[0]] += d.three[1]; }
+  return m;
+}
+/* For the bag screen: every set, which pieces are on, and what it gives. */
+function setList(p) { const n = setCount(p); return Object.keys(SETS).map(id => { const d = SETS[id]; return { id, name: d.name, have: n[id] || 0, pieces: SLOTS.map(k => ({ s: k, n: d.pieces[k], on: !!p.eq && p.eq[k].n === d.pieces[k] })), two: d.two[2], three: d.three[2] }; }); }
+/* Put an item in the bag. With no room left it is sold on the spot: returns the coins it became, 0 when it was kept. */
+function stow(p, it) { if (p.bag.length < BAG_CAP) { p.bag.push(it); return 0; } return addCoin(p, itemPrice(it)); }
+function wear(p, it) { p.gear[it.s] = it.il; p.eq[it.s] = { n: it.n, q: it.q }; }
+/* A new item arrives. It is put on at once when it beats what is worn, unless that would break a set bonus;
+ * otherwise it goes to the bag. Returns { it, up, old, sold }: sold is what the piece that found no room fetched. */
+function giveItem(p, it) {
+  fixProfile(p); const old = p.gear[it.s], was = NAME_SET[p.eq[it.s].n], keep = was && was !== NAME_SET[it.n] && setCount(p)[was] >= 2, up = it.il > old && !keep; let sold = 0;
+  if (up) { const prev = wornItem(p, it.s); wear(p, it); if (old > 10) sold = stow(p, prev); }
+  else sold = stow(p, it);
+  return { it, up, old, sold };
+}
+function equipItem(p, i) {
+  fixProfile(p); const it = Number.isInteger(i) ? p.bag[i] : null; if (!it) return { ok: false, msg: '背包裡沒有這件。' };
+  const prev = wornItem(p, it.s), had = p.gear[it.s] > 10; wear(p, it); if (had) p.bag[i] = prev; else p.bag.splice(i, 1);
+  return { ok: true, msg: `換上了${it.n}（裝等 ${it.il}）。` };
+}
+function sellItem(p, i) {
+  fixProfile(p); const it = Number.isInteger(i) ? p.bag[i] : null; if (!it) return { ok: false, msg: '背包裡沒有這件。' };
+  p.bag.splice(i, 1); const got = addCoin(p, itemPrice(it)); return { ok: true, msg: `賣掉${it.n}，拿到 ${got} 鐘幣。` };
+}
+/* What a won run leaves on the floor: `boss` pieces from 莫葛 and `trash` pieces from the creatures before him. */
+function runDrops(lvl, r, boss, trash, firstSlot) {
+  const out = [];
+  for (let i = 0; i < boss; i++) out.push(rollItem(10 + lvl * 4 + Math.floor(Math.random() * 4) + (r.onTime ? 2 : 0), i === 0 ? firstSlot : null, DROP.bossSet));
+  for (let i = 0; i < trash; i++) out.push(rollItem(8 + lvl * 4 + Math.floor(Math.random() * 3), null, DROP.trashSet));
+  return out;
+}
+const bossDrops = humans => [1, 1, 2, 2, 3][clamp(humans, 0, 4)];      // how many pieces 莫葛 leaves for a group of this many people
+
+/* r: { win, onTime, t }. Updates the profile p and returns { loot, mats, xp, ups, coin }: loot is the list of gear this
+ * character got for themselves, each as giveItem() describes it. o.trash is how many creatures left something.
+ * o.share means the group divides the gear afterwards, so none is handed out here. */
+function applyResult(p, lvl, r, o) {
+  fixProfile(p); o = o || {};
   const mats = r.win
     ? { scrap: 3 + Math.floor(Math.random() * 3) + Math.floor(lvl / 3), salt: 1 + (Math.random() < .5 ? 1 : 0), shard: r.onTime ? 1 : (Math.random() < .3 ? 1 : 0) }
     : { scrap: 1 + Math.floor(Math.random() * 2), salt: 0, shard: 0 };
   for (const k of Object.keys(mats)) p.inv[k] = Math.min(MAT_CAP, p.inv[k] + mats[k]);
   const x = addXp(p, r.win ? (100 + 50 * lvl) * (r.onTime ? 1.25 : 1) : 25), coin = addCoin(p, r.win ? (20 + 10 * lvl) * (r.onTime ? 1.25 : 1) : 5);
-  if (!r.win) return { loot: null, mats, xp: x.xp, ups: x.ups, coin };
+  if (!r.win) return { loot: [], mats, xp: x.xp, ups: x.ups, coin };
   p.runs++;
-  const ks = ['w', 'a', 't']; let k = pick(ks);
-  if (Math.random() < .5) k = ks.reduce((m, x) => p.gear[x] < p.gear[m] ? x : m, 'w');
-  const il = 10 + lvl * 4 + Math.floor(Math.random() * 4) + (r.onTime ? 2 : 0), old = p.gear[k], up = il > old;
-  if (up) p.gear[k] = il;
+  // alone, the first piece leans towards your weakest slot
+  const weak = Math.random() < .5 ? SLOTS.reduce((m, k) => p.gear[k] < p.gear[m] ? k : m, 'w') : null;
+  const loot = o.share ? [] : runDrops(lvl, r, 1, clamp(o.trash | 0, 0, 3), weak).map(it => giveItem(p, it));
   if (!p.best[lvl] || r.t < p.best[lvl]) p.best[lvl] = Math.round(r.t * 10) / 10;
   if (r.onTime) p.lvl = Math.max(p.lvl, Math.min(50, lvl + 1));
-  return { loot: { slot: LOOT[k][0], name: pick(LOOT[k][1]), il, old, up }, mats, xp: x.xp, ups: x.ups, coin };
+  return { loot, mats, xp: x.xp, ups: x.ups, coin };
 }
 
 /* ---------- skill loadouts ---------- */
@@ -860,9 +937,10 @@ function craft(p, id) {
   const rc = RECIPES.find(r => r.id === id); if (!rc) return { ok: false, msg: '沒有這個配方。' };
   const info = recipeInfo(p, rc); if (!info.can) return { ok: false, msg: `做不了${rc.name}：${info.why}。` };
   for (const k of Object.keys(rc.cost)) p.inv[k] -= rc.cost[k];
-  if (rc.kind === 'forge') p.gear[rc.slot] = forgeIlvl(p.lvl);
+  let made = null; if (rc.kind === 'forge') made = giveItem(p, { s: rc.slot, il: forgeIlvl(p.lvl), q: 0, n: '工坊' + LOOT[rc.slot][0] });
   else if (rc.kind === 'temper') p.gear[rc.slot] = Math.min(gearCap(p.lvl), p.gear[rc.slot] + 2);
   else p.inv.potion++;
+  if (made && !made.up) return { ok: true, kind: rc.kind, msg: made.sold ? `做好了，可是背包滿了，直接賣了 ${made.sold} 鐘幣。` : `做好了。身上那件是套裝，所以新的先放進背包。` };
   return { ok: true, kind: rc.kind, msg: rc.kind === 'potion' ? `做好一瓶潮息藥水，現在有 ${p.inv.potion} 瓶。` : `${LOOT[rc.slot][0]}現在是裝等 ${p.gear[rc.slot]}。` };
 }
 
@@ -966,5 +1044,7 @@ return { W, H, TIME_LIMIT, CLASSES, SKILLS, ENEMY, WAVES, ROSTER, SPOTS, createR
   MAX_LEVEL, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id),
-  TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, RESPEC_COST, SHOP, shopBuy, shopSell, itemName, addCoin, threatList };
+  TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, RESPEC_COST, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
+  SLOTS, SLOT_NAME: { w: '武器', a: '護甲', t: '飾品' }, BAG_CAP, QUALITY, SETS, DROP, TRASH_DROP, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
+  runDrops, bossDrops, refit };
 });

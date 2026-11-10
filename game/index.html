@@ -237,6 +237,19 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .loot div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .loot b{font-family:var(--f-display);font-size:16px}
 .loot small{font-size:12px;color:var(--mute)}
+.q1{color:var(--heal)} .q2{color:var(--brass)}
+.items{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.items li{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;background:var(--deep)}
+.items li.worn{border-color:var(--brass)}
+.items .il{font-family:var(--f-num);font-weight:700;font-size:22px;text-align:center;font-variant-numeric:tabular-nums}
+.items .info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.items b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.items small{font-size:12px;color:var(--mute);line-height:1.5}
+.items .acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;max-width:150px}
+.items li.pile{grid-template-columns:44px minmax(0,1fr)}
+.items li.pile .acts{grid-column:1 / -1;max-width:none;justify-content:flex-start}
+.sets{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--mute);line-height:1.6}
+.sets b{color:var(--foam)} .sets .on{color:var(--brass)}
 </style>
 
 <div id="app">
@@ -356,6 +369,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div><p class="eyebrow">線上配對</p><h2 id="lb-title">連線中</h2></div>
       <p class="lore" id="lb-info"></p>
       <ul class="slots" id="lb-slots"></ul>
+      <div class="coinline" id="lb-lootbox" hidden><span id="lb-loot"></span><button class="mini" id="lb-lootmode" type="button" hidden>換</button></div>
       <div class="fields one" id="lb-linkbox" hidden><label for="lb-url">邀請連結（朋友點開就會進這個房間）<input id="lb-url" type="text" readonly></label></div>
       <div class="cta">
         <button class="btn" id="lb-ready" type="button" hidden>開始</button>
@@ -495,6 +509,8 @@ const inviteRoom = cleanCode(qs.get('room'));   // opened from a friend's invite
 /* Run a change to the save and report which quests it finished. */
 const readyQuests = () => S.questList(save, Date.now(), online).items.filter(x => x.ready).map(x => x.title);
 function newlyDone(change) { const before = readyQuests(); change(); levelCheck(); return readyQuests().filter(t => !before.includes(t)); }
+/* Gear or talents changed: in a field this device runs, the body out there follows. (A party's field is refitted by the server.) */
+function refitMe() { if (mode === 'field' && V && V.me && V.me.def) S.refit(V.me, save.cl, S.charPower(save), S.modsFor(save, save.cls)); }
 /* Announce a level-up once, wherever the experience came from, and make it count straight away in the field. */
 let shownCl = 0;
 function levelCheck(quiet) {
@@ -588,7 +604,7 @@ function enterRun() {
 }
 function startSolo(cls) {
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
-  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsOf(save.talents, cls) }] });
+  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsFor(save, cls) }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
   if (net.authed) send({ t: 'solo0', lvl: save.lvl, cls });
   enterRun(); banner('三名 AI 隊友已就位', 2200);
@@ -601,10 +617,10 @@ function conclude(r, stats, extra) {
   if (extra) return show(extra.loot, extra);
   if (net.authed) {
     net.solo = { show, timer: setTimeout(() => { if (net.solo) { net.solo = null; show(null, { note: '伺服器沒有回應，這場的獎勵沒有記錄到。' }); } }, 4000) };
-    return send({ t: 'solo1', win: r.win, time: r.t, pots: stats.pots, kicks: stats.kicks, hits: stats.hits });
+    return send({ t: 'solo1', win: r.win, time: r.t, pots: stats.pots, kicks: stats.kicks, hits: stats.hits, drops: view.drops || 0 });
   }
   let rw; const cl0 = save.cl, done = newlyDone(() => {
-    rw = S.applyResult(save, lvl, r); save.inv.potion = Math.max(0, save.inv.potion - stats.pots);
+    rw = S.applyResult(save, lvl, r, { trash: view.drops || 0 }); save.inv.potion = Math.max(0, save.inv.potion - stats.pots);
     S.questEvent(save, { type: 'run', win: r.win, onTime: r.onTime, cls: view.me.cls, kicks: stats.kicks, hits: stats.hits, mates: 0 }, Date.now());
   });
   writeSave(); show(rw.loot, { mats: rw.mats, xp: rw.xp, coin: rw.coin, up: save.cl > cl0, quests: done });
@@ -626,7 +642,7 @@ function camGoal() {
 }
 function startField(then, pos) {
   mode = 'field'; save.cls = chosen in CLASSES ? chosen : 'dps'; writeSave();
-  G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', skills: S.loadoutOf(save, save.cls), mods: S.modsOf(save.talents, save.cls) } });
+  G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', skills: S.loadoutOf(save, save.cls), mods: S.modsFor(save, save.cls) } });
   V = G; V.me = G.actors[0]; meIdx = 0;
   if (online && net.authed) send({ t: 'field0' });
   if (pos) { V.me.x = pos[0]; V.me.y = pos[1]; }      // stepping back out of a surge: same place, no fanfare
@@ -668,18 +684,21 @@ function fieldView(dt) {
   if (btn.textContent !== label) btn.textContent = label; btn.hidden = !label;
   const g = camGoal(), k = 1 - Math.exp(-dt * 8); cam.x += (g.x - cam.x) * k; cam.y += (g.y - cam.y) * k;
 }
-function showYield(mats, done, xp, coin) {
+/* one sentence about a piece of gear that just arrived */
+function gotText(g) { return `${S.itemText(g.it)}，${g.up ? '比身上的好，已經換上' : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`; }
+function showYield(mats, done, xp, coin, item) {
   const me = V && V.me; if (!me) return; let i = 0;
   if (xp > 0) addText(me.x, me.y - 46 - 15 * i++, `經驗 +${xp}`, C.foam, 11, 1.4);       // start above your own nameplate
   if (coin > 0) addText(me.x, me.y - 46 - 15 * i++, `鐘幣 +${coin}`, C.brass, 12, 1.4);
   for (const k of Object.keys(mats)) addText(me.x, me.y - 46 - 15 * i++, `${S.MATS[k]} +${mats[k]}`, C.brass, 12, 1.4);
-  if (done.length) toast(`任務完成：${done.join('、')}。`, [], 3500);
+  if (item) { addText(me.x, me.y - 46 - 15 * i++, item.it.n, C.brass, 13, 2); toast('撿到' + gotText(item) + '。', [], 4500); }
+  else if (done.length) toast(`任務完成：${done.join('、')}。`, [], 3500);
   renderQuests();
 }
 function fieldReport(t, body, what, key, pk) {
   if (online) { if (net.authed) send(Object.assign({ t }, body)); else banner('連線中斷，這段時間的收穫不會記錄', 2500); return; }
   let g = null; const done = newlyDone(() => { g = S.fieldGain(save, what, key, pk); if (g) S.questEvent(save, { type: what }, Date.now()); });
-  writeSave(); if (g) showYield(g.mats, done, g.xp, g.coin);
+  writeSave(); if (g) { showYield(g.mats, done, g.xp, g.coin, g.item); if (g.item && g.item.up) refitMe(); }
 }
 
 /* ---------- talking: a box over the world, one line per tap ---------- */
@@ -760,7 +779,7 @@ function applyProfile(m, quiet) {   // the server's word on this account
     box.cur = box.chars[m.cur] ? m.cur : -1; quiet = true;
   }
   const p = m.profile, c = box.chars[box.cur];
-  if (p && c) { Object.assign(c, { nick: p.name, cls: p.cls, lvl: p.lvl, cl: p.cl, xp: p.xp || 0, gear: p.gear, best: p.best, runs: p.runs, inv: p.inv, q: p.q, loadout: p.loadout, coin: p.coin || 0, talents: p.talents || {} }); c.ilvl = S.ilvlOf(c.gear); }
+  if (p && c) { Object.assign(c, { nick: p.name, cls: p.cls, lvl: p.lvl, cl: p.cl, xp: p.xp || 0, gear: p.gear, eq: p.eq, bag: p.bag || [], best: p.best, runs: p.runs, inv: p.inv, q: p.q, loadout: p.loadout, coin: p.coin || 0, talents: p.talents || {} }); S.fixProfile(c); c.ilvl = S.ilvlOf(c.gear); }
   save = c || blankChar(); chosen = save.cls;
   writeSave(); levelCheck(quiet);
 }
@@ -788,7 +807,7 @@ function onMsg(m) {
     case 's': if (mode === 'online' && V && !V.result) onSnap(m); break;
     case 'end': {
       const cl0 = save.cl, done = newlyDone(() => applyProfile(m));
-      if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx], { loot: m.loot, mats: m.mats, xp: m.xp, coin: m.coin, up: save.cl > cl0, mates: m.mates, again: m.again, quests: done });
+      if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx], { loot: m.loot, pile: m.pile, mats: m.mats, xp: m.xp, coin: m.coin, up: save.cl > cl0, mates: m.mates, again: m.again, quests: done });
       break;
     }
     case 'solo': {
@@ -798,14 +817,15 @@ function onMsg(m) {
     }
     case 'crafted': {
       const done = newlyDone(() => applyProfile(m));
-      toast(String(m.msg || '') + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); renderBag(); if (!$('#menu').hidden) renderMenu();
+      toast(String(m.msg || '') + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); refitMe(); renderBag(); if (!$('#menu').hidden) renderMenu();
       break;
     }
     case 'loadout': applyProfile(m); if (!m.ok) toast(String(m.msg || ''), [], 4000); renderLoadout(); if (!$('#menu').hidden) renderMenu(); break;
     case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && inField() && Story.SCENES[id]) say(Story.SCENES[id].lines); break; }
-    case 'fy': { const done = newlyDone(() => applyProfile(m)); if (inField() && m.ok) showYield(m.mats || {}, done, m.xp, m.coin); break; }
+    case 'fy': { const done = newlyDone(() => applyProfile(m)); if (inField() && m.ok) showYield(m.mats || {}, done, m.xp, m.coin, m.item); if (m.item && m.item.up) refitMe(); break; }
+    case 'loot': onLoot(m); break;
     case 'bk': if (typeof m.bk === 'string') { box.key.bk = m.bk; writeSave(); } break;
-    case 'ack': applyProfile(m); toast(String(m.msg || ''), [], m.ok ? 2600 : 4000); renderTalents(); renderShop(); renderBag(); if (!$('#menu').hidden) renderMenu(); break;
+    case 'ack': applyProfile(m); toast(String(m.msg || ''), [], m.ok ? 2600 : 4000); refitMe(); renderTalents(); renderShop(); renderBag(); if (!$('#menu').hidden) renderMenu(); break;
     case 'social': net.social = m; renderSocial(); break;
     case 'note': toast(String(m.msg || ''), [], 3500); break;
     case 'invited':
@@ -817,7 +837,7 @@ function onMsg(m) {
     case 'event-end': {
       const done = newlyDone(() => applyProfile(m)); net.evSkip = m.cycle;
       const got = Object.keys(m.mats || {}).map(k => `${S.MATS[k]} +${m.mats[k]}`).join('、'), mates = (m.mates || []).map(String);
-      toast(m.win ? `漲潮退了。經驗 +${m.xp}、鐘幣 +${m.coin || 0}${got ? '、' + got : ''}。${mates.length ? `一起守住的人：${mates.join('、')}，好友頁的「最近隊友」可以加他們。` : ''}${done.length ? `任務完成：${done.join('、')}。` : ''}` : '時間到了，這次沒守住。', [], 7000);
+      toast(m.win ? `漲潮退了。經驗 +${m.xp}、鐘幣 +${m.coin || 0}${got ? '、' + got : ''}${m.item ? '。撿到' + gotText(m.item) : ''}。${mates.length ? `一起守住的人：${mates.join('、')}，好友頁的「最近隊友」可以加他們。` : ''}${done.length ? `任務完成：${done.join('、')}。` : ''}` : '時間到了，這次沒守住。', [], 7000);
       if (mode === 'online' && V && V.event) goHome();
       break;
     }
@@ -1387,14 +1407,18 @@ function showLobby(m) {
   net.lobby = m; hideScreens(); $('#lobby').hidden = false;
   const ul = $('#lb-slots'), btn = $('#lb-ready'), priv = !!(m && m.code); ul.textContent = '';
   $('#lb-linkbox').hidden = !priv; $('#lb-link').hidden = !priv; $('#lb-friends').hidden = !priv;
+  $('#lb-lootbox').hidden = !m;
   if (!m) { $('#lb-title').textContent = '連線中'; $('#lb-info').textContent = '正在進入房間。'; btn.hidden = true; return; }
+  { const lead = m.leader >= 0 ? m.slots[m.leader] : null, mine = m.leader === m.you, sw = $('#lb-lootmode');
+    $('#lb-loot').textContent = m.mode === 'leader' ? `掉落的裝備：隊長分配${lead ? `（隊長 ${lead.name}）` : ''}` : '掉落的裝備：擲骰（需求優先於貪婪）';
+    sw.hidden = !priv || !mine; sw.textContent = m.mode === 'leader' ? '改成擲骰' : '改成隊長分配'; }
   if (priv) $('#lb-url').value = inviteUrl(m.code);
   $('#lb-title').textContent = priv ? '房間 ' + m.code : '找隊友中';
   $('#lb-info').textContent = priv ? '四個人到齊，或在場的人都按了開始，就會出發。空位由 AI 補上。' : `${Math.max(0, m.left)} 秒後出發。沒等到人的位置由 AI 補上。`;
   m.slots.forEach((s, i) => {
     const d = CLASSES[s.cls], li = el('li', (s.name ? '' : 'open') + (i === m.you ? ' me' : '') + (s.ready ? ' ok' : ''));
     const mark = el('em', '', d.mark); mark.style.color = C[d.color];
-    li.append(mark, el('b', '', s.name ? s.name + (i === m.you ? '（你）' : '') : d.name + '　等待中'), el('small', '', s.name ? (s.ready ? '已按開始' : d.role) : 'AI 待命'));
+    li.append(mark, el('b', '', s.name ? s.name + (i === m.you ? '（你）' : '') + (priv && i === m.leader ? '　隊長' : '') : d.name + '　等待中'), el('small', '', s.name ? (s.ready ? '已按開始' : d.role) : 'AI 待命'));
     ul.appendChild(li);
   });
   const mine = m.slots[m.you]; btn.hidden = false; btn.disabled = !!mine.ready;
@@ -1505,6 +1529,9 @@ function renderShop() {
     }
     body.appendChild(g);
   }
+  if (save.bag.length) { const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', '賣裝備'), ul);
+    save.bag.forEach((it, i) => ul.appendChild(itemRow(it, `${S.SLOT_NAME[it.s]}・收 ${S.itemPrice(it)} 鐘幣`, [['賣掉', () => itemDo('sell', i), '', 'shop-item-' + i]])));
+    body.appendChild(g); }
 }
 
 /* ---------- skill loadout ---------- */
@@ -1546,6 +1573,17 @@ function renderBag() {
   const dl = el('dl', 'stats');
   for (const [k, v] of [[S.MATS.scrap, inv.scrap], [S.MATS.salt, inv.salt], [S.MATS.herb, inv.herb], [S.MATS.shard, inv.shard], ['潮息藥水', `${inv.potion} / ${S.POTION_CAP}`], ['鐘幣', save.coin]]) { const d = el('div'); d.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(d); }
   body.append(dl, el('p', 'lore', `鏽鐵屑、鹽晶、潮草可以在鏽灘採到。沉鐘碎片只有塔裡有，三分鐘內通關一定掉。淬鍊的上限跟著層數走，第 ${save.lvl} 層是裝等 ${S.gearCap(save.lvl)}。`));
+  { const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', '身上穿的'), ul);
+    for (const k of S.SLOTS) ul.appendChild(itemRow(S.wornItem(save, k), `${S.SLOT_NAME[k]}・穿著`, [], 'worn'));
+    const sets = el('ul', 'sets');
+    for (const st of S.setList(save)) { const li = el('li'); li.append(el('b', st.have >= 2 ? 'on' : '', `${st.name}套裝 ${st.have}/3`), '　');
+      st.pieces.forEach((pc, i) => li.append(el('span', pc.on ? 'on' : '', pc.n), i < 2 ? '、' : '')); li.append(el('br'), el('span', st.have >= 2 ? 'on' : '', `兩件：${st.two}`), '　', el('span', st.have >= 3 ? 'on' : '', `三件：${st.three}`)); sets.appendChild(li); }
+    g.appendChild(sets); body.appendChild(g); }
+  { const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', `背包裡的裝備　${save.bag.length} / ${S.BAG_CAP}`));
+    save.bag.forEach((it, i) => { const d = it.il - save.gear[it.s];
+      ul.appendChild(itemRow(it, `${S.SLOT_NAME[it.s]}・比身上的${d > 0 ? '高 ' + d : d < 0 ? '低 ' + -d : '一樣'}`, [['換上', () => itemDo('equip', i), d > 0 ? 'go' : '', 'bag-equip-' + i]])); });
+    if (save.bag.length) g.appendChild(ul); else g.appendChild(el('p', 'note', '還沒有多的裝備。塔裡的怪和莫葛會掉，鏽灘的怪偶爾也會。不要的可以拿去營地找老錨賣掉。'));
+    body.appendChild(g); }
   for (const [title, kind] of [['鍛造　直接做一件', 'forge'], ['淬鍊　把身上的往上推', 'temper'], ['消耗品', 'potion']]) {
     const g = el('div', 'group'), ul = el('ul', 'recipes'); g.append(el('h3', '', title), ul);
     for (const rc of S.RECIPES.filter(r => r.kind === kind)) {
@@ -1559,10 +1597,22 @@ function renderBag() {
     body.appendChild(g);
   }
 }
+/* one row for a piece of gear: item level, name in its quality colour, a line under it, buttons */
+function itemRow(it, sub, acts, cls) {
+  const li = el('li', cls || ''), info = el('div', 'info'), right = el('div', 'acts'), set = S.itemSet(it);
+  info.append(el('b', it.q ? 'q' + it.q : '', it.n), el('small', '', sub + (it.q ? '・' + S.QUALITY[it.q] : '') + (set ? `・${S.SETS[set].name}套裝` : '')));
+  for (const [label, fn, kind, id] of acts || []) { const b = el('button', 'mini' + (kind === 'go' ? ' go' : ''), label); b.type = 'button'; if (id) b.id = id; b.disabled = online && !net.authed; b.addEventListener('click', () => { b.disabled = true; fn(b); }); right.appendChild(b); }
+  li.append(el('span', 'il' + (it.q ? ' q' + it.q : ''), it.il), info); if (acts && acts.length) li.appendChild(right); return li;
+}
+function itemDo(op, i) {
+  if (mode === 'online' && V && !inField() && !V.result) return toast('副本裡不能換裝備。', [], 2500);
+  if (online) return send({ t: 'item', op, i });
+  const r = op === 'sell' ? S.sellItem(save, i) : S.equipItem(save, i); writeSave(); refitMe(); toast(r.msg, [], r.ok ? 2600 : 4000); renderBag(); renderShop(); renderMenu();
+}
 function doCraft(id) {
   if (online) return send({ t: 'craft', id });        // the server owns the bag
   let r; const done = newlyDone(() => { r = S.craft(save, id); if (r.ok) S.questEvent(save, { type: 'craft', kind: r.kind }, Date.now()); });
-  writeSave(); toast(r.msg + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); renderBag(); renderMenu();
+  writeSave(); refitMe(); toast(r.msg + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); renderBag(); renderMenu();
 }
 
 /* ---------- quests ---------- */
@@ -1608,6 +1658,37 @@ function doClaim(id) {
 /* scenes the player has unlocked: the prologue, then one per main quest already handed in */
 function unlockedScenes() { return Story.ORDER.filter((id, i) => Story.SCENES[id] && (i === 0 || (save.q && save.q.main >= i))); }
 
+/* The gear a group has to divide after a run. Rolling: answer need, greed or pass for each piece.
+ * Leader: the leader picks who gets each one. The server decides; this only shows it. */
+let pile = null;
+function pileNote() {
+  const left = Math.max(0, Math.ceil((pile.until - performance.now()) / 1000)), boss = pile.mode === 'leader' && pile.you === pile.leader;
+  return pile.mode === 'leader' ? (boss ? `選一個人給他。${left} 秒內沒分完的，大家擲骰。` : `等隊長分配。${left} 秒內沒分完的，大家擲骰。`) : `需求優先於貪婪，點數高的拿走。比身上好的才能按需求。還有 ${left} 秒，沒按算放棄。`;
+}
+function renderPile() {
+  const g = $('#pile'); if (!g || !pile) return; g.textContent = '';
+  const lead = pile.members[pile.leader], boss = pile.mode === 'leader' && pile.you === pile.leader, open = pile.items.some((it, i) => !pile.out[i]);
+  g.append(el('h3', '', pile.mode === 'leader' ? `隊伍的掉落　隊長 ${lead ? lead.name : ''} 分配` : '隊伍的掉落　擲骰決定'));
+  if (open) { const n = el('p', 'note', pileNote()); n.id = 'pile-note'; g.append(n); }
+  const ul = el('ul', 'items');
+  pile.items.forEach((it, i) => {
+    const out = pile.out[i], better = it.il > save.gear[it.s], li = itemRow(it, `${S.SLOT_NAME[it.s]}・${better ? '比你身上的好' : '不比你身上的好'}`, [], 'pile'), acts = el('div', 'acts');
+    if (out) { const w = pile.members[out.win], rolls = (out.rolls || []).map(x => `${pile.members[x[0]].name} ${x[1] === 'need' ? '需求' : '貪婪'} ${x[2]}`).join('、');
+      acts.append(el('small', out.win === pile.you ? 'q2' : '', (w ? `${out.win === pile.you ? '你' : w.name}拿到了` : '沒有人要') + (rolls ? `（${rolls}）` : '') + (out.give ? `　${out.give.up ? '已經換上' : out.give.sold ? `背包滿了，賣了 ${out.give.sold} 鐘幣` : '放進背包'}` : ''))); }
+    else if (pile.mode === 'leader') { if (boss) pile.members.forEach((x, k) => { const b = el('button', 'mini', '給 ' + (k === pile.you ? '自己' : x.name)); b.type = 'button'; b.id = `assign-${i}-${k}`; b.addEventListener('click', () => { b.disabled = true; send({ t: 'assign', L: pile.id, i, to: k }); }); acts.appendChild(b); }); else acts.append(el('small', '', '等隊長決定')); }
+    else if (pile.mine[i]) acts.append(el('small', '', `你選了${{ need: '需求', greed: '貪婪', pass: '放棄' }[pile.mine[i]]}，等其他人`));
+    else for (const [k, label] of [['need', '需求'], ['greed', '貪婪'], ['pass', '放棄']]) { const b = el('button', 'mini' + (k === 'need' && better ? ' go' : ''), label); b.type = 'button'; b.id = `roll-${i}-${k}`; b.disabled = k === 'need' && !better;
+      b.addEventListener('click', () => { pile.mine[i] = k; send({ t: 'roll', L: pile.id, i, k }); renderPile(); }); acts.appendChild(b); }
+    li.appendChild(acts); ul.appendChild(li);
+  });
+  g.appendChild(ul);
+}
+function onLoot(m) {
+  if (m.profile) { applyProfile(m); if (!$('#menu').hidden) renderMenu(); renderBag(); }
+  if (!pile || pile.id !== m.L || !pile.items[m.i]) { if (m.give) toast('你分到了一件裝備，在背包裡。', [], 3500); return; }
+  pile.out[m.i] = { win: m.win, rolls: m.rolls, give: m.give }; renderPile();
+}
+setInterval(() => { const n = pile && $('#pile-note'); if (n) n.textContent = pileNote(); }, 1000);      // only the countdown: the buttons stay put
 function showResult(r, s, loot, lvl, more) {
   const body = $('#result-body'); body.textContent = '';
   const head = el('div'); head.append(el('p', 'eyebrow', `沉鐘塔 · 第 ${lvl} 層`), el('h2', '', r.win ? '通關' : '滅團'));
@@ -1619,7 +1700,11 @@ function showResult(r, s, loot, lvl, more) {
   for (const [k, v] of [['你造成的傷害', Math.round(s.dmg).toLocaleString()], ['你的治療量', Math.round(s.heal).toLocaleString()], ['成功打斷', s.kicks], ['踩到紅圈', s.hits]]) { const d = el('div'); d.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(d); }
   body.append(head, time, dl);
   if (more.note) body.appendChild(el('p', 'note warn', more.note));
-  if (loot) { const box = el('div', 'loot'), inner = el('div'); inner.append(el('b', '', loot.name), el('small', '', `${loot.slot}　${loot.up ? `比身上的 ${loot.old} 好，已經換上` : `身上的 ${loot.old} 比較好，已分解`}`)); box.append(el('span', 'il', loot.il), inner); body.appendChild(box); }
+  if (loot && loot.length) { const ul = el('ul', 'items'); ul.id = 'my-loot';
+    for (const g of loot) ul.appendChild(itemRow(g.it, `${S.SLOT_NAME[g.it.s]}・${g.up ? `比身上的 ${g.old} 好，已經換上` : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`, [], g.up ? 'worn' : ''));
+    body.appendChild(ul); }
+  pile = more.pile ? Object.assign({ out: {}, mine: {}, until: performance.now() + more.pile.left * 1000 }, more.pile) : null;
+  if (pile) { const g = el('div', 'group'); g.id = 'pile'; body.appendChild(g); renderPile(); }
   if (more.mats) {
     const line = el('p', 'gear'); if (more.xp > 0) { const sp = el('span', '', '經驗 '); sp.append(el('b', '', '+' + more.xp)); line.appendChild(sp); }
     if (more.coin > 0) { const sp = el('span', '', '鐘幣 '); sp.append(el('b', '', '+' + more.coin)); line.appendChild(sp); } line.appendChild(el('span', '', '材料'));
@@ -1690,6 +1775,7 @@ $('#cr-go').addEventListener('click', createChar);
 $('#cr-name').addEventListener('input', () => renderCreate());
 $('#go-online').addEventListener('click', goOnline);
 $('#lb-ready').addEventListener('click', () => send({ t: 'ready' }));
+$('#lb-lootmode').addEventListener('click', () => { const m = net.lobby; if (m) send({ t: 'lootmode', mode: m.mode === 'leader' ? 'roll' : 'leader' }); });
 $('#lb-cancel').addEventListener('click', () => toMenu());
 $('#lb-link').addEventListener('click', () => {
   const inp = $('#lb-url'), manual = () => { inp.focus(); inp.select(); toast('自動複製沒成功，長按上面的連結來複製。', [], 4000); };

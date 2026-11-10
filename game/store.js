@@ -44,7 +44,7 @@ function createStore(dir, secretOpt) {
     checkToken(id, token) { return same(token, sign('tok:' + id).slice(0, 32)); },
     pack(rec) { const body = Buffer.from(JSON.stringify(rec)).toString('base64url'); return body + '.' + sign('bk:' + body); },
     unpack(bk) {
-      if (typeof bk !== 'string' || bk.length > 12000) return null;
+      if (typeof bk !== 'string' || bk.length > 48000) return null;
       const i = bk.lastIndexOf('.'); if (i < 1) return null;
       const body = bk.slice(0, i); if (!same(bk.slice(i + 1), sign('bk:' + body))) return null;
       try { return JSON.parse(Buffer.from(body, 'base64url').toString('utf8')); } catch (e) { return null; }

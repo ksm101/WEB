@@ -33,7 +33,7 @@ function client(port, cred) {
 // sign in and create one character of the given class
 const named = async (port, name, cls) => { const c = client(port), first = await c.ready; c.send({ t: 'char-new', name, cls: cls || 'dps' }); await c.wait('me', m => m !== first); return c; };
 const get = (port, p) => new Promise((res, rej) => http.get({ host: '127.0.0.1', port, path: p }, r => { let b = ''; r.on('data', d => b += d); r.on('end', () => res({ status: r.statusCode, body: b })); }).on('error', rej));
-const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lobbyWait: 600, debug: true, soloMin: .2, eventPeriod: 1e13, eventDur: 0, backupEvery: 300 }, o)); await new Promise(r => s.server.on('listening', r)); return s; };
+const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lobbyWait: 600, debug: true, soloMin: .2, eventPeriod: 1e13, eventDur: 0, backupEvery: 300, lootWait: 1500 }, o)); await new Promise(r => s.server.on('listening', r)); return s; };
 
 (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'embertide-'));
@@ -69,7 +69,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   // accounts
   const A = await named(port, '小明', 'dps'), B = await named(port, '<b>壞</b>名字超級長', 'heal');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);
-  { const { q, loadout, talents, ...rest } = A.me.profile; assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(talents, {}); assert.deepStrictEqual(rest, { name: '小明', cls: 'dps', lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, coin: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
+  { const { q, loadout, talents, eq, bag, ...rest } = A.me.profile; assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(talents, {}); assert.deepStrictEqual(bag, []); assert.deepStrictEqual(eq.w, { n: '', q: 0 }); assert.deepStrictEqual(rest, { name: '小明', cls: 'dps', lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, coin: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
   assert.strictEqual(B.me.profile.name, 'b壞/b名字超級');
   const forged = client(port, { id: A.me.id, token: 'x'.repeat(32) }); await forged.ready;
   assert.notStrictEqual(forged.me.id, A.me.id, 'a wrong token must not open someone else\'s account'); forged.ws.close();
@@ -116,13 +116,29 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   const tick = setInterval(() => { A.send({ t: 'a', c: 0 }); B2.send({ t: 'a', c: 0 }); }, 100);
   const [endA, endB] = await Promise.all([A.wait('end', null, 60000), B2.wait('end', null, 60000)]); clearInterval(tick);
   assert.strictEqual(endA.win, true); assert.strictEqual(endA.stats.length, 4); assert.ok(endA.stats[2].dmg > 0);
-  assert.strictEqual(endA.profile.runs, 1); assert.ok(endA.loot && endA.loot.il >= 14); assert.strictEqual(endA.profile.lvl, endA.onTime ? 2 : 1);
-  assert.ok(Object.values(endA.profile.gear).some(v => v === endA.loot.il), 'the dropped item is on the account');
+  assert.strictEqual(endA.profile.runs, 1); assert.deepStrictEqual(endA.loot, [], 'a group gets no gear straight away'); assert.strictEqual(endA.profile.lvl, endA.onTime ? 2 : 1);
   assert.ok(endA.xp >= 150 && endA.profile.cl >= 2, 'a clear gives experience'); assert.ok(endA.coin >= 30 && endA.profile.coin === endA.coin, 'and coin');
   assert.ok(endA.mats.scrap >= 3 && endA.mats.salt >= 1); assert.strictEqual(endA.profile.inv.scrap, endA.mats.scrap); assert.strictEqual(endA.profile.inv.potion, 1, 'the potion that was drunk is gone');
   assert.deepStrictEqual(endA.mates.map(m => m.name), ['b壞/b名字超級']); assert.strictEqual(endA.mates[0].friend, false); assert.strictEqual(endA.again, 'TEST');
   assert.ok(JSON.stringify(A.last.s).length < 4000);
-  ok(`run finished: loot and level are decided by the server (ilvl ${endA.loot.il}, level ${endA.profile.lvl}), teammates are listed`);
+  ok(`run finished: rewards and level are decided by the server (level ${endA.profile.lvl}), teammates are listed`);
+
+  // the group's gear: a pile, divided by rolling
+  { const pl = endA.pile; assert.ok(pl && pl.mode === 'roll' && pl.items.length >= 2 && pl.items.length <= 5, 'two people share at least the two pieces from the boss');
+    assert.deepStrictEqual(pl.members.map(x => x.name), ['b壞/b名字超級', '小明']); assert.strictEqual(pl.you, 1); assert.strictEqual(endB.pile.you, 0); assert.strictEqual(endB.pile.id, pl.id);
+    for (const it of pl.items) assert.deepStrictEqual(Sim.fixItem(it), it);
+    const X2 = await named(port, '外人', 'dps'); X2.send({ t: 'roll', L: pl.id, i: 0, k: 'need' });           // not in the group: ignored
+    A.send({ t: 'roll', L: pl.id, i: 0, k: 'need' }); A.send({ t: 'roll', L: pl.id, i: 0, k: 'pass' }); A.send({ t: 'roll', L: pl.id, i: 9, k: 'need' }); await sleep(120); assert.ok(!A.last.loot, 'nothing is decided until everyone has answered');
+    B2.send({ t: 'roll', L: pl.id, i: 0, k: 'greed' });
+    const [la, lb2] = await Promise.all([A.wait('loot', m => m.i === 0), B2.wait('loot', m => m.i === 0)]);
+    assert.strictEqual(la.win, 1, 'need beats greed'); assert.strictEqual(la.rolls.length, 2); assert.ok(la.rolls.every(x => x[2] >= 1 && x[2] <= 100)); assert.strictEqual(lb2.give, undefined); assert.strictEqual(lb2.profile, undefined);
+    assert.strictEqual(la.give.up, true); assert.strictEqual(la.profile.gear[pl.items[0].s], pl.items[0].il, 'the winner wears it'); assert.strictEqual(la.profile.eq[pl.items[0].s].n, pl.items[0].n);
+    for (let i = 1; i < pl.items.length; i++) { A.send({ t: 'roll', L: pl.id, i, k: 'pass' }); B2.send({ t: 'roll', L: pl.id, i, k: i === 1 ? 'pass' : 'greed' }); }
+    const l1 = await A.wait('loot', m => m.i === 1); assert.strictEqual(l1.win, -1, 'everyone passed: nobody takes it');
+    if (pl.items.length > 2) assert.strictEqual((await B2.wait('loot', m => m.i === 2)).win, 0);
+    await sleep(100); assert.strictEqual(srv.loots.size, 0, 'the pile is gone once every piece is decided'); X2.ws.close();
+  }
+  ok('group loot: the drops form a pile, need beats greed, a pass takes nothing, outsiders cannot roll');
 
   // friends
   A.send({ t: 'social' }); let so = await A.wait('social'); assert.strictEqual(so.recent[0].id, credB.id); assert.strictEqual(so.friends.length, 0);
@@ -190,7 +206,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   const runsBefore = A.last.solo.profile.runs;
   A.send({ t: 'solo0', lvl: 40 }); await sleep(450); A.send({ t: 'solo1', win: true, time: .4 });
   const solo = await A.wait('solo'); assert.strictEqual(solo.ok, true); assert.strictEqual(solo.profile.runs, runsBefore + 1);
-  assert.ok(solo.loot.il <= 10 + solo.profile.lvl * 4 + 6, 'the requested level is capped at the account\'s own level');
+  assert.ok(solo.loot.length >= 1 && solo.loot[0].it.il <= 10 + solo.profile.lvl * 4 + 10, 'the requested level is capped at the account\'s own level'); assert.strictEqual(solo.pile, undefined);
   ok('solo results are accepted only when believable, and at the account\'s own level');
 
   // persistence across a restart, and recovery from the device backup when the disk is gone
@@ -317,6 +333,36 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   const t2 = await T.wait('s', m => m.a[0][8][2] > 0); assert.ok(t2, 'a malformed aim is dropped and the skill is cast as a tap');
   T.send({ t: 'leave' }); T.ws.close();
   ok('loadouts: only unlocked, distinct skills of the class; runs use them; aimed casts are applied and bad aims are ignored');
+
+  // gear as items, sets, and a leader who hands out the drops
+  { const p = Sim.fixProfile(Sim.newProfile()), lamp = Sim.SETS.lamp.pieces;
+    assert.strictEqual(Sim.giveItem(p, { s: 'w', il: 20, q: 0, n: lamp.w }).up, true); assert.strictEqual(Sim.giveItem(p, { s: 'a', il: 20, q: 0, n: lamp.a }).up, true);
+    assert.strictEqual(Sim.modsFor(p, 'dps').speed, 1.05, 'two pieces of a set give its first bonus'); assert.strictEqual(Sim.modsFor(p, 'dps').dmg, 1);
+    const g = Sim.giveItem(p, { s: 'w', il: 30, q: 0, n: '拆船鉤' }); assert.strictEqual(g.up, false, 'a better plain piece does not break a set by itself'); assert.strictEqual(p.bag.length, 1); assert.strictEqual(p.gear.w, 20);
+    Sim.giveItem(p, { s: 't', il: 12, q: 1, n: lamp.t }); assert.ok(Math.abs(Sim.modsFor(p, 'dps').dmg - 1.08) < 1e-9, 'three pieces give both'); assert.strictEqual(Sim.setList(p).find(x => x.id === 'lamp').have, 3);
+    assert.strictEqual(Sim.equipItem(p, 0).ok, true); assert.strictEqual(p.gear.w, 30); assert.strictEqual(p.bag[0].n, lamp.w, 'the piece taken off goes to the bag'); assert.strictEqual(Sim.modsFor(p, 'dps').dmg, 1);
+    const coin0 = p.coin; for (let i = 0; i < Sim.BAG_CAP + 3; i++) Sim.giveItem(p, { s: 'a', il: 11, q: 0, n: '鹽殼護肩' }); assert.strictEqual(p.bag.length, Sim.BAG_CAP); assert.ok(p.coin > coin0, 'what does not fit is sold');
+    p.bag.push({ s: 'w', il: 999, q: 9, n: 'hack' }, { s: 'a', il: 50, q: 1, n: ['鹽殼護肩'] }, null); p.eq.w = { n: 'constructor', q: 5 }; Sim.fixProfile(p); assert.strictEqual(p.bag.length, Sim.BAG_CAP); assert.deepStrictEqual(p.eq.w, { n: '', q: 0 });
+    let drops = 0; for (let i = 0; i < 4000; i++) { const q = Sim.fixProfile(Sim.newProfile()); q.cl = 8; if (Sim.fieldGain(q, 'kill', 'crab', 0).item) drops++; } assert.ok(drops > 100 && drops < 320, `field creatures drop gear now and then (${drops}/4000)`);
+  }
+  const P = await named(port, '隊長', 'tank'), Q = await named(port, '隊員', 'dps');
+  srv.store.get(Q.me.id).chars[0].bag = [{ s: 'w', il: 40, q: 2, n: '潮鳴之舌' }, { s: 'a', il: 12, q: 0, n: '鹽殼護肩' }];
+  Q.send({ t: 'item', op: 'equip', i: 0 }); let ia = await Q.wait('ack', m => m.what === 'item'); assert.strictEqual(ia.ok, true); assert.strictEqual(ia.profile.gear.w, 40); assert.strictEqual(ia.profile.eq.w.n, '潮鳴之舌'); assert.strictEqual(ia.profile.bag.length, 1);
+  Q.send({ t: 'item', op: 'sell', i: 0 }); ia = await Q.wait('ack', m => m.what === 'item' && m.profile.bag.length === 0); assert.strictEqual(ia.profile.coin, Sim.itemPrice({ il: 12, q: 0 }));
+  Q.send({ t: 'item', op: 'sell', i: 0 }); ia = await Q.wait('ack', m => m.what === 'item' && !m.ok); assert.strictEqual(ia.ok, false);
+  P.join('tank', 'LEAD'); let ll = await P.wait('lobby', m => m.code === 'LEAD'); assert.strictEqual(ll.leader, 0); assert.strictEqual(ll.mode, 'roll');
+  Q.join('dps', 'LEAD'); await Q.wait('lobby', m => m.code === 'LEAD'); Q.send({ t: 'lootmode', mode: 'leader' }); await sleep(100); assert.strictEqual(P.last.lobby.mode, 'roll', 'only the leader chooses how gear is divided');
+  P.send({ t: 'lootmode', mode: 'leader' }); ll = await Q.wait('lobby', m => m.mode === 'leader'); assert.strictEqual(ll.leader, 0);
+  P.send({ t: 'ready' }); Q.send({ t: 'ready' }); await Promise.all([P.wait('start'), Q.wait('start')]); await P.wait('s', m => m.st === 'run'); P.send({ t: 'dbg', k: 'skip' });
+  const tk2 = setInterval(() => { P.send({ t: 'a', c: 0 }); Q.send({ t: 'a', c: 0 }); }, 100);
+  const [endP, endQ] = await Promise.all([P.wait('end', null, 60000), Q.wait('end', null, 60000)]); clearInterval(tk2);
+  assert.strictEqual(endP.win, true); assert.strictEqual(endP.pile.mode, 'leader'); assert.strictEqual(endP.pile.leader, 0); assert.strictEqual(endQ.pile.you, 1);
+  Q.send({ t: 'assign', L: endP.pile.id, i: 0, to: 1 }); Q.send({ t: 'roll', L: endP.pile.id, i: 0, k: 'need' }); await sleep(120); assert.ok(!Q.last.loot, 'only the leader hands gear out, and nobody rolls');
+  P.send({ t: 'assign', L: endP.pile.id, i: 0, to: 1 }); const lq = await Q.wait('loot', m => m.i === 0); assert.strictEqual(lq.win, 1); assert.ok(lq.give && lq.profile, 'the one who was given the piece gets it');
+  assert.ok(lq.profile.bag.concat(Sim.SLOTS.map(k => Sim.wornItem(lq.profile, k))).some(it => it.n === endP.pile.items[0].n && it.il === endP.pile.items[0].il));
+  const l2 = await P.wait('loot', m => m.i === 1, 4000); assert.ok(l2.win === 0 || l2.win === 1, 'what the leader leaves undecided is rolled for when the time runs out'); assert.strictEqual(l2.rolls.length, 2);
+  await sleep(100); assert.strictEqual(srv.loots.size, 0); P.ws.close(); Q.ws.close();
+  ok('gear: sets, bag and selling follow the rules; a leader can hand out the drops, and leftovers are rolled for');
 
   // public matchmaking
   const D = await named(port, 'D', 'tank'), E = await named(port, 'E', 'dps'), F = await named(port, 'F', 'tank');

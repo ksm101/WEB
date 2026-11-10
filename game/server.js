@@ -14,7 +14,7 @@ const { createStore } = require('./store.js');
 const TICK = 1 / 30;            // simulation step
 const SNAP_EVERY = 2;           // snapshot every 2 steps = 15 per second
 const MAX_ROOMS = 200, MAX_FRIENDS = 50;
-const NEEDS_CHAR = ['join', 'name', 'loadout', 'claim', 'craft', 'solo0', 'solo1', 'field0', 'fg', 'fk', 'talent', 'talent-reset', 'shop'];
+const NEEDS_CHAR = ['join', 'name', 'loadout', 'claim', 'craft', 'solo0', 'solo1', 'field0', 'fg', 'fk', 'talent', 'talent-reset', 'shop', 'item'];
 const SEATS = Sim.ROSTER;       // tank, heal, dps, dps
 const FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
@@ -31,7 +31,7 @@ const cleanId = s => typeof s === 'string' && /^[a-f0-9]{16}$/.test(s) ? s : '';
  * skills) belongs to a character; friends belong to the account. rec.name mirrors the name of the character in use. */
 const MAX_CHARS = 4;
 const pc = r => r.chars[r.cur] || null;        // the character this account is playing
-const charProfile = c => ({ name: c.name, cls: c.cls, lvl: c.lvl, cl: c.cl, xp: c.xp, gear: c.gear, best: c.best, runs: c.runs, inv: c.inv, q: c.q, loadout: c.loadout, coin: c.coin, talents: c.talents });
+const charProfile = c => ({ name: c.name, cls: c.cls, lvl: c.lvl, cl: c.cl, xp: c.xp, gear: c.gear, eq: c.eq, bag: c.bag, best: c.best, runs: c.runs, inv: c.inv, q: c.q, loadout: c.loadout, coin: c.coin, talents: c.talents });
 const profileOf = r => { const c = pc(r); return c ? charProfile(c) : null; };
 const rosterOf = r => r.chars.map(c => ({ name: c.name, cls: c.cls, cl: c.cl, lvl: c.lvl, ilvl: Sim.ilvlOf(c.gear) }));
 const charName = s => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '';
@@ -43,7 +43,7 @@ function normChar(b) {
   const g = b.gear || {}, v = b.inv || {};
   const c = { name: cleanName(b.name), cls: SEATS.includes(b.cls) ? b.cls : 'dps', made: clampInt(b.made, 0, 9e15), lvl: clampInt(b.lvl, 1, 50), cl: clampInt(b.cl, 1, Sim.MAX_LEVEL), xp: clampInt(b.xp, 0, 1e9),
     gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) }, best: {}, runs: clampInt(b.runs, 0, 1e9),
-    inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) }, q: b.q, loadout: b.loadout, coin: clampInt(b.coin, 0, 9999999), talents: b.talents };
+    inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) }, q: b.q, loadout: b.loadout, coin: clampInt(b.coin, 0, 9999999), talents: b.talents, eq: b.eq, bag: b.bag };
   if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const n = Number(b.best[k]); if (/^\d+$/.test(k) && Number.isFinite(n)) c.best[k] = n; }
   return Sim.fixProfile(c);
 }
@@ -63,6 +63,7 @@ function start(opts) {
   const speed = opts.speed || 1;                       // tests fast-forward the simulation
   const lobbyWait = opts.lobbyWait != null ? opts.lobbyWait : 8000;
   const soloMin = opts.soloMin != null ? opts.soloMin : 75;
+  const lootWait = opts.lootWait != null ? opts.lootWait : 25000;      // how long a group has to decide who gets what
   // the tide surge: every evPeriod ms one starts and stays open for evDur ms, at a spot that rotates
   const evPeriod = opts.eventPeriod || 360000, evDur = opts.eventDur != null ? opts.eventDur : 240000;
   const eventNow = now => { const cycle = Math.floor(now / evPeriod), into = now % evPeriod, spots = Sim.FIELD.events; return { cycle, active: into < evDur, endsAt: now - into + evDur, spot: spots[cycle % spots.length] }; };   // fastest solo clear the server will believe, in seconds
@@ -71,7 +72,8 @@ function start(opts) {
   const seats = new Map();                             // account id -> { room, idx } while a run is going
   const online = new Map();                            // account id -> socket
   const wanted = new Map();                            // account id -> ids of accounts that added it as a friend
-  let publicN = 0;
+  const loots = new Map();                             // id -> gear a group is still dividing after a run
+  let publicN = 0, lootN = 0;
 
   const index = rec => { for (const id of Object.keys(rec.friends)) { if (!wanted.has(id)) wanted.set(id, new Set()); wanted.get(id).add(rec.id); } };
   for (const old of Array.from(store.all())) { const rec = normalize(old); store.put(rec); index(rec); }      // also brings older files up to date
@@ -89,7 +91,7 @@ function start(opts) {
       res.writeHead(200, { 'Content-Type': f[1], 'Cache-Control': 'no-cache' }); res.end(buf);
     });
   });
-  const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16384 });
+  const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 65536 });
 
   const send = (ws, o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
   /* The signed backup is the whole account, so it is not attached to every small reward. Frequent changes mark the
@@ -97,8 +99,10 @@ function start(opts) {
   const stale = new Set(), later = ws => { if (ws) stale.add(ws); };
   const flushBackups = () => { for (const ws of stale) if (ws.acc) send(ws, { t: 'bk', bk: store.pack(ws.acc) }); stale.clear(); };
   /* a reply to something the player did to their own character: say what happened and show the new state */
-  const ack = (ws, what, r) => { if (r.ok) store.put(ws.acc); send(ws, { t: 'ack', what, ok: r.ok, msg: r.msg, profile: profileOf(ws.acc) }); if (r.ok) later(ws); };
+  const ack = (ws, what, r) => { if (r.ok) store.put(ws.acc); send(ws, { t: 'ack', what, ok: r.ok, msg: r.msg, profile: profileOf(ws.acc) }); if (r.ok) { later(ws); refit(ws); } };
   const humans = room => room.slots.filter(Boolean);
+  /* gear or talents changed while standing in a field the server runs: the body there follows */
+  const refit = ws => { const info = ws && ws.info, room = info && info.room, c = ws && ws.acc && pc(ws.acc); if (!room || room.kind !== 'field' || !c) return; Sim.refit(room.G.actors[info.idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls)); fieldRoster(room); };
   const sendMe = (ws, extra) => { const r = ws.acc; send(ws, Object.assign({ t: 'me', id: r.id, token: store.token(r.id), bk: store.pack(r), profile: profileOf(r), chars: rosterOf(r), cur: r.cur, ev: { now: Date.now(), period: evPeriod, dur: evDur } }, extra)); };
 
   /* ---------- accounts ---------- */
@@ -164,14 +168,14 @@ function start(opts) {
 
   /* ---------- rooms ---------- */
   function mkRoom(key, code, pub) {
-    const room = { key, code, pub, state: 'lobby', slots: [null, null, null, null], deadline: 0, emptySince: Date.now(), G: null, acc: 0, n: 0, clock: 0, goneSince: 0 };
+    const room = { key, code, pub, state: 'lobby', slots: [null, null, null, null], deadline: 0, emptySince: Date.now(), G: null, acc: 0, n: 0, clock: 0, goneSince: 0, leader: -1, loot: 'roll' };
     rooms.set(key, room); return room;
   }
   function lobbyInfo(room) {
     const now = Date.now();
     for (let i = 0; i < 4; i++) {
       const me = room.slots[i]; if (!me) continue;
-      send(me.ws, { t: 'lobby', code: room.pub ? '' : room.code, you: i,
+      send(me.ws, { t: 'lobby', code: room.pub ? '' : room.code, you: i, leader: room.pub ? -1 : room.leader, mode: room.pub ? 'roll' : room.loot,
         left: room.pub && room.deadline ? Math.max(0, Math.ceil((room.deadline - now) / 1000)) : -1,
         slots: room.slots.map((s, k) => ({ cls: SEATS[k], name: s ? s.name : '', ready: !!(s && s.ready) })) });
     }
@@ -181,7 +185,7 @@ function start(opts) {
     const room = info.room, slot = room.slots[info.idx]; ws.info = null;
     if (!slot || slot.ws !== ws) return;
     if (room.kind === 'field') { Sim.removeFieldActor(room.G, info.idx); room.slots[info.idx] = null; return fieldRoster(room); }   // walked out of the party's field
-    if (room.state === 'lobby') { room.slots[info.idx] = null; if (!humans(room).length) room.emptySince = Date.now(); lobbyInfo(room); }
+    if (room.state === 'lobby') { room.slots[info.idx] = null; if (room.leader === info.idx) room.leader = room.slots.findIndex(Boolean); if (!humans(room).length) room.emptySince = Date.now(); lobbyInfo(room); }
     else { slot.ws = null; if (room.G) room.G.actors[info.idx].human = false; }   // a bot plays this seat until they come back
   }
   function leave(ws) {      // leaving on purpose: no seat is held for a return
@@ -207,8 +211,8 @@ function start(opts) {
       if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('q:' + (++publicN), '', true); }
       idx = freeSeat(room);
     }
-    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: c.lvl, cl: c.cl, pow: Sim.charPower(c), mods: Sim.modsOf(c.talents, cls), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), ws, ready: false };   // level and power come from the account, never from the client
-    ws.info = { room, idx };
+    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: c.lvl, cl: c.cl, pow: Sim.charPower(c), mods: Sim.modsFor(c, cls), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), ws, ready: false };   // level and power come from the account, never from the client
+    ws.info = { room, idx }; if (room.leader < 0 || !room.slots[room.leader]) room.leader = idx;      // whoever is first leads
     const fr = code ? rooms.get('f:' + code) : null;      // the rest of the party is still out in the field: tell them where to come
     if (fr) for (const o of fr.slots) if (o && o.ws && o.ws !== ws) send(o.ws, { t: 'invited', from: { id: rec.id, name: c.name }, code, gate: true });
     const now = Date.now();
@@ -234,7 +238,7 @@ function start(opts) {
     for (const s of humans(room)) { seats.delete(s.id); if (s.ws && s.ws.info && s.ws.info.room === room) s.ws.info = null; }
     room.G = null;
     if (room.pub) rooms.delete(room.key);
-    else { room.state = 'lobby'; room.slots = [null, null, null, null]; room.deadline = 0; room.emptySince = Date.now(); }
+    else { room.state = 'lobby'; room.slots = [null, null, null, null]; room.leader = -1; room.deadline = 0; room.emptySince = Date.now(); }
   }
   function broadcast(room) {
     const G = room.G; if (room.kind === 'field') fieldRewards(room, G.events);
@@ -250,18 +254,62 @@ function start(opts) {
     let again = room.code;                               // a room code the same group can use to go again together
     if (room.pub) do { again = 'R' + crypto.randomBytes(2).toString('hex').toUpperCase(); } while (rooms.has('p:' + again));
     const stats = G.actors.map(a => ({ dmg: Math.round(a.stats.dmg), heal: Math.round(a.stats.heal), kicks: a.stats.kicks, hits: a.stats.hits }));
+    // alone with bots, everything that dropped is yours; a group gets a pile and divides it
+    const share = r.win && hs.length > 1, lead = room.slots[room.leader];
+    const L = share ? { id: ++lootN, mode: !room.pub && room.loot === 'leader' && lead && lead.ws ? 'leader' : 'roll', leader: hs.indexOf(lead), deadline: now + lootWait,
+      items: Sim.runDrops(G.lvl, r, Sim.bossDrops(hs.length), Math.min(3, G.drops)).map(it => ({ it, picks: {}, done: false })),
+      members: hs.map(s => { const rec = store.get(s.id), c = rec && rec.chars[s.ci]; return { id: s.id, ci: s.ci, made: c ? c.made : -1, name: s.name, cls: s.cls }; }) } : null;
+    if (L) loots.set(L.id, L);
     room.slots.forEach((s, i) => {
       const rec = s && store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) return;     // the character that took the seat
-      const rw = Sim.applyResult(c, G.lvl, r);
+      const rw = Sim.applyResult(c, G.lvl, r, { trash: G.drops, share });
       c.inv.potion = Math.max(0, c.inv.potion - G.actors[i].stats.pots);
       Sim.questEvent(c, { type: 'run', win: r.win, onTime: r.onTime, cls: s.cls, kicks: G.actors[i].stats.kicks, hits: G.actors[i].stats.hits, mates: hs.length - 1 }, now);
       for (const o of hs) if (o.id !== s.id) rec.recent = [{ id: o.id, name: o.name, cls: o.cls, at: now }].concat(rec.recent.filter(x => x.id !== o.id)).slice(0, 10);
       store.put(rec);
       send(s.ws, { t: 'end', win: r.win, onTime: r.onTime, time: Math.round(r.t * 10) / 10, lvl: G.lvl, stats, loot: rw.loot, mats: rw.mats, xp: rw.xp, coin: rw.coin, again, profile: profileOf(rec), bk: store.pack(rec),
+        pile: L ? { id: L.id, mode: L.mode, leader: L.leader, you: hs.indexOf(s), left: Math.ceil(lootWait / 1000), items: L.items.map(e => e.it), members: L.members.map(x => ({ name: x.name, cls: x.cls })) } : null,
         mates: hs.filter(o => o.id !== s.id).map(o => ({ id: o.id, name: o.name, cls: o.cls, friend: !!rec.friends[o.id] })) });
     });
     endRoom(room);
   }
+  /* ---------- dividing a group's gear ----------
+   * Rolling: everyone answers need, greed or pass for each piece. Need beats greed, the highest number out of 100 wins,
+   * and you can only need a piece that is better than what you wear. Leader: the leader hands each piece to someone.
+   * Whatever is undecided when the time runs out is rolled for among everyone who is still there. */
+  const lootChar = x => { const rec = store.get(x.id), c = rec && rec.chars[x.ci]; return c && c.made === x.made ? c : null; };
+  function award(L, i, win, rolls) {
+    const e = L.items[i]; e.done = true; let g = null; const x = L.members[win], c = x && lootChar(x);
+    if (c) { g = Sim.giveItem(c, e.it); store.put(store.get(x.id)); } else win = -1;
+    L.members.forEach((o, k) => {
+      const ws = online.get(o.id); if (!ws) return; const mine = k === win, cur = mine && pc(ws.acc) === c;
+      send(ws, { t: 'loot', L: L.id, i, win, rolls, give: mine ? { up: g.up, old: g.old, sold: g.sold } : undefined, profile: cur ? charProfile(c) : undefined });
+      if (mine) { later(ws); if (cur) refit(ws); }
+    });
+    if (L.items.every(o => o.done)) loots.delete(L.id);
+  }
+  function settle(L, force) {
+    const here = L.members.map((x, k) => online.has(x.id) ? k : -1).filter(k => k >= 0);
+    L.items.forEach((e, i) => {
+      if (e.done) return;
+      if (L.mode === 'leader' && !force && online.has(L.members[L.leader].id)) return;      // the leader is still deciding
+      if (L.mode === 'leader') for (const k of here) e.picks[k] = 'greed';                   // nobody decided: everyone still there rolls
+      if (!force && !here.every(k => e.picks[k])) return;
+      const rolls = here.filter(k => e.picks[k] === 'need' || e.picks[k] === 'greed').map(k => [k, e.picks[k], 1 + Math.floor(Math.random() * 100)]);
+      const pool = rolls.some(x => x[1] === 'need') ? rolls.filter(x => x[1] === 'need') : rolls;
+      award(L, i, pool.length ? pool.reduce((m, x) => x[2] > m[2] ? x : m)[0] : -1, rolls);
+    });
+  }
+  function onLoot(ws, m) {
+    const L = loots.get(m.L), me = L ? L.members.findIndex(x => x.id === ws.acc.id) : -1, e = L && Number.isInteger(m.i) ? L.items[m.i] : null;
+    if (!e || me < 0 || e.done) return;
+    if (m.t === 'assign') { if (L.mode === 'leader' && me === L.leader && Number.isInteger(m.to) && L.members[m.to]) award(L, m.i, m.to, []); return; }
+    if (L.mode !== 'roll' || e.picks[me] || !['need', 'greed', 'pass'].includes(m.k)) return;
+    const c = lootChar(L.members[me]);
+    e.picks[me] = m.k === 'need' && !(c && e.it.il > c.gear[e.it.s]) ? 'greed' : m.k;      // need is only for an upgrade
+    settle(L, false);
+  }
+
   /* A solo run is simulated on the player's own device. The server cannot replay it, so it only checks that
    * the claim is believable: the level is one this account has reached, and at least as much real time has
    * passed as the run says it took. */
@@ -270,10 +318,10 @@ function start(opts) {
     if (m.t === 'solo0') { ws.solo = { lvl: clampInt(m.lvl, 1, c.lvl), cls: c.cls, at: Date.now() }; return; }
     const s = ws.solo; ws.solo = null; const time = Number(m.time), win = m.win === true;
     const ok = !!s && Number.isFinite(time) && time > 0 && time < 3600 && (Date.now() - s.at) / 1000 >= time * .9 && (!win || time >= soloMin);
-    let rw = { loot: null, mats: null, xp: 0, coin: 0 };
+    let rw = { loot: [], mats: null, xp: 0, coin: 0 };
     if (s && m.pots > 0) c.inv.potion = Math.max(0, c.inv.potion - 1);   // a potion drunk in the run is gone either way
     if (ok) {     // kicks and hits are the device's own count: fine for quests, not for anything worth cheating
-      rw = Sim.applyResult(c, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time });
+      rw = Sim.applyResult(c, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time }, { trash: clampInt(m.drops, 0, 3) });
       Sim.questEvent(c, { type: 'run', win, onTime: win && time <= Sim.TIME_LIMIT, cls: s.cls, kicks: clampInt(m.kicks, 0, 50), hits: clampInt(m.hits, 0, 999), mates: 0 }, Date.now());
     }
     if (s) store.put(rec);
@@ -287,7 +335,7 @@ function start(opts) {
   function onFieldJoin(ws, m) {
     const rec = ws.acc, c = pc(rec); leave(ws);
     let code = cleanCode(m.room); if (!code) do { code = crypto.randomBytes(2).toString('hex').toUpperCase(); } while (rooms.has('f:' + code));
-    const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsOf(c.talents, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
+    const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsFor(c, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
     const at = Number.isFinite(m.x) && Number.isFinite(m.y) ? [m.x, m.y] : null;      // coming back from a surge: stand where you were
     let room = rooms.get('f:' + code), idx = 0;
     if (room) { idx = Sim.addFieldActor(room.G, p, at); if (idx < 0) return send(ws, { t: 'err', msg: '這個隊伍滿了，最多 4 個人。' }); }
@@ -310,7 +358,7 @@ function start(opts) {
     if (!room && rooms.size >= MAX_ROOMS) return refuse('伺服器滿了，晚點再試。');
     const sp = en.spot, far = sp.r + 160;
     const at = [Math.max(sp.x - far, Math.min(sp.x + far, Number.isFinite(m.x) ? m.x : sp.x)), Math.max(sp.y - far, Math.min(sp.y + far, Number.isFinite(m.y) ? m.y : sp.y + sp.r))];   // where they walked in, kept near the surge
-    const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsOf(c.talents, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
+    const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsFor(c, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
     if (!room) { room = { key, code: '', kind: 'field', event: true, cycle: en.cycle, endsAt: en.endsAt, done: false, closeAt: 0, pub: true, state: 'run', slots: [], G: Sim.createField({ lvl: 1, grace: 12, cap: 8, event: sp, players: [] }), acc: 0, n: 0, clock: 0, last: now, goneSince: 0 }; rooms.set(key, room); }
     leave(ws);
     const idx = Sim.addFieldActor(room.G, p, at); if (idx < 0) return refuse('這場漲潮人滿了。');
@@ -323,11 +371,11 @@ function start(opts) {
     if (room.done) return; room.done = true; room.closeAt = Date.now() + 5000;
     const here = room.slots.filter(Boolean), now = Date.now();
     for (const s of here) {
-      const rec = store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) continue; let gain = { mats: {}, xp: 0, coin: 0 };
+      const rec = store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) continue; let gain = { mats: {}, xp: 0, coin: 0, item: null };
       if (win) { gain = Sim.eventReward(c); Sim.questEvent(c, { type: 'event' }, now); }
       for (const o of here) if (o.id !== s.id) rec.recent = [{ id: o.id, name: o.name, cls: o.cls, at: now }].concat(rec.recent.filter(x => x.id !== o.id)).slice(0, 10);   // so they can befriend each other afterwards
       store.put(rec);
-      send(s.ws, { t: 'event-end', win, cycle: room.cycle, mats: gain.mats, xp: gain.xp, coin: gain.coin, mates: here.filter(o => o.id !== s.id).map(o => o.name), profile: charProfile(c), bk: store.pack(rec) });
+      send(s.ws, { t: 'event-end', win, cycle: room.cycle, mats: gain.mats, xp: gain.xp, coin: gain.coin, item: gain.item, mates: here.filter(o => o.id !== s.id).map(o => o.name), profile: charProfile(c), bk: store.pack(rec) });
     }
   }
 
@@ -339,7 +387,8 @@ function start(opts) {
       const gain = Sim.fieldGain(c, what, key, pk); if (!gain) return;
       Sim.questEvent(c, { type: what }, now); store.put(rec);
       if (gain.ups) { Sim.setLevel(G.actors[idx], c.cl, Sim.charPower(c)); grew = true; }
-      send(s.ws, { t: 'fy', ok: true, mats: gain.mats, xp: gain.xp, coin: gain.coin, profile: charProfile(c) }); later(s.ws);
+      else if (gain.item && gain.item.up) { Sim.refit(G.actors[idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls)); grew = true; }
+      send(s.ws, { t: 'fy', ok: true, mats: gain.mats, xp: gain.xp, coin: gain.coin, item: gain.item, profile: charProfile(c) }); later(s.ws);
     };
     for (const o of events) {
       if (o.k === 'gathered') { const n = Sim.FIELD.nodes.find(q => q.id === o.id); if (n) pay(o.by, 'gather', n.type); }
@@ -365,7 +414,7 @@ function start(opts) {
       if (f.tokens >= 1 && typeof m.kind === 'string') { gain = Sim.fieldGain(c, 'kill', m.kind, m.pk); if (gain) { f.tokens -= 1; Sim.questEvent(c, { type: 'kill' }, now); } }
     }
     if (gain) store.put(rec);
-    send(ws, { t: 'fy', ok: !!gain, mats: gain ? gain.mats : {}, xp: gain ? gain.xp : 0, coin: gain ? gain.coin : 0, profile: profileOf(rec) }); if (gain) later(ws);
+    send(ws, { t: 'fy', ok: !!gain, mats: gain ? gain.mats : {}, xp: gain ? gain.xp : 0, coin: gain ? gain.coin : 0, item: gain ? gain.item : null, profile: profileOf(rec) }); if (gain) later(ws);
   }
 
   /* Creating, choosing and deleting characters. Not while seated in a room: the seat belongs to one character. */
@@ -389,6 +438,7 @@ function start(opts) {
 
   function tick() {
     const now = Date.now();
+    for (const L of Array.from(loots.values())) if (now >= L.deadline) { settle(L, true); loots.delete(L.id); }
     for (const room of rooms.values()) {
       if (room.state === 'lobby') {
         const hs = humans(room);
@@ -437,6 +487,8 @@ function start(opts) {
         case 'talent': return ack(ws, 'talent', Sim.learnTalent(pc(ws.acc), pc(ws.acc).cls, String(m.id)));
         case 'talent-reset': return ack(ws, 'talent', Sim.resetTalents(pc(ws.acc)));
         case 'shop': return ack(ws, 'shop', m.op === 'sell' ? Sim.shopSell(pc(ws.acc), String(m.key), m.n) : Sim.shopBuy(pc(ws.acc), String(m.key), m.n));
+        case 'item': { if (seats.has(ws.acc.id)) return send(ws, { t: 'note', msg: '副本裡不能換裝備。' }); return ack(ws, 'item', m.op === 'sell' ? Sim.sellItem(pc(ws.acc), m.i) : Sim.equipItem(pc(ws.acc), m.i)); }
+        case 'roll': case 'assign': return onLoot(ws, m);
         case 'field0': case 'fg': case 'fk': return onField(ws, m);
         case 'loadout': { const r = Sim.setLoadout(pc(ws.acc), pc(ws.acc).cls, m.skills); if (r.ok) store.put(ws.acc); return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'claim': { const r = Sim.questClaim(pc(ws.acc), String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
@@ -444,6 +496,7 @@ function start(opts) {
       }
       const info = ws.info; if (!info || !info.room) return;
       const room = info.room;
+      if (m.t === 'lootmode') { if (room.state === 'lobby' && !room.pub && info.idx === room.leader && (m.mode === 'roll' || m.mode === 'leader')) { room.loot = m.mode; lobbyInfo(room); } return; }
       if (m.t === 'ready') { if (room.state === 'lobby') { room.slots[info.idx].ready = true; lobbyInfo(room); } return; }
       if (room.state !== 'run' || !room.G) return;
       const a = room.G.actors[info.idx], inp = a.input;
@@ -463,7 +516,7 @@ function start(opts) {
         if (m.k === 'evtime' && room.event) room.endsAt = Date.now();
       }
     });
-    ws.on('close', () => { stale.delete(ws); unseat(ws); if (ws.acc && online.get(ws.acc.id) === ws) online.delete(ws.acc.id); });
+    ws.on('close', () => { stale.delete(ws); unseat(ws); if (ws.acc && online.get(ws.acc.id) === ws) online.delete(ws.acc.id); for (const L of Array.from(loots.values())) settle(L, false); });
     ws.on('error', () => {});
   });
 
@@ -472,7 +525,7 @@ function start(opts) {
   const beat = setInterval(() => { for (const ws of wss.clients) { if (!ws.isAlive) { ws.terminate(); continue; } ws.isAlive = false; ws.ping(); } }, 15000);
   server.listen(opts.port != null ? opts.port : (process.env.PORT || 8080), '0.0.0.0');
   const close = () => new Promise(res => { clearInterval(loop); clearInterval(beat); clearInterval(bkTimer); store.flush(); for (const ws of wss.clients) ws.terminate(); wss.close(() => server.close(res)); });
-  return { server, rooms, seats, store, close };
+  return { server, rooms, seats, store, loots, close };
 }
 
 if (require.main === module) {
