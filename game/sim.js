@@ -375,6 +375,24 @@ function step(G, dt) {
   }
 }
 
+/* ---------- progression: the same rules on the server and in the offline client ---------- */
+const LOOT = { w: ['武器', ['鏽潮錨刃', '沉鐘之舌', '霧燈長弓']], a: ['護甲', ['看守者鍊甲', '鹽殼護肩', '潮紋斗篷']], t: ['飾品', ['霧燈碎片', '潮鳴鐘錘', '生鏽的羅盤']] };
+const ilvlOf = gear => Math.round((gear.w + gear.a + gear.t) / 3);
+const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
+function newProfile() { return { lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0 }; }
+/* r: { win, onTime, t }. Updates the profile p and returns the loot that dropped, or null for a wipe. */
+function applyResult(p, lvl, r) {
+  if (!r.win) return null;
+  p.runs++;
+  const ks = ['w', 'a', 't']; let k = pick(ks);
+  if (Math.random() < .5) k = ks.reduce((m, x) => p.gear[x] < p.gear[m] ? x : m, 'w');
+  const il = 10 + lvl * 4 + Math.floor(Math.random() * 4) + (r.onTime ? 2 : 0), old = p.gear[k], up = il > old;
+  if (up) p.gear[k] = il;
+  if (!p.best[lvl] || r.t < p.best[lvl]) p.best[lvl] = Math.round(r.t * 10) / 10;
+  if (r.onTime) p.lvl = Math.max(p.lvl, Math.min(50, lvl + 1));
+  return { slot: LOOT[k][0], name: pick(LOOT[k][1]), il, old, up };
+}
+
 /* ---------- network snapshot: compact arrays, read back by the client ---------- */
 const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100;
 function snapshot(G) {
@@ -390,5 +408,5 @@ function snapshot(G) {
   };
 }
 
-return { W, H, TIME_LIMIT, CLASSES, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot };
+return { W, H, TIME_LIMIT, CLASSES, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot, ilvlOf, powerOf, newProfile, applyResult };
 });

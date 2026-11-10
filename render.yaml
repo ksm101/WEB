@@ -9,3 +9,7 @@ services:
     buildCommand: npm ci
     startCommand: node server.js
     healthCheckPath: /health
+    envVars:
+      # Signs account backups and sign-in keys. Must stay the same across restarts.
+      - key: EMBERTIDE_SECRET
+        generateValue: true

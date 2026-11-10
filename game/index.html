@@ -145,6 +145,21 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .slots li.open b{color:var(--mute);font-weight:400}
 .slots small{font-size:11px;color:var(--mute)}
 .slots li.ok small{color:var(--brass)}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.chip{position:relative;flex:none;height:40px;min-width:60px;padding:0 14px;border:1.5px solid var(--line);border-radius:20px;background:var(--deep);color:var(--foam);font-size:13px}
+.chip b{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;box-sizing:border-box;padding:0 4px;border-radius:9px;background:var(--ember);color:var(--ink);font-family:var(--f-num);font-size:11px;line-height:18px;text-align:center}
+.overlay.top{z-index:7}
+.group{display:flex;flex-direction:column;gap:8px}
+.group h3{margin:6px 0 0;font-size:12px;letter-spacing:.16em;color:var(--mute);font-weight:400}
+.group .note{text-align:left}
+.slots .acts{display:flex;align-items:center;gap:6px}
+.mini{height:36px;padding:0 12px;border-radius:6px;border:1.5px solid var(--line);background:transparent;color:var(--foam);font-size:13px;white-space:nowrap}
+.mini.go{background:var(--ember);border-color:var(--ember);color:var(--ink);font-weight:700}
+.mini:disabled{opacity:.45}
+.fields.one{grid-template-columns:minmax(0,1fr)}
+#toast{position:absolute;z-index:9;left:var(--gl);right:var(--gr);top:10px;display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--brass);border-radius:8px;background:var(--slate);font-size:13px;line-height:1.5}
+#toast-msg{flex:1;min-width:0}
+#toast-btns{display:flex;gap:6px;flex:none}
 .clock{font-family:var(--f-num);font-weight:700;font-size:56px;line-height:1;font-variant-numeric:tabular-nums}
 .verdict{margin:0;font-size:14px}
 .verdict.good{color:var(--brass)} .verdict.bad{color:var(--danger)}
@@ -189,9 +204,9 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 
   <section id="menu" class="overlay">
     <div class="wrap">
-      <div>
-        <p class="eyebrow">三分鐘副本 · 原型</p>
-        <h1>燼潮</h1>
+      <div class="head">
+        <div><p class="eyebrow">三分鐘副本 · 原型</p><h1>燼潮</h1></div>
+        <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
       </div>
       <p class="lore">鐘聲沉入海底那天，潮水開始生鏽。四個人、一座塔、三分鐘。</p>
       <div class="run"><b>沉鐘塔</b><span id="m-lvl">第 1 層</span><small id="m-best"></small></div>
@@ -216,8 +231,11 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div><p class="eyebrow">線上配對</p><h2 id="lb-title">連線中</h2></div>
       <p class="lore" id="lb-info"></p>
       <ul class="slots" id="lb-slots"></ul>
+      <div class="fields one" id="lb-linkbox" hidden><label for="lb-url">邀請連結（朋友點開就會進這個房間）<input id="lb-url" type="text" readonly></label></div>
       <div class="cta">
         <button class="btn" id="lb-ready" type="button" hidden>開始</button>
+        <button class="btn ghost" id="lb-link" type="button" hidden>複製邀請連結</button>
+        <button class="btn ghost" id="lb-friends" type="button" hidden>邀請好友</button>
         <button class="btn ghost" id="lb-cancel" type="button">取消</button>
       </div>
     </div>
@@ -226,6 +244,18 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
   <section id="result" class="overlay" hidden>
     <div class="wrap" id="result-body"></div>
   </section>
+
+  <section id="social" class="overlay top" hidden>
+    <div class="wrap">
+      <div class="head">
+        <div><p class="eyebrow">一起打副本的人</p><h2>好友</h2></div>
+        <button class="chip" id="so-close" type="button">關閉</button>
+      </div>
+      <p class="lore">一起打過線上副本的人會出現在「最近隊友」。雙方都加了對方，才看得到彼此在不在線上，也才能邀請。</p>
+      <div id="so-body"></div>
+    </div>
+  </section>
+  <div id="toast" hidden role="status"><span id="toast-msg"></span><span id="toast-btns"></span></div>
 </div>
 
 <script src="sim.js"></script>
@@ -251,15 +281,20 @@ const css = getComputedStyle(document.documentElement);
 const tok = n => css.getPropertyValue(n).trim();
 const C = {}; for (const n of ['ink', 'deep', 'slate', 'line', 'glow', 'foam', 'mute', 'ember', 'brass', 'danger', 'heal', 'tank', 'hex', 'rust']) C[n] = tok('--' + n);
 const F = { display: tok('--f-display'), num: tok('--f-num') };
-const SLOTS = { w: ['武器', ['鏽潮錨刃', '沉鐘之舌', '霧燈長弓']], a: ['護甲', ['看守者鍊甲', '鹽殼護肩', '潮紋斗篷']], t: ['飾品', ['霧燈碎片', '潮鳴鐘錘', '生鏽的羅盤']] };
 
-/* ================= Save (kept on this device for now) ================= */
+/* ================= Save =================
+ * With a game server the account lives there; this is a cache of it plus the key that signs this device in.
+ * Without one (a plain copy of this page) progress stays on this device. */
 const SAVE_KEY = 'embertide.v1';
-const save = { lvl: 1, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, pid: '', nick: '', room: '' };
-function loadSave() { try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s === 'object') Object.assign(save, s); } catch (e) {} }
+const save = { lvl: 1, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
+function loadSave() {
+  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s === 'object') Object.assign(save, s); } catch (e) {}
+  if (!save.acct || typeof save.acct !== 'object') save.acct = { id: '', token: '', bk: '' };
+}
 function writeSave() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
-const avgIlvl = () => Math.round((save.gear.w + save.gear.a + save.gear.t) / 3);
-function newPid() { const a = new Uint8Array(12); try { crypto.getRandomValues(a); } catch (e) { for (let i = 0; i < a.length; i++) a[i] = Math.random() * 256; } return Array.from(a, b => b.toString(16).padStart(2, '0')).join(''); }
+const avgIlvl = () => S.ilvlOf(save.gear);
+const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+const inviteRoom = cleanCode(qs.get('room'));   // opened from a friend's invite link
 
 /* ================= Canvas ================= */
 let scale = 1, dpr = 1, offX = 0, offY = 0, floor = null;
@@ -337,69 +372,99 @@ function enterRun() {
 }
 function startSolo(cls) {
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
-  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: '你', pow: 1 + (avgIlvl() - 10) * .02, id: 'me' }] });
+  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: '你', pow: S.powerOf(save.gear), id: 'me' }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
+  if (net.authed) send({ t: 'solo0', lvl: save.lvl });
   enterRun(); banner('三名 AI 隊友已就位', 2200);
 }
-function conclude(r, stats) {
-  const view = V, lvl = V.lvl; V.result = r; let loot = null;
-  if (r.win) {
-    save.runs++; loot = rollLoot(lvl, r.onTime);
-    if (!save.best[lvl] || r.t < save.best[lvl]) save.best[lvl] = Math.round(r.t * 10) / 10;
-    if (r.onTime) save.lvl = Math.max(save.lvl, lvl + 1);
-    writeSave();
+/* A finished run. Online, the server has already decided the rewards (extra). Solo with a server, the result is
+ * reported and the server answers with the rewards. With no server at all, the rewards are rolled on this device. */
+function conclude(r, stats, extra) {
+  const view = V, lvl = V.lvl; V.result = r;
+  const show = (loot, more) => setTimeout(() => { if (V === view) showResult(r, stats, loot, lvl, more || {}); }, SPEED > 1 ? 0 : 1100);
+  if (extra) return show(extra.loot, extra);
+  if (net.authed) {
+    net.solo = { show, timer: setTimeout(() => { if (net.solo) { net.solo = null; show(null, { note: '伺服器沒有回應，這場的獎勵沒有記錄到。' }); } }, 4000) };
+    return send({ t: 'solo1', win: r.win, time: r.t });
   }
-  setTimeout(() => { if (V === view) showResult(r, stats, loot, lvl); }, SPEED > 1 ? 0 : 1100);
-}
-function rollLoot(lvl, onTime) {
-  const ks = ['w', 'a', 't']; let k = pick(ks);
-  if (Math.random() < .5) k = ks.reduce((m, x) => save.gear[x] < save.gear[m] ? x : m, 'w');
-  const il = 10 + lvl * 4 + Math.floor(Math.random() * 4) + (onTime ? 2 : 0), old = save.gear[k], up = il > old;
-  if (up) save.gear[k] = il;
-  return { slot: SLOTS[k][0], name: pick(SLOTS[k][1]), il, old, up };
+  const loot = S.applyResult(save, lvl, r); writeSave(); show(loot);
 }
 
 /* ================= Online ================= */
 const INTERP = 100;   // ms the view runs behind the server so there are always two snapshots to blend
-const net = { ws: null, join: null, buf: [], offset: null, rtt: 80, tries: 0, lastSend: 0, sx: NaN, sy: NaN, lastMove: 0, pingT: 0, fresh: true, emap: new Map() };
+const net = { ws: null, authed: false, kicked: false, backoff: 0, back: false, buf: [], offset: null, rtt: 80, lastSend: 0, sx: NaN, sy: NaN, lastMove: 0, pingT: 0, fresh: true, emap: new Map(),
+  solo: null, social: null, lobby: null, pendingInvite: '', roomHint: '', socialT: 0 };
 function serverUrl() { return qs.get('server') || ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
 function probe() {   // only offer online play when a game server answers
   const u = qs.get('server') ? qs.get('server').replace(/^ws/, 'http').replace(/\/ws$/, '/health') : 'health';
-  fetch(u, { cache: 'no-store' }).then(r => r.json()).then(j => { if (j && j.embertide) { online = true; if (!$('#menu').hidden) renderMenu(); } }).catch(() => {});
+  fetch(u, { cache: 'no-store' }).then(r => r.json()).then(j => { if (j && j.embertide) { online = true; connect(); if (!$('#menu').hidden) renderMenu(); } }).catch(() => {});
 }
 function send(o) { const ws = net.ws; if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+/* One connection stays open the whole time the page is: sign-in, friends, invites and the dungeon all use it. */
 function connect() {
-  let ws; try { ws = new WebSocket(serverUrl()); } catch (e) { return toMenu('連不上伺服器，等一下再試。'); }
+  if (net.ws || net.kicked) return;
+  let ws; try { ws = new WebSocket(serverUrl()); } catch (e) { return; }
   net.ws = ws;
-  ws.onopen = () => send(net.join);
+  ws.onopen = () => { net.backoff = 0; send({ t: 'hello', id: save.acct.id, token: save.acct.token, bk: save.acct.bk }); };
   ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } onMsg(m); };
   ws.onclose = () => {
-    if (net.ws !== ws) return; net.ws = null;
-    if (mode === 'online' && V && !V.result) {     // dropped mid-run: a bot holds the seat while we try to get back
-      if (net.tries++ < 8) { banner('連線中斷，重新連線中…', 4000); setTimeout(() => { if (mode === 'online' && !net.ws) connect(); }, 1500); }
-      else toMenu('連不回伺服器，剩下的由 AI 幫你打完了。');
-    } else if (mode === 'lobby') toMenu('連不上伺服器，等一下再試。');
+    if (net.ws !== ws) return; net.ws = null; net.authed = false;
+    if (mode === 'online' && V && !V.result) { net.back = true; banner('連線中斷，重新連線中…', 6000); }   // a bot holds the seat meanwhile
+    else if (mode === 'lobby') showMenu('連線中斷了，連上之後再配對一次。');
+    else if (!$('#menu').hidden) renderMenu();
+    if (!net.kicked) { net.backoff = Math.min(15000, (net.backoff || 500) * 2); setTimeout(connect, net.backoff); }
   };
 }
-function disconnect() { const ws = net.ws; net.ws = null; if (ws) { try { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'leave' })); ws.close(); } catch (e) {} } }
-function goOnline() {
-  save.cls = chosen; save.nick = ($('#nick').value || '').trim().slice(0, 8) || save.nick || '旅人';
-  save.room = ($('#room').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6); writeSave();
-  net.join = { t: 'join', pid: save.pid, name: save.nick, cls: save.cls, lvl: save.lvl, ilvl: avgIlvl(), room: save.room };
-  mode = 'lobby'; lastMode = 'online'; V = null; G = null; net.tries = 0; showLobby(null);
-  if (net.ws && net.ws.readyState === 1) send(net.join); else connect();
+function goOnline(roomOverride) {
+  if (!net.authed) return;
+  const fixed = typeof roomOverride === 'string', room = fixed ? cleanCode(roomOverride) : cleanCode($('#room').value);
+  const nick = ($('#nick').value || '').trim().slice(0, 8);
+  save.cls = chosen; if (fixed) net.roomHint = room; else save.room = room; writeSave();
+  if (nick && nick !== save.nick) send({ t: 'name', name: nick });
+  mode = 'lobby'; lastMode = 'online'; V = null; G = null; showLobby(null);
+  send({ t: 'join', cls: save.cls, room });
+}
+function applyProfile(m) {   // the server's word on this account
+  if (m.bk) save.acct.bk = m.bk;
+  const p = m.profile; if (p) { save.lvl = p.lvl; save.gear = p.gear; save.best = p.best; save.runs = p.runs; save.nick = p.name; }
+  writeSave();
 }
 function onMsg(m) {
-  if (m.t === 'lobby') { mode = 'lobby'; V = null; showLobby(m); }
-  else if (m.t === 'start') beginOnline(m);
-  else if (m.t === 's') { if (mode === 'online' && V && !V.result) onSnap(m); }
-  else if (m.t === 'end') { if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx]); }
-  else if (m.t === 'err') toMenu(String(m.msg || '伺服器拒絕了這次連線。'));
-  else if (m.t === 'p') net.rtt = net.rtt * .7 + clamp(performance.now() - m.c, 0, 2000) * .3;
+  switch (m.t) {
+    case 'me':
+      save.acct.id = m.id; save.acct.token = m.token; applyProfile(m); net.authed = true;
+      if (document.activeElement !== $('#nick')) $('#nick').value = save.nick;
+      if (m.resume === false && mode === 'online' && V && !V.result) showMenu('這場副本已經結束了。');
+      else if (!$('#menu').hidden) renderMenu();
+      if (m.resume !== undefined) send({ t: 'social' });
+      break;
+    case 'kicked': net.kicked = true; showMenu('這個帳號在別的分頁或裝置上開著，這裡先離線了。重新整理頁面可以換回這裡。'); break;
+    case 'lobby':
+      mode = 'lobby'; V = null; net.roomHint = ''; showLobby(m);
+      if (net.pendingInvite && m.code) { send({ t: 'invite', id: net.pendingInvite }); net.pendingInvite = ''; }
+      break;
+    case 'start': beginOnline(m); break;
+    case 's': if (mode === 'online' && V && !V.result) onSnap(m); break;
+    case 'end':
+      applyProfile(m);
+      if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx], { loot: m.loot, mates: m.mates, again: m.again });
+      break;
+    case 'solo':
+      applyProfile(m);
+      if (net.solo) { const q = net.solo; net.solo = null; clearTimeout(q.timer); q.show(m.loot, m.ok ? {} : { note: '伺服器沒有承認這場結果，所以沒有獎勵。' }); }
+      break;
+    case 'social': net.social = m; renderSocial(); break;
+    case 'note': toast(String(m.msg || ''), [], 3500); break;
+    case 'invited':
+      if (!(mode === 'online' && V && !V.result)) toast(`${m.from.name} 邀請你一起打`, [['加入', () => { closeSocial(); chosen = save.cls; goOnline(String(m.code)); }], ['略過', null]], 15000);
+      break;
+    case 'err': net.pendingInvite = ''; showMenu(String(m.msg || '伺服器拒絕了這次連線。')); break;
+    case 'p': net.rtt = net.rtt * .7 + clamp(performance.now() - m.c, 0, 2000) * .3; break;
+  }
 }
 function beginOnline(m) {
-  const back = net.tries > 0;
-  mode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.tries = 0; net.emap = new Map(); net.sx = net.sy = NaN;
+  const back = net.back; net.back = false;
+  mode = 'online'; lastMode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.emap = new Map(); net.sx = net.sy = NaN;
   V = { t: 0, state: 'countdown', cd: 3, wave: -1, lvl: m.lvl, enemies: [], zones: [], shots: [], boss: null, result: null,
     actors: m.roster.map((r, i) => ({ idx: i, cls: r.cls, def: CLASSES[r.cls], name: String(r.name), human: !!r.human, x: SPOTS[i][0], y: SPOTS[i][1], sx: SPOTS[i][0], sy: SPOTS[i][1],
       r: 12, hp: r.maxHp, maxHp: r.maxHp, alive: true, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null })) };
@@ -621,9 +686,14 @@ function hud() {
 }
 
 /* ================= Menus ================= */
-let chosen = 'dps';
+let chosen = 'dps', menuMsg = '';
 const NOTE_SOLO = '其餘三名隊友由 AI 補位，不用等人。', NOTE_ONLINE = '線上配對會找其他玩家一起打，等不到人的位置由 AI 補上。';
+function onlineLabel() {
+  const b = $('#go-online'), code = cleanCode($('#room').value); b.disabled = !net.authed;
+  b.textContent = net.kicked ? '已離線' : !net.authed ? '連線中' : code ? `加入房間 ${code}` : '線上配對';
+}
 function renderMenu(msg) {
+  if (msg !== undefined) menuMsg = msg;
   $('#m-lvl').textContent = `第 ${save.lvl} 層`;
   const best = save.best[save.lvl]; $('#m-best').textContent = best ? `最佳 ${fmt(best)}` : '限時 3:00';
   const cards = $('#cards'); cards.textContent = '';
@@ -637,22 +707,27 @@ function renderMenu(msg) {
   for (const s of CLASSES[chosen].skills) { const li = el('li'); li.append(el('em', '', s.seal), el('b', '', s.name), el('span', '', s.desc + (s.ult ? '（集滿能量才能放）' : ''))); kit.appendChild(li); }
   const gear = $('#gear'); gear.textContent = '';
   for (const [k, v] of [['裝等', avgIlvl()], ['武器', save.gear.w], ['護甲', save.gear.a], ['飾品', save.gear.t], ['通關次數', save.runs]]) { const sp = el('span', '', k + ' '); sp.append(el('b', '', v)); gear.appendChild(sp); }
-  $('#fields').hidden = !online; $('#go-online').hidden = !online; $('#go').className = online ? 'btn ghost' : 'btn';
-  if (online && document.activeElement !== $('#nick') && document.activeElement !== $('#room')) { $('#nick').value = save.nick; $('#room').value = save.room; }
-  const note = $('#note');
-  if (msg !== undefined) { note.textContent = msg || ''; note.classList.toggle('warn', !!msg); }
-  if (!note.classList.contains('warn')) note.textContent = online ? NOTE_ONLINE : NOTE_SOLO;
+  $('#fields').hidden = !online; $('#go-online').hidden = !online; $('#friends-btn').hidden = !(online && net.authed);
+  $('#go').className = online ? 'btn ghost' : 'btn'; $('#go').textContent = online ? '單人練習' : '單人開始';
+  onlineLabel();
+  const note = $('#note'); note.classList.toggle('warn', !!menuMsg);
+  note.textContent = menuMsg || (online && inviteRoom && cleanCode($('#room').value) === inviteRoom ? `朋友邀請你到房間 ${inviteRoom}。選好職業後按「加入房間」。` : online ? NOTE_ONLINE : NOTE_SOLO);
 }
-function showMenu(msg) { mode = null; G = null; V = null; chosen = save.cls in CLASSES ? save.cls : 'dps'; renderMenu(msg || ''); $('#result').hidden = true; $('#lobby').hidden = true; $('#menu').hidden = false; $('#bossbar').hidden = true; $('#banner').classList.add('off'); }
-function toMenu(msg) { disconnect(); showMenu(msg); }
+function showMenu(msg) {
+  mode = null; G = null; V = null; chosen = save.cls in CLASSES ? save.cls : 'dps';
+  $('#nick').value = save.nick; $('#room').value = net.roomHint || save.room; net.roomHint = '';
+  renderMenu(msg || ''); $('#result').hidden = true; $('#lobby').hidden = true; $('#menu').hidden = false; $('#bossbar').hidden = true; $('#banner').classList.add('off');
+}
+function toMenu(msg) { if (mode === 'lobby' || mode === 'online') send({ t: 'leave' }); showMenu(msg); }
+function inviteUrl(code) { const u = new URL(location.href); u.search = ''; u.hash = ''; if (qs.get('server')) u.searchParams.set('server', qs.get('server')); u.searchParams.set('room', code); return u.toString(); }
 function showLobby(m) {
-  $('#menu').hidden = true; $('#result').hidden = true; $('#lobby').hidden = false;
-  const ul = $('#lb-slots'), btn = $('#lb-ready'); ul.textContent = '';
-  if (!m) { $('#lb-title').textContent = '連線中'; $('#lb-info').textContent = '正在連到伺服器。'; btn.hidden = true; return; }
-  const priv = !!m.code;
+  net.lobby = m; $('#menu').hidden = true; $('#result').hidden = true; $('#lobby').hidden = false;
+  const ul = $('#lb-slots'), btn = $('#lb-ready'), priv = !!(m && m.code); ul.textContent = '';
+  $('#lb-linkbox').hidden = !priv; $('#lb-link').hidden = !priv; $('#lb-friends').hidden = !priv;
+  if (!m) { $('#lb-title').textContent = '連線中'; $('#lb-info').textContent = '正在進入房間。'; btn.hidden = true; return; }
+  if (priv) $('#lb-url').value = inviteUrl(m.code);
   $('#lb-title').textContent = priv ? '房間 ' + m.code : '找隊友中';
-  $('#lb-info').textContent = priv ? '把房號告訴朋友，他們輸入同一組就會進來。四個人到齊，或在場的人都按了開始，就會出發。空位由 AI 補上。'
-    : `${Math.max(0, m.left)} 秒後出發。沒等到人的位置由 AI 補上。`;
+  $('#lb-info').textContent = priv ? '四個人到齊，或在場的人都按了開始，就會出發。空位由 AI 補上。' : `${Math.max(0, m.left)} 秒後出發。沒等到人的位置由 AI 補上。`;
   m.slots.forEach((s, i) => {
     const d = CLASSES[s.cls], li = el('li', (s.name ? '' : 'open') + (i === m.you ? ' me' : '') + (s.ready ? ' ok' : ''));
     const mark = el('em', '', d.mark); mark.style.color = C[d.color];
@@ -662,7 +737,58 @@ function showLobby(m) {
   const mine = m.slots[m.you]; btn.hidden = false; btn.disabled = !!mine.ready;
   btn.textContent = mine.ready ? '等其他人' : priv ? '開始' : '不等了';
 }
-function showResult(r, s, loot, lvl) {
+
+/* ---------- small shared pieces: list rows, toast ---------- */
+function row(mark, col, name, sub, acts) {
+  const li = el('li'), em = el('em', '', mark), right = el('span', 'acts'); em.style.color = col;
+  if (sub) right.appendChild(el('small', '', sub));
+  for (const [label, fn, kind] of acts || []) {
+    const b = el('button', 'mini' + (kind === 'go' ? ' go' : ''), label); b.type = 'button';
+    b.addEventListener('click', () => { if (kind === 'sure' && b.textContent !== '確定') { b.textContent = '確定'; return; } b.disabled = true; fn(b); });
+    right.appendChild(b);
+  }
+  li.append(em, el('b', '', name), right); return li;
+}
+function group(parent, title, rows, empty) {
+  if (!rows.length && !empty) return;
+  const g = el('div', 'group'); g.appendChild(el('h3', '', title));
+  if (rows.length) { const ul = el('ul', 'slots'); rows.forEach(r => ul.appendChild(r)); g.appendChild(ul); } else g.appendChild(el('p', 'note', empty));
+  parent.appendChild(g);
+}
+function toast(msg, acts, ms) {
+  const t = $('#toast'), box = $('#toast-btns'); $('#toast-msg').textContent = msg; box.textContent = '';
+  for (const [label, fn] of acts || []) { const b = el('button', 'mini' + (fn ? ' go' : ''), label); b.type = 'button'; b.addEventListener('click', () => { t.hidden = true; if (fn) fn(); }); box.appendChild(b); }
+  t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, ms || 3500);
+}
+
+/* ---------- friends ---------- */
+function openSocial() {
+  $('#social').hidden = false; send({ t: 'social' }); renderSocial();
+  clearInterval(net.socialT); net.socialT = setInterval(() => { if ($('#social').hidden) clearInterval(net.socialT); else send({ t: 'social' }); }, 5000);
+}
+function closeSocial() { $('#social').hidden = true; clearInterval(net.socialT); }
+function invite(id) {
+  if (mode === 'lobby' && net.lobby && net.lobby.code) return send({ t: 'invite', id });
+  if (mode === 'lobby') return toast('隨機配對的房間不能邀請。先取消，再從好友名單邀請。', [], 4500);
+  let code = ''; for (let i = 0; i < 4; i++) code += pick('ABCDEFGHJKLMNPQRSTUVWXYZ23456789'.split(''));
+  net.pendingInvite = id; closeSocial(); chosen = save.cls; goOnline(code);   // open a room first, the invite goes out once it exists
+}
+function renderSocial() {
+  const s = net.social, n = s ? s.inbox.length : 0, badge = $('#fr-badge'); badge.hidden = !n; badge.textContent = n;
+  if ($('#social').hidden) return;
+  const body = $('#so-body'); body.textContent = ''; if (!s) return;
+  const STATE = { off: '離線', on: '在線上', lobby: '在房間裡', run: '副本中' };
+  group(body, '想加你的人', s.inbox.map(f => row('＋', C.brass, f.name, '', [['接受', () => send({ t: 'friend', id: f.id }), 'go'], ['略過', () => send({ t: 'ignore', id: f.id })]])));
+  group(body, '好友', s.friends.map(f => {
+    const acts = []; if (f.mutual && (f.state === 'on' || f.state === 'lobby')) acts.push(['邀請', () => invite(f.id), 'go']);
+    acts.push(['移除', () => send({ t: 'friend', id: f.id, on: false }), 'sure']);
+    return row('●', f.mutual && f.state !== 'off' ? C.heal : C.line, f.name, f.mutual ? STATE[f.state] : '等對方加你', acts);
+  }), '還沒有好友。打一場線上副本，就能在結算畫面把隊友加進來。');
+  group(body, '最近隊友', s.recent.map(r => row(CLASSES[r.cls].mark, C[CLASSES[r.cls].color], r.name, r.friend ? '已在名單' : '', r.friend ? [] : [['加好友', () => send({ t: 'friend', id: r.id }), 'go']])),
+    '線上副本裡遇到的玩家會列在這裡。');
+}
+
+function showResult(r, s, loot, lvl, more) {
   const body = $('#result-body'); body.textContent = '';
   const head = el('div'); head.append(el('p', 'eyebrow', `沉鐘塔 · 第 ${lvl} 層`), el('h2', '', r.win ? '通關' : '滅團'));
   const time = el('div'); time.append(el('div', 'clock', fmt(r.t)),
@@ -672,11 +798,15 @@ function showResult(r, s, loot, lvl) {
   const dl = el('dl', 'stats');
   for (const [k, v] of [['你造成的傷害', Math.round(s.dmg).toLocaleString()], ['你的治療量', Math.round(s.heal).toLocaleString()], ['成功打斷', s.kicks], ['踩到紅圈', s.hits]]) { const d = el('div'); d.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(d); }
   body.append(head, time, dl);
+  if (more.note) body.appendChild(el('p', 'note warn', more.note));
   if (loot) { const box = el('div', 'loot'), inner = el('div'); inner.append(el('b', '', loot.name), el('small', '', `${loot.slot}　${loot.up ? `比身上的 ${loot.old} 好，已經換上` : `身上的 ${loot.old} 比較好，已分解`}`)); box.append(el('span', 'il', loot.il), inner); body.appendChild(box); }
-  const cta = el('div', 'cta'), again = el('button', 'btn', r.win ? '再來一場' : '再試一次'), swap = el('button', 'btn ghost', '換職業');
+  const mates = more.mates || [], team = mates.length > 0 && !!more.again;
+  group(body, '這場的隊友', mates.map(f => row(CLASSES[f.cls].mark, C[CLASSES[f.cls].color], String(f.name), f.friend ? '已在名單' : '',
+    f.friend ? [] : [['加好友', b => { send({ t: 'friend', id: f.id }); b.textContent = '已送出'; }, 'go']])));
+  const cta = el('div', 'cta'), again = el('button', 'btn', team ? '原隊再來一場' : r.win ? '再來一場' : '再試一次'), swap = el('button', 'btn ghost', '換職業');
   again.type = swap.type = 'button'; again.id = 'again'; swap.id = 'swap';
-  again.addEventListener('click', () => { if (lastMode === 'online') { chosen = save.cls; goOnline(); } else startSolo(save.cls); });
-  swap.addEventListener('click', () => { if (lastMode === 'online') toMenu(); else showMenu(); });
+  again.addEventListener('click', () => { if (lastMode !== 'online') return startSolo(save.cls); chosen = save.cls; goOnline(team ? String(more.again) : undefined); });
+  swap.addEventListener('click', () => showMenu());
   cta.append(again, swap); body.appendChild(cta);
   $('#result').hidden = false;
 }
@@ -720,6 +850,14 @@ $('#go').addEventListener('click', () => startSolo(chosen));
 $('#go-online').addEventListener('click', goOnline);
 $('#lb-ready').addEventListener('click', () => send({ t: 'ready' }));
 $('#lb-cancel').addEventListener('click', () => toMenu());
+$('#lb-link').addEventListener('click', () => {
+  const inp = $('#lb-url'), manual = () => { inp.focus(); inp.select(); toast('自動複製沒成功，長按上面的連結來複製。', [], 4000); };
+  try { navigator.clipboard.writeText(inp.value).then(() => toast('已複製邀請連結，貼給朋友就能進來。', [], 3000), manual); } catch (e) { manual(); }
+});
+$('#lb-friends').addEventListener('click', openSocial);
+$('#friends-btn').addEventListener('click', openSocial);
+$('#so-close').addEventListener('click', closeSocial);
+$('#room').addEventListener('input', () => renderMenu());
 let quitArm = 0;
 $('#quit').addEventListener('click', () => {
   const q = $('#quit');
@@ -745,11 +883,8 @@ function frame(ts) {
 }
 function boot(data) {
   loadSave(); if (data && data.save) Object.assign(save, data.save);
-  if (!save.pid) save.pid = newPid();
-  if (!save.nick) save.nick = '旅人' + Math.floor(rand(10, 100));
-  writeSave();
-  chosen = save.cls in CLASSES ? save.cls : 'dps';
-  resize(); renderMenu(''); probe(); requestAnimationFrame(frame);
+  if (inviteRoom) save.room = inviteRoom;
+  resize(); showMenu(''); probe(); requestAnimationFrame(frame);
 }
 window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, net, save, startSolo, showMenu, send };
 const hot = window.claude && window.claude.hot;
