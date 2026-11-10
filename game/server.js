@@ -114,7 +114,7 @@ function start(opts) {
   }
 
   /* ---------- friends ---------- */
-  function stateOf(id) { const ws = online.get(id); if (!ws) return 'off'; const r = ws.info && ws.info.room; return r ? (r.state === 'run' ? 'run' : 'lobby') : 'on'; }
+  function stateOf(id) { const ws = online.get(id); if (!ws) return 'off'; const r = ws.info && ws.info.room; return r ? (r.kind === 'field' ? 'field' : r.state === 'run' ? 'run' : 'lobby') : 'on'; }
   function socialOf(rec) {
     const friends = Object.keys(rec.friends).map(id => {
       const o = store.get(id); if (o) rec.friends[id] = o.name;
@@ -143,12 +143,13 @@ function start(opts) {
   function onInvite(ws, m) {
     const rec = ws.acc, id = cleanId(m.id), room = ws.info && ws.info.room, now = Date.now();
     if (!id || now - (ws.lastInvite || 0) < 1500) return; ws.lastInvite = now;
-    if (!room || room.state !== 'lobby' || room.pub) return send(ws, { t: 'note', msg: '要先開一個有房號的房間才能邀請。' });
+    const afield = !!room && room.kind === 'field';      // a party in the field can invite too
+    if (!room || (!afield && (room.state !== 'lobby' || room.pub))) return send(ws, { t: 'note', msg: '要先開一個有房號的房間才能邀請。' });
     const o = store.get(id), mutual = !!(o && o.friends[rec.id] && rec.friends[id]), tws = online.get(id);
     if (!mutual) return send(ws, { t: 'note', msg: '對方也加你為好友之後才能邀請。' });
     if (!tws) return send(ws, { t: 'note', msg: `${o.name} 現在不在線上。` });
     if (stateOf(id) === 'run') return send(ws, { t: 'note', msg: `${o.name} 正在打副本。` });
-    send(tws, { t: 'invited', from: { id: rec.id, name: rec.name }, code: room.code });
+    send(tws, { t: 'invited', from: { id: rec.id, name: rec.name }, code: room.code, field: afield });
     send(ws, { t: 'note', msg: `已邀請 ${o.name}。` });
   }
 
@@ -170,6 +171,7 @@ function start(opts) {
     const info = ws.info; if (!info || !info.room) return;
     const room = info.room, slot = room.slots[info.idx]; ws.info = null;
     if (!slot || slot.ws !== ws) return;
+    if (room.kind === 'field') { Sim.removeFieldActor(room.G, info.idx); room.slots[info.idx] = null; return fieldRoster(room); }   // walked out of the party's field
     if (room.state === 'lobby') { room.slots[info.idx] = null; if (!humans(room).length) room.emptySince = Date.now(); lobbyInfo(room); }
     else { slot.ws = null; if (room.G) room.G.actors[info.idx].human = false; }   // a bot plays this seat until they come back
   }
@@ -180,6 +182,7 @@ function start(opts) {
   function onJoin(ws, m) {
     const rec = ws.acc, c = pc(rec);
     if (seats.has(rec.id)) return;                       // already seated in a run
+    if (m.field) return onFieldJoin(ws, m);
     leave(ws);
     const cls = c.cls, code = cleanCode(m.room); let room = null, idx = -1;      // the class is the character's, whatever the client says
     const freeSeat = r => r.slots.findIndex((s, k) => !s && SEATS[k] === cls);
@@ -196,6 +199,8 @@ function start(opts) {
     }
     room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: c.lvl, cl: c.cl, pow: Sim.charPower(c), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), ws, ready: false };   // level and power come from the account, never from the client
     ws.info = { room, idx };
+    const fr = code ? rooms.get('f:' + code) : null;      // the rest of the party is still out in the field: tell them where to come
+    if (fr) for (const o of fr.slots) if (o && o.ws && o.ws !== ws) send(o.ws, { t: 'invited', from: { id: rec.id, name: c.name }, code, gate: true });
     const now = Date.now();
     room.deadline = room.deadline ? Math.max(room.deadline, now + Math.min(3000, lobbyWait)) : now + lobbyWait;
     lobbyInfo(room);
@@ -222,7 +227,8 @@ function start(opts) {
     else { room.state = 'lobby'; room.slots = [null, null, null, null]; room.deadline = 0; room.emptySince = Date.now(); }
   }
   function broadcast(room) {
-    const G = room.G, snap = Sim.snapshot(G);
+    const G = room.G; if (room.kind === 'field') fieldRewards(room, G.events);
+    const snap = Sim.snapshot(G);
     snap.t = 's'; snap.c = Math.round(room.clock * 1000); snap.ev = G.events; G.events = [];
     const msg = JSON.stringify(snap);
     for (const s of room.slots) if (s && s.ws && s.ws.readyState === 1) s.ws.send(msg);
@@ -262,6 +268,42 @@ function start(opts) {
     }
     if (s) store.put(rec);
     send(ws, { t: 'solo', ok, loot: rw.loot, mats: rw.mats, xp: rw.xp, profile: profileOf(rec), bk: store.pack(rec) });
+  }
+
+  /* A party's field. It runs on the server like a dungeon, has no timer and no bots, and people can walk in and out
+   * while it is going: joining needs only the party's code. */
+  const fieldRosterOf = room => room.G.actors.map(a => a.out ? null : { cls: a.cls, name: a.name, lvl: a.lvl, human: true, maxHp: a.maxHp, potions: 0, skills: a.skills.map(k => k.id) });
+  function fieldRoster(room) { const roster = fieldRosterOf(room); for (const s of room.slots) if (s) send(s.ws, { t: 'roster', roster }); }
+  function onFieldJoin(ws, m) {
+    const rec = ws.acc, c = pc(rec); leave(ws);
+    let code = cleanCode(m.room); if (!code) do { code = crypto.randomBytes(2).toString('hex').toUpperCase(); } while (rooms.has('f:' + code));
+    const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
+    let room = rooms.get('f:' + code), idx = 0;
+    if (room) { idx = Sim.addFieldActor(room.G, p); if (idx < 0) return send(ws, { t: 'err', msg: '這個隊伍滿了，最多 4 個人。' }); }
+    else {
+      if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' });
+      room = { key: 'f:' + code, code, kind: 'field', pub: false, state: 'run', slots: [], G: Sim.createField({ lvl: c.lvl, grace: 12, players: [p] }), acc: 0, n: 0, clock: 0, last: Date.now(), goneSince: 0 };
+      rooms.set(room.key, room);
+    }
+    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls: c.cls, ws }; ws.info = { room, idx }; ws.field = null;
+    send(ws, { t: 'start', field: true, code, you: idx, lvl: room.G.lvl, elvl: 1, roster: fieldRosterOf(room) });
+    fieldRoster(room);
+  }
+  /* Pay out what the simulation says happened. A gather pays the person who gathered; a kill pays everyone who was near. */
+  function fieldRewards(room, events) {
+    const G = room.G, now = Date.now(); let grew = false;
+    const pay = (idx, what, key, pk) => {
+      const s = room.slots[idx], rec = s && store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) return;
+      const gain = Sim.fieldGain(c, what, key, pk); if (!gain) return;
+      Sim.questEvent(c, { type: what }, now); store.put(rec);
+      if (gain.ups) { Sim.setLevel(G.actors[idx], c.cl, Sim.charPower(c)); grew = true; }
+      send(s.ws, { t: 'fy', ok: true, mats: gain.mats, xp: gain.xp, profile: charProfile(c), bk: store.pack(rec) });
+    };
+    for (const o of events) {
+      if (o.k === 'gathered') { const n = Sim.FIELD.nodes.find(q => q.id === o.id); if (n) pay(o.by, 'gather', n.type); }
+      else if (o.k === 'kill') for (const i of o.who) pay(i, 'kill', o.kind, o.pk);
+    }
+    if (grew) fieldRoster(room);
   }
 
   /* The field is simulated on the player's device; the server only keeps the books. It decides what a gather or
@@ -366,6 +408,8 @@ function start(opts) {
         if (m.k === 'skip') { G.wave = Math.max(G.wave, Sim.WAVES.length - 2); for (const e of G.enemies) e.hp = 1; }
         if (m.k === 'win' && G.boss) G.boss.hp = 1;
         if (m.k === 'hurt') a.hp = Math.round(a.maxHp * .4);
+        if (m.k === 'tp' && Number.isFinite(m.x) && Number.isFinite(m.y)) { a.x = m.x; a.y = m.y; }
+        if (m.k === 'weak') for (const e of G.enemies) e.hp = 1;
       }
     });
     ws.on('close', () => { unseat(ws); if (ws.acc && online.get(ws.acc.id) === ws) online.delete(ws.acc.id); });

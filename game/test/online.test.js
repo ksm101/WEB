@@ -230,6 +230,37 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.strictEqual(km.profile.name, '阿潮'); K.ws.close();
   ok('characters: up to four per account, each with its own class and progress; no switching while seated');
 
+  // a party's field: one shared map on the server, walk in and out by code, personal gathering, shared kill credit
+  const P1 = await named(port, '甲', 'dps'), P2 = await named(port, '乙', 'tank');
+  P1.send({ t: 'join', field: true, room: 'camp' }); const f1 = await P1.wait('start'); assert.strictEqual(f1.field, true); assert.strictEqual(f1.code, 'CAMP'); assert.strictEqual(f1.you, 0); assert.strictEqual(f1.roster.length, 1);
+  const alone = await P1.wait('s'); const mobHp = alone.e.find(e => true)[5];
+  P2.send({ t: 'join', field: true, room: 'CAMP' }); const f2 = await P2.wait('start'); assert.strictEqual(f2.you, 1); assert.deepStrictEqual(f2.roster.map(r => r && r.name), ['甲', '乙']);
+  const ro = await P1.wait('roster', m => m.roster.length === 2); assert.strictEqual(ro.roster[1].cls, 'tank', 'any classes can share a field');
+  const two = await P1.wait('s', m => m.a.length === 2 && m.e.some(e => e[5] > mobHp)); assert.ok(two, 'creatures get tougher when a second person arrives');
+  P1.send({ t: 'm', x: 1, y: 0 }); await sleep(300); P1.send({ t: 'm', x: 0, y: 0 }); const seen = await P2.wait('s', m => m.a[0][0] > alone.a[0][0] + 15); assert.ok(seen, 'each sees the other move');
+  // both stand on the same gathering spot: each gets their own
+  const node = Sim.FIELD.nodes[11]; for (const c of [P1, P2]) c.send({ t: 'dbg', k: 'tp', x: node.x + 6, y: node.y + (c === P1 ? 4 : 14) });
+  const [g1, g2] = await Promise.all([P1.wait('fy', m => m.ok, 8000), P2.wait('fy', m => m.ok, 8000)]); assert.strictEqual(g1.mats.salt, 1); assert.strictEqual(g2.mats.salt, 1); assert.strictEqual(g1.xp, 5);
+  const used = await P1.wait('s', m => (m.nd[11] & 3) === 3); assert.strictEqual(used.nd[11] & 12, 0, 'the spot is only used up for the two who took it');
+  // one of them kills a creature while the other stands near: both are paid
+  const pk0 = Sim.FIELD.packs[0]; P1.send({ t: 'dbg', k: 'weak' }); const x1 = g1.profile.xp + g1.profile.cl * 1e6, x2 = g2.profile.xp + g2.profile.cl * 1e6;
+  P1.send({ t: 'dbg', k: 'tp', x: pk0.x, y: pk0.y + 50 }); P2.send({ t: 'dbg', k: 'tp', x: pk0.x + 60, y: pk0.y + 120 });
+  const [k1, k2] = await Promise.all([P1.wait('fy', m => m.ok && m.xp > 5, 20000), P2.wait('fy', m => m.ok && m.xp > 5, 20000)]);
+  assert.ok(k1.profile.xp + k1.profile.cl * 1e6 > x1 && k2.profile.xp + k2.profile.cl * 1e6 > x2, 'both got experience for the kill'); assert.ok(k1.profile.q.side['s-hunt'] >= 1 && k2.profile.q.side['s-hunt'] >= 1);
+  // friends can be invited into the field; a third and fourth fit, a fifth does not
+  const P3 = await named(port, '丙', 'heal'), P4 = await named(port, '丁', 'dps'), P5 = await named(port, '戊', 'dps');
+  P3.send({ t: 'join', field: true, room: 'camp' }); await P3.wait('start'); P4.send({ t: 'join', field: true, room: 'camp' }); assert.strictEqual((await P4.wait('start')).you, 3);
+  P5.send({ t: 'join', field: true, room: 'camp' }); assert.match((await P5.wait('err')).msg, /隊伍滿了/);
+  // leaving frees the seat for the next person, and the others are told
+  P2.send({ t: 'leave' }); const gone = await P1.wait('roster', m => m.roster[1] === null); assert.ok(gone); await P1.wait('s', m => m.a[1][12] === 1);
+  P5.send({ t: 'join', field: true, room: 'camp' }); assert.strictEqual((await P5.wait('start')).you, 1, 'the newcomer takes the empty seat');
+  // the tower gate: someone opens a dungeon room with the party's code and the others are called
+  P1.join('dps', 'CAMP'); const call = await P3.wait('invited', m => m.gate); assert.strictEqual(call.code, 'CAMP'); assert.strictEqual(call.from.name, '甲'); await P1.wait('lobby', m => m.code === 'CAMP'); P1.send({ t: 'leave' });
+  // a field with nobody in it is cleaned up; a blank code gets a fresh private field
+  P1.send({ t: 'join', field: true }); const solo1 = await P1.wait('start', m => m.field && m.code !== 'CAMP'); assert.match(solo1.code, /^[0-9A-F]{4}$/); assert.strictEqual(solo1.roster.length, 1);
+  for (const c of [P1, P2, P3, P4, P5]) c.ws.close();
+  ok('party field: shared map by code, drop in and out, personal gathering, kill credit for everyone near, four at most');
+
   // skill loadouts and aimed casts
   const T = await named(port, '換技', 'tank'); let lr;
   T.send({ t: 'loadout', cls: 'tank', skills: ['taunt', 'charge', 'bash', 'tankUlt'] }); lr = await T.wait('loadout'); assert.strictEqual(lr.ok, false, 'a level 1 account cannot equip a level 3 skill');

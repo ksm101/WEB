@@ -251,6 +251,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     </div>
     <div id="gatebox" hidden>
       <p><b>沉鐘塔</b>　門後就是塔的第一層。</p>
+      <button class="btn" id="gate-party" type="button" hidden>和隊伍一起進塔</button>
       <button class="btn" id="gate-online" type="button" hidden>線上配對</button>
       <button class="btn ghost" id="gate-solo" type="button">單人進塔</button>
       <button class="btn ghost" id="gate-cancel" type="button">先不要</button>
@@ -519,6 +520,7 @@ function handleEvent(o) {
   switch (o.k) {
     case 'text': addText(o.x, o.y, o.s, C[o.c], o.z, o.d); break;
     case 'ring': FX.fx.push({ type: 'ring', x: o.x, y: o.y, r0: o.a, r1: o.b, col: C[o.c], t: 0, dur: o.d }); break;
+    case 'woke': if (o.i === meIdx) banner('你在營火邊醒來', 1800); break;
     case 'beam': FX.fx.push({ type: 'beam', x: o.x, y: o.y, x2: o.x2, y2: o.y2, col: C[o.c], t: 0, dur: .22 }); break;
     case 'line': FX.fx.push({ type: 'line', x: o.x, y: o.y, x2: o.x2, y2: o.y2, w: o.w, col: C[o.c], t: 0, dur: .32 }); break;
     case 'cone': FX.fx.push({ type: 'cone', x: o.x, y: o.y, a: o.a, h: o.h, l: o.l, col: C[o.c], t: 0, dur: .32 }); break;
@@ -540,7 +542,7 @@ function act(o) {
 function enterRun() {
   FX.fx = []; FX.texts = []; FX.shake = 0; stick.x = stick.y = 0;
   hideScreens();
-  $('#app').dataset.mode = mode; talk.lines = null; talk.done = null; talk.focus = null; gateOpen = false;
+  $('#app').dataset.mode = inField() ? 'field' : mode; talk.lines = null; talk.done = null; talk.focus = null; gateOpen = false;
   $('#talk').hidden = true; $('#gatebox').hidden = true; $('#act').hidden = true;
   resize(); buildHud();
 }
@@ -573,6 +575,7 @@ function conclude(r, stats, extra) {
  * what it was worth; without one the same rules are rolled here. */
 const FD = S.FIELD, cam = { x: 0, y: 0 }, NPC_CLS = { kol: 'tank', mira: 'heal', jin: 'dps', wu: 'dps' };
 const talk = { lines: null, i: 0, done: null, focus: null }, quest = { giver: '' };
+const inField = () => !!V && V.mode === 'field';      // alone (run on this device) or with a party (run on the server)
 let nearNpc = null, nearGate = false, gateOpen = false;
 
 function camGoal() {
@@ -591,9 +594,14 @@ function startField(then) {
   if (pro && !box.intro && !AUTO && !qs.has('nostory')) say(pro.lines, () => { box.intro = true; writeSave(); go(); }); else go();
 }
 function fieldFrame(dt) {
-  const me = V.me; S.step(G, dt);
+  S.step(G, dt);
   const evs = G.events; G.events = [];
   for (const o of evs) { handleEvent(o); if (o.k === 'gathered') fieldReport('fg', { id: o.id }, 'gather', o.type); else if (o.k === 'kill') fieldReport('fk', { kind: o.kind, pk: o.pk }, 'kill', o.kind, o.pk); }
+  fieldView(dt);
+}
+/* what is within reach, and where the camera should be */
+function fieldView(dt) {
+  const me = V.me;
   nearNpc = null; for (const n of FD.npcs) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearNpc = n;
   nearGate = Math.hypot(FD.gate.x - me.x, FD.gate.y - me.y) < FD.gate.r + 34;
   if (gateOpen && !nearGate) { gateOpen = false; $('#gatebox').hidden = true; }
@@ -637,12 +645,12 @@ function claimMain(id) {
   if (online) { if (!net.authed) return toast('連線中，等一下再試。', [], 2500); net.claiming = id; return send({ t: 'claim', id }); }
   const r = S.questClaim(save, id, Date.now()); writeSave(); levelCheck(); toast(r.msg, [], 3500); renderBag(); renderMenu(); if (r.ok) say(Story.SCENES[id].lines);
 }
-function toCamp(msg) { $('#quests').hidden = true; if (mode !== 'field') { chosen = save.cls; startField(); } if (msg) banner(msg, 2800); }
-function replayScene(id) { const sc = Story.SCENES[id]; if (!sc) return; $('#quests').hidden = true; if (mode === 'field') say(sc.lines); else { chosen = save.cls; startField(() => say(sc.lines)); } }
+function toCamp(msg) { $('#quests').hidden = true; if (!inField()) { chosen = save.cls; startField(); } if (msg) banner(msg, 2800); }
+function replayScene(id) { const sc = Story.SCENES[id]; if (!sc) return; $('#quests').hidden = true; if (inField()) say(sc.lines); else { chosen = save.cls; startField(() => say(sc.lines)); } }
 function doAct() {
-  if (mode !== 'field' || talk.lines || gateOpen) return;
+  if (!inField() || talk.lines || gateOpen) return;
   if (nearNpc) return talkTo(nearNpc.id);
-  if (nearGate) { const on = online && net.authed; gateOpen = true; $('#gate-online').hidden = !on; $('#gate-solo').className = on ? 'btn ghost' : 'btn'; $('#gatebox').hidden = false; }
+  if (nearGate) { const on = online && net.authed, party = mode === 'online' && !!V.code; gateOpen = true; $('#gate-party').hidden = !party; $('#gate-online').hidden = !on; $('#gate-solo').className = on ? 'btn ghost' : 'btn'; $('#gatebox').hidden = false; }
 }
 
 /* ================= Online ================= */
@@ -678,6 +686,12 @@ function goOnline(roomOverride) {
   mode = 'lobby'; lastMode = 'online'; V = null; G = null; showLobby(null);
   send({ t: 'join', cls: save.cls, room });
 }
+/* Go to the field with a party. A code names the party; without one the server makes a new party of one. */
+function goField(code) {
+  if (!net.authed) return;
+  if (code) { box.room = code; writeSave(); }
+  send({ t: 'join', field: true, room: code || '' });
+}
 function applyProfile(m, quiet) {   // the server's word on this account
   if (m.bk) box.key.bk = m.bk;
   if (Array.isArray(m.chars)) {       // the roster: full details only come for the character in use
@@ -695,7 +709,8 @@ function onMsg(m) {
     { const had = box.chars.length;
       box.key.id = m.id; box.key.token = m.token; applyProfile(m, true); net.authed = true;
       if (QUICK && !box.chars.length) send({ t: 'char-new', name: qs.get('qname') || '測試', cls: QUICK in CLASSES ? QUICK : 'dps' });
-      if (m.resume === false && mode === 'online' && V && !V.result) showMenu('這場副本已經結束了。');
+      if (m.resume === false && mode === 'online' && inField()) send({ t: 'join', field: true, room: V.code });      // reconnected: walk back into the party's field
+      else if (m.resume === false && mode === 'online' && V && !V.result) showMenu('這場副本已經結束了。');
       else if (!$('#menu').hidden) { if (box.chars.length) renderMenu(); else showChars(); }
       else if (!$('#create').hidden) { if (box.chars.length > had) (QUICK ? showMenu : showChars)(''); else renderCreate(); }
       else if (!$('#chars').hidden) { if (QUICK && box.chars.length) showMenu(''); else showChars(); } }
@@ -725,28 +740,50 @@ function onMsg(m) {
       break;
     }
     case 'loadout': applyProfile(m); if (!m.ok) toast(String(m.msg || ''), [], 4000); renderLoadout(); if (!$('#menu').hidden) renderMenu(); break;
-    case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && mode === 'field' && Story.SCENES[id]) say(Story.SCENES[id].lines); break; }
-    case 'fy': { const done = newlyDone(() => applyProfile(m)); if (mode === 'field' && m.ok) showYield(m.mats || {}, done, m.xp); break; }
+    case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && inField() && Story.SCENES[id]) say(Story.SCENES[id].lines); break; }
+    case 'fy': { const done = newlyDone(() => applyProfile(m)); if (inField() && m.ok) showYield(m.mats || {}, done, m.xp); break; }
     case 'social': net.social = m; renderSocial(); break;
     case 'note': toast(String(m.msg || ''), [], 3500); break;
     case 'invited':
-      if (!(mode === 'online' && V && !V.result)) toast(`${m.from.name} 邀請你一起打`, [['加入', () => { closeSocial(); chosen = save.cls; goOnline(String(m.code)); }], ['略過', null]], 15000);
+      if (mode === 'online' && V && !inField() && !V.result) break;        // in the middle of a dungeon run: not now
+      if (m.field) toast(`${m.from.name} 邀請你去野外`, [['加入', () => { closeSocial(); goField(String(m.code)); }], ['略過', null]], 15000);
+      else toast(m.gate ? `${m.from.name} 在塔門等你，一起進塔` : `${m.from.name} 邀請你一起打`, [['加入', () => { closeSocial(); chosen = save.cls; goOnline(String(m.code)); }], ['略過', null]], 15000);
+      break;
+    case 'roster':      // someone walked into or out of the party's field, or levelled up
+      if (mode !== 'online' || !inField()) break;
+      m.roster.forEach((r, i) => {
+        const old = V.actors[i];
+        if (!r) { if (old) old.out = true; else V.actors[i] = seatView(null, i, V.lvl, FD.spawn); }
+        else if (old && !old.ghost && !old.out && old.name === r.name && old.cls === r.cls) { old.lvl = r.lvl; old.maxHp = r.maxHp; }
+        else if (i !== meIdx) { if (old && old.out && !r) return; if (!old || old.ghost || old.out) banner(`${r.name} 加入了隊伍`, 1800); V.actors[i] = seatView(r, i, V.lvl, old ? [old.sx, old.sy] : FD.spawn); }
+      });
+      buildHud();
       break;
     case 'err': net.pendingInvite = ''; showMenu(String(m.msg || '伺服器拒絕了這次連線。')); break;
     case 'p': net.rtt = net.rtt * .7 + clamp(performance.now() - m.c, 0, 2000) * .3; break;
   }
 }
+/* one seat as the view sees it, from a roster entry (null = nobody is in that seat) */
+function seatView(r, i, lvl, at) {
+  const cls = r ? r.cls : 'dps';
+  return { idx: i, cls, def: CLASSES[cls], name: r ? String(r.name) : '', lvl: r && r.lvl > 0 ? r.lvl : lvl, human: !!(r && r.human), out: !r, ghost: !r, x: at[0], y: at[1], sx: at[0], sy: at[1],
+    skills: r && Array.isArray(r.skills) && r.skills.length === 4 && r.skills.every(id => S.SKILLS[id]) ? r.skills.map(id => S.SKILLS[id]) : CLASSES[cls].skills,
+    r: 12, hp: r ? r.maxHp : 1, maxHp: r ? r.maxHp : 1, alive: !!r, potions: r ? r.potions || 0 : 0, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null, gather: null };
+}
 function beginOnline(m) {
-  const back = net.back; net.back = false;
-  mode = 'online'; lastMode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.emap = new Map(); net.sx = net.sy = NaN;
-  V = { t: 0, state: 'countdown', cd: 3, wave: -1, lvl: m.lvl, elvl: m.elvl || 1, enemies: [], zones: [], shots: [], boss: null, result: null,
-    actors: m.roster.map((r, i) => ({ idx: i, cls: r.cls, def: CLASSES[r.cls], name: String(r.name), lvl: r.lvl > 0 ? r.lvl : m.lvl, human: !!r.human, x: SPOTS[i][0], y: SPOTS[i][1], sx: SPOTS[i][0], sy: SPOTS[i][1],
-      skills: Array.isArray(r.skills) && r.skills.length === 4 && r.skills.every(id => S.SKILLS[id]) ? r.skills.map(id => S.SKILLS[id]) : CLASSES[r.cls].skills,
-      r: 12, hp: r.maxHp, maxHp: r.maxHp, alive: true, potions: r.potions || 0, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null })) };
+  const back = net.back, field = !!m.field; net.back = false;
+  mode = 'online'; if (!field) lastMode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.emap = new Map(); net.sx = net.sy = NaN;
+  V = { mode: field ? 'field' : 'dungeon', code: field ? String(m.code || '') : '', t: 0, state: field ? 'run' : 'countdown', cd: field ? 0 : 3, wave: -1, lvl: m.lvl, elvl: m.elvl || 1, enemies: [], zones: [], shots: [], boss: null, result: null,
+    nodes: field ? FD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, ready: true })) : [],
+    actors: m.roster.map((r, i) => seatView(r, i, m.lvl, field ? FD.spawn : SPOTS[i])) };
   V.me = V.actors[meIdx];
   enterRun();
-  const n = m.roster.filter(r => r.human).length;
-  banner(back ? '已重新連線' : n > 1 ? `${n} 名玩家，${4 - n} 名 AI 補位` : '沒等到其他玩家，三名 AI 補位', 2400);
+  const n = m.roster.filter(r => r && r.human).length;
+  if (!field) return banner(back ? '已重新連線' : n > 1 ? `${n} 名玩家，${4 - n} 名 AI 補位` : '沒等到其他玩家，三名 AI 補位', 2400);
+  Object.assign(cam, camGoal()); renderQuests();
+  banner(back ? '已重新連線' : n > 1 ? `隊伍 ${V.code}，現在 ${n} 個人` : `隊伍 ${V.code}　朋友輸入這組房號就會出現`, 3200);
+  if (net.pendingInvite) { send({ t: 'invite', id: net.pendingInvite }); net.pendingInvite = ''; }      // the party exists now, so the invite can go out
+  const pro = Story.SCENES.prologue; if (pro && !box.intro && !qs.has('nostory')) say(pro.lines, () => { box.intro = true; writeSave(); });
 }
 function onSnap(m) {
   const est = performance.now() - m.c;
@@ -765,6 +802,7 @@ function buildView(now) {
   for (const d of s1.e) {
     let e = em.get(d[0]);
     if (!e) { const def = ENEMY[d[1]]; e = { id: d[0], kind: d[1], def, name: def.name, lvl: V.elvl, r: def.r, boss: d[1] === 'boss', tm: { enraged: false }, alive: true }; em.set(d[0], e); }
+    e.lvl = d[11] || V.elvl; e.engaged = !!d[12]; e.ret = !!d[13];
     const p = s0.e.find(q => q[0] === d[0]) || d;
     e.x = L(p[2], d[2]); e.y = L(p[3], d[3]); e.hp = d[4]; e.maxHp = d[5]; e.face = d[6]; e.spawnT = L(p[7], d[7]); e.stun = d[8]; e.tm.enraged = !!d[9];
     const c = d[10], pc = p[10];
@@ -774,13 +812,16 @@ function buildView(now) {
   for (const id of Array.from(em.keys())) if (!seen.has(id)) em.delete(id);
   V.enemies = s1.e.map(d => em.get(d[0]));
   s1.a.forEach((d, i) => {
-    const a = V.actors[i], p = s0.a[i], f = d[6];
+    if (!V.actors[i]) V.actors[i] = seatView(null, i, V.lvl, [d[0], d[1]]);      // a seat the roster has not told us about yet
+    const a = V.actors[i], p = s0.a[i] || d, f = d[6];
+    a.gather = d[11] ? { id: d[11][0], t: d[11][1] } : null; if (d[12]) a.out = true;
     a.sx = L(p[0], d[0]); a.sy = L(p[1], d[1]); a.hp = d[2]; a.maxHp = d[3]; a.alive = !!d[4]; a.face = d[5];
     a.wallT = f & 1; a.shield = f & 2; a.iframe = f & 4; a.rolling = !!(f & 8); a.human = !!(f & 16);
     a.target = d[7] ? em.get(d[7]) || null : null; a.cds = d[8]; a.ult = d[9]; a.potions = d[10] || 0;
     if (a !== V.me || net.fresh) { a.x = a.sx; a.y = a.sy; }
   });
   net.fresh = false;
+  if (s1.nd && V.nodes.length) s1.nd.forEach((mask, k) => { if (V.nodes[k]) V.nodes[k].ready = !(mask & (1 << meIdx)); });   // each person has their own gathering spots
   V.zones = s1.z.map(d => { const p = s0.z.find(q => q[0] === d[0]); return { friendly: !!d[1], heal: d[1] === 2, type: d[2] ? 'cone' : 'circle', x: d[3], y: d[4], r: d[5], ang: d[6], half: d[7], len: d[8], t: p ? L(p[9], d[9]) : d[9], dur: d[10], done: !!d[11] }; });
   V.shots = s1.s.map(d => { const p = s0.s.find(q => q[0] === d[0]); const x = p ? L(p[1], d[1]) : d[1], y = p ? L(p[2], d[2]) : d[2]; return { x, y, px: p ? x - (d[1] - p[1]) * .25 : x, py: p ? y - (d[2] - p[2]) * .25 : y, big: !!d[3], col: V.actors[d[4]].def.color }; });
 }
@@ -791,7 +832,8 @@ function predictMe(dt, now) {
   const moving = a.alive && V.state === 'run' && m > .05 && !a.rolling;
   if (moving) {
     let mx = input.mx, my = input.my; if (m > 1) { mx /= m; my /= m; }
-    a.x = clamp(a.x + mx * a.def.speed * dt, a.r + 6, W - a.r - 6); a.y = clamp(a.y + my * a.def.speed * dt, a.r + 36, H - a.r - 8); net.lastMove = now;
+    const f = inField(), bw = f ? FD.w : W, bh = f ? FD.h : H;
+    a.x = clamp(a.x + mx * a.def.speed * dt, a.r + 6, bw - a.r - 6); a.y = clamp(a.y + my * a.def.speed * dt, a.r + (f ? 6 : 36), bh - a.r - 8); if (f) S.pushOut(a); net.lastMove = now;
   }
   const ex = a.sx - a.x, ey = a.sy - a.y, d = Math.hypot(ex, ey);
   if (d > 90) { a.x = a.sx; a.y = a.sy; return; }
@@ -805,7 +847,7 @@ function pushMove(now) {
   let mx = stick.x, my = stick.y;
   if (keys.has('a') || keys.has('arrowleft')) mx -= 1; if (keys.has('d') || keys.has('arrowright')) mx += 1;
   if (keys.has('w') || keys.has('arrowup')) my -= 1; if (keys.has('s') || keys.has('arrowdown')) my += 1;
-  if (mode === 'field' && talk.lines) { mx = 0; my = 0; }                // stand still while someone is talking to you
+  if (inField() && talk.lines) { mx = 0; my = 0; }                // stand still while someone is talking to you
   if (mode !== 'online') { input.mx = mx; input.my = my; V.me.input.mx = mx; V.me.input.my = my; return; }
   const qx = Math.round(clamp(mx, -1, 1) * 20) / 20, qy = Math.round(clamp(my, -1, 1) * 20) / 20; input.mx = qx; input.my = qy;
   if ((qx !== net.sx || qy !== net.sy) && (now - net.lastSend > 45 || (qx === 0 && qy === 0))) { net.sx = qx; net.sy = qy; net.lastSend = now; send({ t: 'm', x: qx, y: qy }); }
@@ -918,7 +960,7 @@ function drawField() {
   c.globalAlpha = 1; c.fillStyle = C.brass; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.fillText('沉鐘塔', g.x, g.y + 42);
 }
 function drawNode(n) {
-  const c = ctx, { x, y } = n; c.globalAlpha = n.ready ? 1 : .22; c.lineCap = 'round';
+  const c = ctx, { x, y } = n, ready = n.cd ? n.cd[V.me.idx] <= 0 : n.ready; c.globalAlpha = ready ? 1 : .22; c.lineCap = 'round';
   if (n.type === 'herb') { c.strokeStyle = C.heal; c.lineWidth = 2.5; for (const a of [-2.3, -1.57, -.84]) { c.beginPath(); c.moveTo(x, y + 7); c.quadraticCurveTo(x + Math.cos(a) * 4, y - 2, x + Math.cos(a) * 13, y + 7 + Math.sin(a) * 17); c.stroke(); } }
   else if (n.type === 'wreck') { c.strokeStyle = C.rust; c.lineWidth = 5; c.beginPath(); c.moveTo(x - 13, y + 7); c.lineTo(x + 11, y - 8); c.moveTo(x - 7, y - 9); c.lineTo(x + 13, y + 8); c.stroke(); }
   else { c.fillStyle = C.foam; c.strokeStyle = C.hex; c.lineWidth = 1.5; for (const [dx, dy, r] of [[-6, 4, 6], [6, 4, 5], [0, -5, 7]]) { poly(x + dx, y + dy, r, r * .6, 3, .5); c.fill(); c.stroke(); } }
@@ -941,7 +983,9 @@ function drawMinimap() {
   const c = ctx, w = 46, h = w * FD.h / FD.w, x = stageW - w - 10, y = 10, k = w / FD.w;
   c.setTransform(dpr, 0, 0, dpr, 0, 0); c.globalAlpha = .82; c.fillStyle = C.ink; c.fillRect(x, y, w, h); c.globalAlpha = 1; c.strokeStyle = C.line; c.lineWidth = 1; c.strokeRect(x + .5, y + .5, w, h);
   const dot = (px, py, col, r) => { c.fillStyle = col; c.beginPath(); c.arc(x + px * k, y + py * k, r, 0, TAU); c.fill(); };
-  dot(FD.gate.x, FD.gate.y, C.brass, 3); dot(FD.fire[0], FD.fire[1], C.ember, 3); dot(V.me.x, V.me.y, C.foam, 2.5);
+  dot(FD.gate.x, FD.gate.y, C.brass, 3); dot(FD.fire[0], FD.fire[1], C.ember, 3);
+  for (const a of V.actors) if (a !== V.me && !a.out && !a.ghost) dot(a.x, a.y, C.heal, 2);      // the rest of the party
+  dot(V.me.x, V.me.y, C.foam, 2.5);
 }
 /* ---------- aiming a skill ----------
  * Touching a skill that needs pointing starts an aim. Let go without moving and it casts at the obvious target.
@@ -1008,7 +1052,7 @@ function render(dt) {
   if (!V) return;
   for (const z of V.zones) drawZone(z);
   drawAim();
-  for (const a of V.actors) if (!a.alive) drawActor(a, dt);
+  for (const a of V.actors) if (!a.alive && !a.out && !a.ghost) drawActor(a, dt);
   if (field) { for (const n of V.nodes) drawNode(n); for (const n of FD.npcs) drawNpc(n); }
   for (const e of V.enemies) drawEnemy(e, dt);
   for (const a of V.actors) if (a.alive) drawActor(a, dt);
@@ -1040,9 +1084,10 @@ function updFx(dt) {
 /* ================= HUD ================= */
 let frames = [], skBtns = [];
 function buildHud() {
-  const field = V.mode === 'field'; $('#place').textContent = field ? '鏽灘' : '沉鐘塔'; $('#lvl').textContent = field ? '燼港外緣' : `第 ${V.lvl} 層`;
+  const field = V.mode === 'field'; $('#place').textContent = field ? (V.code ? `鏽灘　隊伍 ${V.code}` : '鏽灘') : '沉鐘塔'; $('#lvl').textContent = field ? '燼港外緣' : `第 ${V.lvl} 層`;
   const party = $('#party'); party.textContent = ''; frames = [];
   V.actors.forEach((a, i) => {
+    if (a.out || a.ghost) return;      // an empty seat in the party
     const me = a === V.me, b = el('button', 'pf' + (me ? ' me' : '')); b.type = 'button'; b.id = 'pf' + i;
     const nm = el('span', 'nm'), mark = el('em', '', a.def.mark); mark.style.color = C[a.def.color];
     const tag = el('u'); nm.append(mark, el('span', '', me ? a.def.name : a.name), tag);
@@ -1194,10 +1239,11 @@ function createChar() {
 }
 
 let chosen = 'dps', menuMsg = '';
-const NOTE_SOLO = '野外可以採集、打怪、找營地的人說話。進塔時另外三名隊友由 AI 補位。', NOTE_ONLINE = '野外是你一個人的。進塔可以線上配對，等不到人的位置由 AI 補上。';
+const NOTE_SOLO = '野外可以採集、打怪、找營地的人說話。進塔時另外三名隊友由 AI 補位。', NOTE_ONLINE = '填房號可以和朋友一起去野外或進塔；不填就是自己去野外、進塔找陌生人配對。';
 function onlineLabel() {
   const b = $('#go-online'), code = cleanCode($('#room').value); b.disabled = !net.authed;
-  b.textContent = net.kicked ? '已離線' : !net.authed ? '連線中' : code ? `加入房間 ${code}` : '線上配對';
+  b.textContent = net.kicked ? '已離線' : !net.authed ? '連線中' : code ? `進塔 ${code}` : '線上配對';
+  $('#go-field').textContent = online && net.authed && code ? `和隊伍去野外 ${code}` : '進入野外';
 }
 function renderMenu(msg) {
   if (msg !== undefined) menuMsg = msg;
@@ -1213,7 +1259,7 @@ function renderMenu(msg) {
   onlineLabel();
   const note = $('#note'); note.classList.toggle('warn', !!menuMsg);
   renderQuests(); $('#how').hidden = save.runs > 0;   // the how-to is for a first visit
-  note.textContent = menuMsg || (online && inviteRoom && cleanCode($('#room').value) === inviteRoom ? `朋友邀請你到房間 ${inviteRoom}。按「加入房間」就會進去。` : online ? NOTE_ONLINE : NOTE_SOLO);
+  note.textContent = menuMsg || (online && inviteRoom && cleanCode($('#room').value) === inviteRoom ? `朋友給了你房號 ${inviteRoom}。按「和隊伍去野外」或「進塔」就會跟他們碰面。` : online ? NOTE_ONLINE : NOTE_SOLO);
 }
 function showMenu(msg) {
   if (!box.chars[box.cur]) return showChars(msg);       // nobody to play yet
@@ -1277,14 +1323,18 @@ function invite(id) {
   let code = ''; for (let i = 0; i < 4; i++) code += pick('ABCDEFGHJKLMNPQRSTUVWXYZ23456789'.split(''));
   net.pendingInvite = id; closeSocial(); chosen = save.cls; goOnline(code);   // open a room first, the invite goes out once it exists
 }
+function inviteField(id) {
+  if (mode === 'online' && inField()) return send({ t: 'invite', id });       // already out there with a party
+  net.pendingInvite = id; closeSocial(); goField('');                          // start a party, then invite
+}
 function renderSocial() {
   const s = net.social, n = s ? s.inbox.length : 0, badge = $('#fr-badge'); badge.hidden = !n; badge.textContent = n;
   if ($('#social').hidden) return;
   const body = $('#so-body'); body.textContent = ''; if (!s) return;
-  const STATE = { off: '離線', on: '在線上', lobby: '在房間裡', run: '副本中' };
+  const STATE = { off: '離線', on: '在線上', lobby: '在房間裡', run: '副本中', field: '在野外' };
   group(body, '想加你的人', s.inbox.map(f => row('＋', C.brass, f.name, '', [['接受', () => send({ t: 'friend', id: f.id }), 'go'], ['略過', () => send({ t: 'ignore', id: f.id })]])));
   group(body, '好友', s.friends.map(f => {
-    const acts = []; if (f.mutual && (f.state === 'on' || f.state === 'lobby')) acts.push(['邀請', () => invite(f.id), 'go']);
+    const acts = []; if (f.mutual && f.state !== 'off' && f.state !== 'run') acts.push(['去野外', () => inviteField(f.id), 'go'], ['進塔', () => invite(f.id), 'go']);
     acts.push(['移除', () => send({ t: 'friend', id: f.id, on: false }), 'sure']);
     return row('●', f.mutual && f.state !== 'off' ? C.heal : C.line, f.name, f.mutual ? STATE[f.state] : '等對方加你', acts);
   }), '還沒有好友。打一場線上副本，就能在結算畫面把隊友加進來。');
@@ -1453,7 +1503,7 @@ cv.addEventListener('pointerdown', ev => {
 addEventListener('keydown', ev => {
   if (ev.target && ev.target.tagName === 'INPUT') return;
   if (talk.lines) { if (ev.key === 'Escape') endSay(); else if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); nextSay(); } return; }
-  if (mode === 'field' && (ev.key === 'e' || ev.key === 'Enter')) return doAct();
+  if (inField() && (ev.key === 'e' || ev.key === 'Enter')) return doAct();
   const k = ev.key.toLowerCase(); keys.add(k);
   const i = ['j', 'k', 'l', ';'].indexOf(k), n = ['1', '2', '3', '4'].indexOf(k);
   if (V && (i >= 0 || n >= 0)) act({ c: i >= 0 ? i : n });
@@ -1485,7 +1535,8 @@ $('#so-close').addEventListener('click', closeSocial);
 $('#bag-btn').addEventListener('click', openBag);
 $('#lo-open').addEventListener('click', openLoadout);
 $('#lo-close').addEventListener('click', () => { $('#loadout').hidden = true; });
-$('#go-field').addEventListener('click', () => startField());
+$('#go-field').addEventListener('click', () => { const code = cleanCode($('#room').value); if (online && net.authed && code) goField(code); else startField(); });
+$('#gate-party').addEventListener('click', () => { chosen = save.cls; goOnline(V.code); });
 $('#act').addEventListener('click', doAct);
 $('#talk').addEventListener('click', ev => { if (ev.target.closest('#talk-skip')) endSay(); else nextSay(); });   // tap the box, or the world, for the next line
 $('#gate-cancel').addEventListener('click', () => { gateOpen = false; $('#gatebox').hidden = true; });
@@ -1516,7 +1567,7 @@ function frame(ts) {
       if (SPEED > 1) { for (let i = 0; i < SPEED && G.state !== 'over'; i++) S.step(G, 1 / 60); } else S.step(G, dt);
       const evs = G.events; G.events = []; for (const o of evs) handleEvent(o);
       if (G.state === 'over' && !G.result.shown) { G.result.shown = true; conclude(G.result, V.me.stats); }
-    } else { buildView(ts); predictMe(dt, ts); }
+    } else { buildView(ts); predictMe(dt, ts); if (inField()) fieldView(dt); }
     updFx(dt); hud();
   }
   render(dt);
