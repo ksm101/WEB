@@ -149,6 +149,17 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .chip{position:relative;flex:none;height:40px;min-width:60px;padding:0 14px;border:1.5px solid var(--line);border-radius:20px;background:var(--deep);color:var(--foam);font-size:13px}
 .chip b{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;box-sizing:border-box;padding:0 4px;border-radius:9px;background:var(--ember);color:var(--ink);font-family:var(--f-num);font-size:11px;line-height:18px;text-align:center}
 .overlay.top{z-index:7}
+.chips{display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+#bag-body,#so-body{display:flex;flex-direction:column;gap:14px}
+.recipes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.recipes li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;background:var(--deep)}
+.recipes .info{display:flex;flex-direction:column;gap:3px;min-width:0}
+.recipes b{font-size:15px}
+.recipes small{font-size:12px;color:var(--mute);line-height:1.5}
+.recipes .cost{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--foam)}
+.recipes .cost .lack{color:var(--danger)}
+.sk.pot{left:var(--gl);top:12px;width:54px;height:54px;border-color:var(--heal)}
+.sk.pot b{font-size:20px;color:var(--heal)}
 .group{display:flex;flex-direction:column;gap:8px}
 .group h3{margin:6px 0 0;font-size:12px;letter-spacing:.16em;color:var(--mute);font-weight:400}
 .group .note{text-align:left}
@@ -199,6 +210,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
   <footer id="deck">
     <p id="stick-hint">在這一區拖曳就能移動</p>
     <div id="stick-base" hidden><div id="stick-nub"></div></div>
+    <button class="sk pot" id="pot" type="button" aria-label="潮息藥水：回復血量，每場限用一瓶" hidden><b>藥</b><small>藥水</small></button>
     <div id="skills"></div>
   </footer>
 
@@ -206,7 +218,10 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     <div class="wrap">
       <div class="head">
         <div><p class="eyebrow">三分鐘副本 · 原型</p><h1>燼潮</h1></div>
-        <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
+        <div class="chips">
+          <button class="chip" id="bag-btn" type="button">背包</button>
+          <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
+        </div>
       </div>
       <p class="lore">鐘聲沉入海底那天，潮水開始生鏽。四個人、一座塔、三分鐘。</p>
       <div class="run"><b>沉鐘塔</b><span id="m-lvl">第 1 層</span><small id="m-best"></small></div>
@@ -255,6 +270,15 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div id="so-body"></div>
     </div>
   </section>
+  <section id="bag" class="overlay top" hidden>
+    <div class="wrap">
+      <div class="head">
+        <div><p class="eyebrow">材料和工坊</p><h2>背包</h2></div>
+        <button class="chip" id="bag-close" type="button">關閉</button>
+      </div>
+      <div id="bag-body"></div>
+    </div>
+  </section>
   <div id="toast" hidden role="status"><span id="toast-msg"></span><span id="toast-btns"></span></div>
 </div>
 
@@ -286,10 +310,11 @@ const F = { display: tok('--f-display'), num: tok('--f-num') };
  * With a game server the account lives there; this is a cache of it plus the key that signs this device in.
  * Without one (a plain copy of this page) progress stays on this device. */
 const SAVE_KEY = 'embertide.v1';
-const save = { lvl: 1, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
+const save = { lvl: 1, cls: 'dps', gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 }, nick: '', room: '', acct: { id: '', token: '', bk: '' } };
 function loadSave() {
   try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s === 'object') Object.assign(save, s); } catch (e) {}
   if (!save.acct || typeof save.acct !== 'object') save.acct = { id: '', token: '', bk: '' };
+  S.fixProfile(save);
 }
 function writeSave() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
 const avgIlvl = () => S.ilvlOf(save.gear);
@@ -362,7 +387,7 @@ function handleEvent(o) {
 /* everything the player does goes through here, so solo and online behave the same */
 function act(o) {
   if (!V || !V.me) return;
-  if (mode === 'solo') { const inp = V.me.input; if ('c' in o) inp.cast[o.c] = true; else if ('h' in o) inp.heal = o.h; else inp.tg = o.g; }
+  if (mode === 'solo') { const inp = V.me.input; if ('c' in o) inp.cast[o.c] = true; else if ('h' in o) inp.heal = o.h; else if ('p' in o) inp.pot = true; else inp.tg = o.g; }
   else if (mode === 'online') send(Object.assign({ t: 'a' }, o));
 }
 function enterRun() {
@@ -372,7 +397,7 @@ function enterRun() {
 }
 function startSolo(cls) {
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
-  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: '你', pow: S.powerOf(save.gear), id: 'me' }] });
+  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: '你', pow: S.powerOf(save.gear), id: 'me', potions: save.inv.potion }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
   if (net.authed) send({ t: 'solo0', lvl: save.lvl });
   enterRun(); banner('三名 AI 隊友已就位', 2200);
@@ -385,9 +410,9 @@ function conclude(r, stats, extra) {
   if (extra) return show(extra.loot, extra);
   if (net.authed) {
     net.solo = { show, timer: setTimeout(() => { if (net.solo) { net.solo = null; show(null, { note: '伺服器沒有回應，這場的獎勵沒有記錄到。' }); } }, 4000) };
-    return send({ t: 'solo1', win: r.win, time: r.t });
+    return send({ t: 'solo1', win: r.win, time: r.t, pots: stats.pots });
   }
-  const loot = S.applyResult(save, lvl, r); writeSave(); show(loot);
+  const rw = S.applyResult(save, lvl, r); save.inv.potion = Math.max(0, save.inv.potion - stats.pots); writeSave(); show(rw.loot, { mats: rw.mats });
 }
 
 /* ================= Online ================= */
@@ -396,6 +421,7 @@ const net = { ws: null, authed: false, kicked: false, backoff: 0, back: false, b
   solo: null, social: null, lobby: null, pendingInvite: '', roomHint: '', socialT: 0 };
 function serverUrl() { return qs.get('server') || ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
 function probe() {   // only offer online play when a game server answers
+  if (location.protocol === 'file:' && !qs.get('server')) return;
   const u = qs.get('server') ? qs.get('server').replace(/^ws/, 'http').replace(/\/ws$/, '/health') : 'health';
   fetch(u, { cache: 'no-store' }).then(r => r.json()).then(j => { if (j && j.embertide) { online = true; connect(); if (!$('#menu').hidden) renderMenu(); } }).catch(() => {});
 }
@@ -426,7 +452,7 @@ function goOnline(roomOverride) {
 }
 function applyProfile(m) {   // the server's word on this account
   if (m.bk) save.acct.bk = m.bk;
-  const p = m.profile; if (p) { save.lvl = p.lvl; save.gear = p.gear; save.best = p.best; save.runs = p.runs; save.nick = p.name; }
+  const p = m.profile; if (p) { save.lvl = p.lvl; save.gear = p.gear; save.best = p.best; save.runs = p.runs; save.nick = p.name; if (p.inv) save.inv = p.inv; }
   writeSave();
 }
 function onMsg(m) {
@@ -447,12 +473,13 @@ function onMsg(m) {
     case 's': if (mode === 'online' && V && !V.result) onSnap(m); break;
     case 'end':
       applyProfile(m);
-      if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx], { loot: m.loot, mates: m.mates, again: m.again });
+      if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx], { loot: m.loot, mats: m.mats, mates: m.mates, again: m.again });
       break;
     case 'solo':
       applyProfile(m);
-      if (net.solo) { const q = net.solo; net.solo = null; clearTimeout(q.timer); q.show(m.loot, m.ok ? {} : { note: '伺服器沒有承認這場結果，所以沒有獎勵。' }); }
+      if (net.solo) { const q = net.solo; net.solo = null; clearTimeout(q.timer); q.show(m.loot, m.ok ? { mats: m.mats } : { note: '伺服器沒有承認這場結果，所以沒有獎勵。' }); }
       break;
+    case 'crafted': applyProfile(m); toast(String(m.msg || ''), [], 3000); renderBag(); if (!$('#menu').hidden) renderMenu(); break;
     case 'social': net.social = m; renderSocial(); break;
     case 'note': toast(String(m.msg || ''), [], 3500); break;
     case 'invited':
@@ -467,7 +494,7 @@ function beginOnline(m) {
   mode = 'online'; lastMode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.emap = new Map(); net.sx = net.sy = NaN;
   V = { t: 0, state: 'countdown', cd: 3, wave: -1, lvl: m.lvl, enemies: [], zones: [], shots: [], boss: null, result: null,
     actors: m.roster.map((r, i) => ({ idx: i, cls: r.cls, def: CLASSES[r.cls], name: String(r.name), human: !!r.human, x: SPOTS[i][0], y: SPOTS[i][1], sx: SPOTS[i][0], sy: SPOTS[i][1],
-      r: 12, hp: r.maxHp, maxHp: r.maxHp, alive: true, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null })) };
+      r: 12, hp: r.maxHp, maxHp: r.maxHp, alive: true, potions: r.potions || 0, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null })) };
   V.me = V.actors[meIdx]; V.me.name = '你';
   enterRun();
   const n = m.roster.filter(r => r.human).length;
@@ -502,7 +529,7 @@ function buildView(now) {
     const a = V.actors[i], p = s0.a[i], f = d[6];
     a.sx = L(p[0], d[0]); a.sy = L(p[1], d[1]); a.hp = d[2]; a.maxHp = d[3]; a.alive = !!d[4]; a.face = d[5];
     a.wallT = f & 1; a.shield = f & 2; a.iframe = f & 4; a.rolling = !!(f & 8); a.human = !!(f & 16);
-    a.target = d[7] ? em.get(d[7]) || null : null; a.cds = d[8]; a.ult = d[9];
+    a.target = d[7] ? em.get(d[7]) || null : null; a.cds = d[8]; a.ult = d[9]; a.potions = d[10] || 0;
     if (a !== V.me || net.fresh) { a.x = a.sx; a.y = a.sy; }
   });
   net.fresh = false;
@@ -644,6 +671,7 @@ function buildHud() {
     b.addEventListener('pointerdown', ev => { ev.preventDefault(); if (V && V.me && V.me.cls === 'heal') act({ h: a.idx }); });
     party.appendChild(b); frames.push({ a, el: b, hp: fill, tag });
   });
+  $('#pot').hidden = !(V.me.potions > 0);   // only shown when you brought one
   const box = $('#skills'); box.textContent = ''; skBtns = [];
   const posCls = ['main', 's1', 's2', 's3'];
   V.me.def.skills.forEach((sk, i) => {
@@ -676,6 +704,7 @@ function hud() {
     if (s.sk.ult) s.el.classList.toggle('ready', p.ult >= 100);
     if (s.sk.id === 'kick') s.el.classList.toggle('alert', casting && p.cds[i] <= 0 && p.alive);
   });
+  $('#pot').classList.toggle('cool', !(p.potions > 0));
   const b = V.boss, bb = $('#bossbar');
   if (b && b.alive) {
     bb.hidden = false; $('#bossname').textContent = b.name; $('#bosspct').textContent = Math.ceil(b.hp / b.maxHp * 100) + '%'; $('#bosshp').style.width = (b.hp / b.maxHp * 100) + '%';
@@ -788,6 +817,32 @@ function renderSocial() {
     '線上副本裡遇到的玩家會列在這裡。');
 }
 
+/* ---------- bag and workshop ---------- */
+function openBag() { $('#bag').hidden = false; renderBag(); }
+function renderBag() {
+  if ($('#bag').hidden) return;
+  const body = $('#bag-body'), inv = save.inv, waiting = online && !net.authed; body.textContent = '';
+  const dl = el('dl', 'stats');
+  for (const [k, v] of [[S.MATS.scrap, inv.scrap], [S.MATS.salt, inv.salt], [S.MATS.shard, inv.shard], ['潮息藥水', `${inv.potion} / ${S.POTION_CAP}`]]) { const d = el('div'); d.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(d); }
+  body.append(dl, el('p', 'lore', `材料從副本掉落，三分鐘內通關一定有沉鐘碎片。淬鍊的上限跟著層數走，第 ${save.lvl} 層是裝等 ${S.gearCap(save.lvl)}。`));
+  for (const [title, kind] of [['鍛造　直接做一件', 'forge'], ['淬鍊　把身上的往上推', 'temper'], ['消耗品', 'potion']]) {
+    const g = el('div', 'group'), ul = el('ul', 'recipes'); g.append(el('h3', '', title), ul);
+    for (const rc of S.RECIPES.filter(r => r.kind === kind)) {
+      const info = S.recipeInfo(save, rc), li = el('li'), left = el('div', 'info'), cost = el('span', 'cost');
+      for (const k of Object.keys(rc.cost)) cost.appendChild(el('span', inv[k] < rc.cost[k] ? 'lack' : '', `${S.MATS[k]} ${inv[k]}/${rc.cost[k]}`));
+      left.append(el('b', '', rc.name), el('small', '', info.can || info.why === '材料不夠' ? info.result : info.why), cost);
+      const b = el('button', 'mini go', '製作'); b.type = 'button'; b.id = 'craft-' + rc.id; b.disabled = !info.can || waiting;
+      b.addEventListener('click', () => { b.disabled = true; doCraft(rc.id); });
+      li.append(left, b); ul.appendChild(li);
+    }
+    body.appendChild(g);
+  }
+}
+function doCraft(id) {
+  if (online) return send({ t: 'craft', id });        // the server owns the bag
+  const r = S.craft(save, id); writeSave(); toast(r.msg, [], 3000); renderBag(); renderMenu();
+}
+
 function showResult(r, s, loot, lvl, more) {
   const body = $('#result-body'); body.textContent = '';
   const head = el('div'); head.append(el('p', 'eyebrow', `沉鐘塔 · 第 ${lvl} 層`), el('h2', '', r.win ? '通關' : '滅團'));
@@ -800,6 +855,11 @@ function showResult(r, s, loot, lvl, more) {
   body.append(head, time, dl);
   if (more.note) body.appendChild(el('p', 'note warn', more.note));
   if (loot) { const box = el('div', 'loot'), inner = el('div'); inner.append(el('b', '', loot.name), el('small', '', `${loot.slot}　${loot.up ? `比身上的 ${loot.old} 好，已經換上` : `身上的 ${loot.old} 比較好，已分解`}`)); box.append(el('span', 'il', loot.il), inner); body.appendChild(box); }
+  if (more.mats) {
+    const line = el('p', 'gear'); line.appendChild(el('span', '', '材料'));
+    for (const k of Object.keys(more.mats)) if (more.mats[k] > 0) { const sp = el('span', '', S.MATS[k] + ' '); sp.append(el('b', '', '+' + more.mats[k])); line.appendChild(sp); }
+    body.appendChild(line);
+  }
   const mates = more.mates || [], team = mates.length > 0 && !!more.again;
   group(body, '這場的隊友', mates.map(f => row(CLASSES[f.cls].mark, C[CLASSES[f.cls].color], String(f.name), f.friend ? '已在名單' : '',
     f.friend ? [] : [['加好友', b => { send({ t: 'friend', id: f.id }); b.textContent = '已送出'; }, 'go']])));
@@ -840,6 +900,7 @@ addEventListener('keydown', ev => {
   const k = ev.key.toLowerCase(); keys.add(k);
   const i = ['j', 'k', 'l', ';'].indexOf(k), n = ['1', '2', '3', '4'].indexOf(k);
   if (V && (i >= 0 || n >= 0)) act({ c: i >= 0 ? i : n });
+  if (V && (k === 'h' || k === '5')) act({ p: 1 });
 });
 addEventListener('keyup', ev => keys.delete(ev.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
@@ -857,6 +918,9 @@ $('#lb-link').addEventListener('click', () => {
 $('#lb-friends').addEventListener('click', openSocial);
 $('#friends-btn').addEventListener('click', openSocial);
 $('#so-close').addEventListener('click', closeSocial);
+$('#bag-btn').addEventListener('click', openBag);
+$('#bag-close').addEventListener('click', () => { $('#bag').hidden = true; });
+$('#pot').addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); act({ p: 1 }); });
 $('#room').addEventListener('input', () => renderMenu());
 let quitArm = 0;
 $('#quit').addEventListener('click', () => {

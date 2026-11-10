@@ -25,16 +25,17 @@ const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinit
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';
 const cleanCode = s => typeof s === 'string' ? s.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) : '';
 const cleanId = s => typeof s === 'string' && /^[a-f0-9]{16}$/.test(s) ? s : '';
-const profileOf = r => ({ name: r.name, lvl: r.lvl, gear: r.gear, best: r.best, runs: r.runs });
+const profileOf = r => ({ name: r.name, lvl: r.lvl, gear: r.gear, best: r.best, runs: r.runs, inv: r.inv });
 
 function freshRecord(id) {
   return Object.assign({ id, name: '旅人' + Math.floor(10 + Math.random() * 90), friends: {}, ignored: [], recent: [], created: Date.now() }, Sim.newProfile());
 }
 /* Rebuild a record from a backup or an older file, keeping only fields of the expected shape. */
 function normalize(b) {
-  const g = b.gear || {};
+  const g = b.gear || {}, v = b.inv || {};
   const rec = { id: b.id, name: cleanName(b.name), lvl: clampInt(b.lvl, 1, 50), gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) },
-    best: {}, runs: clampInt(b.runs, 0, 1e9), friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15) };
+    best: {}, runs: clampInt(b.runs, 0, 1e9), inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) },
+    friends: {}, ignored: [], recent: [], created: clampInt(b.created, 0, 9e15) };
   if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const v = Number(b.best[k]); if (/^\d+$/.test(k) && Number.isFinite(v)) rec.best[k] = v; }
   if (b.friends && typeof b.friends === 'object') for (const k of Object.keys(b.friends).slice(0, MAX_FRIENDS)) if (cleanId(k)) rec.friends[k] = cleanName(b.friends[k]);
   if (Array.isArray(b.ignored)) rec.ignored = b.ignored.filter(cleanId).slice(0, 50);
@@ -55,7 +56,7 @@ function start(opts) {
   let publicN = 0;
 
   const index = rec => { for (const id of Object.keys(rec.friends)) { if (!wanted.has(id)) wanted.set(id, new Set()); wanted.get(id).add(rec.id); } };
-  for (const rec of store.all()) index(rec);
+  for (const rec of store.all()) { Sim.fixProfile(rec); index(rec); }
 
   const server = http.createServer((req, res) => {
     const url = req.url.split('?')[0];
@@ -177,7 +178,7 @@ function start(opts) {
       if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('q:' + (++publicN), '', true); }
       idx = freeSeat(room);
     }
-    room.slots[idx] = { id: rec.id, name: rec.name, cls, lvl: rec.lvl, pow: Sim.powerOf(rec.gear), ws, ready: false };   // level and power come from the account, never from the client
+    room.slots[idx] = { id: rec.id, name: rec.name, cls, lvl: rec.lvl, pow: Sim.powerOf(rec.gear), potions: rec.inv.potion > 0 ? 1 : 0, ws, ready: false };   // level and power come from the account, never from the client
     ws.info = { room, idx };
     const now = Date.now();
     room.deadline = room.deadline ? Math.max(room.deadline, now + Math.min(3000, lobbyWait)) : now + lobbyWait;
@@ -187,12 +188,12 @@ function start(opts) {
     const G = room.G;
     room.slots.forEach((s, i) => {
       if (!s || (only != null && only !== i)) return;
-      send(s.ws, { t: 'start', you: i, lvl: G.lvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, human: a.human, maxHp: a.maxHp })) });
+      send(s.ws, { t: 'start', you: i, lvl: G.lvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, human: a.human, maxHp: a.maxHp, potions: a.potions })) });
     });
   }
   function startRoom(room) {
     const lvl = Math.min.apply(null, humans(room).map(s => s.lvl));
-    room.G = Sim.createRun({ lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, pow: s.pow, id: s.id })) });
+    room.G = Sim.createRun({ lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, pow: s.pow, id: s.id, potions: s.potions })) });
     // seats and actors share the same order, so slot i drives actor i
     room.slots.forEach((s, i) => { if (s) { if (room.G.actors[i].pid !== s.id) throw new Error('seat mismatch'); seats.set(s.id, { room, idx: i }); } });
     room.state = 'run'; room.acc = 0; room.n = 0; room.clock = 0; room.goneSince = 0; room.last = Date.now();
@@ -217,14 +218,15 @@ function start(opts) {
     let again = room.code;                               // a room code the same group can use to go again together
     if (room.pub) do { again = 'R' + crypto.randomBytes(2).toString('hex').toUpperCase(); } while (rooms.has('p:' + again));
     const stats = G.actors.map(a => ({ dmg: Math.round(a.stats.dmg), heal: Math.round(a.stats.heal), kicks: a.stats.kicks, hits: a.stats.hits }));
-    for (const s of hs) {
-      const rec = store.get(s.id); if (!rec) continue;
-      const loot = Sim.applyResult(rec, G.lvl, r);
+    room.slots.forEach((s, i) => {
+      const rec = s && store.get(s.id); if (!rec) return;
+      const rw = Sim.applyResult(rec, G.lvl, r);
+      rec.inv.potion = Math.max(0, rec.inv.potion - G.actors[i].stats.pots);
       for (const o of hs) if (o.id !== s.id) rec.recent = [{ id: o.id, name: o.name, cls: o.cls, at: now }].concat(rec.recent.filter(x => x.id !== o.id)).slice(0, 10);
       store.put(rec);
-      send(s.ws, { t: 'end', win: r.win, onTime: r.onTime, time: Math.round(r.t * 10) / 10, lvl: G.lvl, stats, loot, again, profile: profileOf(rec), bk: store.pack(rec),
+      send(s.ws, { t: 'end', win: r.win, onTime: r.onTime, time: Math.round(r.t * 10) / 10, lvl: G.lvl, stats, loot: rw.loot, mats: rw.mats, again, profile: profileOf(rec), bk: store.pack(rec),
         mates: hs.filter(o => o.id !== s.id).map(o => ({ id: o.id, name: o.name, cls: o.cls, friend: !!rec.friends[o.id] })) });
-    }
+    });
     endRoom(room);
   }
   /* A solo run is simulated on the player's own device. The server cannot replay it, so it only checks that
@@ -235,9 +237,11 @@ function start(opts) {
     if (m.t === 'solo0') { ws.solo = { lvl: clampInt(m.lvl, 1, rec.lvl), at: Date.now() }; return; }
     const s = ws.solo; ws.solo = null; const time = Number(m.time), win = m.win === true;
     const ok = !!s && Number.isFinite(time) && time > 0 && time < 3600 && (Date.now() - s.at) / 1000 >= time * .9 && (!win || time >= soloMin);
-    let loot = null;
-    if (ok) { loot = Sim.applyResult(rec, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time }); store.put(rec); }
-    send(ws, { t: 'solo', ok, loot, profile: profileOf(rec), bk: store.pack(rec) });
+    let rw = { loot: null, mats: null };
+    if (s && m.pots > 0) rec.inv.potion = Math.max(0, rec.inv.potion - 1);   // a potion drunk in the run is gone either way
+    if (ok) rw = Sim.applyResult(rec, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time });
+    if (s) store.put(rec);
+    send(ws, { t: 'solo', ok, loot: rw.loot, mats: rw.mats, profile: profileOf(rec), bk: store.pack(rec) });
   }
 
   function tick() {
@@ -281,6 +285,7 @@ function start(opts) {
         case 'ignore': { const id = cleanId(m.id); if (id && !ws.acc.ignored.includes(id)) { ws.acc.ignored = ws.acc.ignored.concat(id).slice(-50); store.put(ws.acc); } return send(ws, socialOf(ws.acc)); }
         case 'invite': return onInvite(ws, m);
         case 'solo0': case 'solo1': return onSolo(ws, m);
+        case 'craft': { const r = Sim.craft(ws.acc, String(m.id)); if (r.ok) store.put(ws.acc); return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
       }
       const info = ws.info; if (!info || !info.room) return;
       const room = info.room;
@@ -292,10 +297,12 @@ function start(opts) {
         if (Number.isInteger(m.c) && m.c >= 0 && m.c < 4) inp.cast[m.c] = true;
         else if (Number.isInteger(m.h) && m.h >= 0 && m.h < 4) inp.heal = m.h;
         else if (Number.isInteger(m.g) && m.g > 0) inp.tg = m.g;
+        else if (m.p === 1) inp.pot = true;
       } else if (m.t === 'dbg' && opts.debug) {     // test hook, never enabled in production
         const G = room.G;
         if (m.k === 'skip') { G.wave = Math.max(G.wave, Sim.WAVES.length - 2); for (const e of G.enemies) e.hp = 1; }
         if (m.k === 'win' && G.boss) G.boss.hp = 1;
+        if (m.k === 'hurt') a.hp = Math.round(a.maxHp * .4);
       }
     });
     ws.on('close', () => { unseat(ws); if (ws.acc && online.get(ws.acc.id) === ws) online.delete(ws.acc.id); });

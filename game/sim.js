@@ -59,13 +59,13 @@ function fail(G, a, s) { if (a.human) ev(G, { k: 'fail', i: a.idx, s }); return 
 function mkActor(cls, name, spot, pow) {
   const d = CLASSES[cls];
   return { cls, def: d, name, x: spot[0], y: spot[1], r: 12, pow, maxHp: R(d.hp * pow), hp: R(d.hp * pow), alive: true, human: false, pid: null, idx: 0,
-    target: null, atkT: rand(0, .5), cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rollT: 0, rvx: 0, rvy: 0, face: -Math.PI / 2, idleT: 0,
-    ctrl: { mx: 0, my: 0, cast: [false, false, false, false], healOn: null },
-    input: { mx: 0, my: 0, cast: [false, false, false, false], heal: -1, tg: 0 },
-    stats: { dmg: 0, heal: 0, kicks: 0, hits: 0 },
+    target: null, atkT: rand(0, .5), cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rollT: 0, rvx: 0, rvy: 0, face: -Math.PI / 2, idleT: 0, potions: 0,
+    ctrl: { mx: 0, my: 0, cast: [false, false, false, false], healOn: null, pot: false },
+    input: { mx: 0, my: 0, cast: [false, false, false, false], heal: -1, tg: 0, pot: false },
+    stats: { dmg: 0, heal: 0, kicks: 0, hits: 0, pots: 0 },
     ai: { react: 0, delay: rand(.3, .75), kick: new WeakMap(), wob: rand(0, TAU), gcd: rand(0, .4) } };
 }
-/* opts: { lvl, players: [{ cls, name, pow, id }], grace, auto }
+/* opts: { lvl, players: [{ cls, name, pow, id, potions }], grace, auto }
  * Each player takes the first free seat of their class; every other seat is a bot. */
 function createRun(opts) {
   const lvl = opts.lvl || 1, botPow = 1 + .1 * (lvl - 1);
@@ -75,7 +75,7 @@ function createRun(opts) {
   ROSTER.forEach((c, i) => {
     const k = pending.findIndex(p => p.cls === c), p = k >= 0 ? pending.splice(k, 1)[0] : null;
     const a = mkActor(c, p ? p.name : (c === 'dps' ? BOT_NAMES.dps[dpsN++] : BOT_NAMES[c]), SPOTS[i], p ? p.pow : botPow);
-    a.idx = i; a.human = !!p; a.pid = p ? p.id : null; G.actors.push(a);
+    a.idx = i; a.human = !!p; a.pid = p ? p.id : null; a.potions = p && p.potions > 0 ? 1 : 0; G.actors.push(a);   // one potion per run
   });
   return G;
 }
@@ -183,6 +183,7 @@ function playerThink(G, a, dt) {
   c.mx = clamp(+inp.mx || 0, -1, 1); c.my = clamp(+inp.my || 0, -1, 1);
   for (let i = 0; i < 4; i++) if (inp.cast[i]) { c.cast[i] = true; inp.cast[i] = false; }
   if (inp.heal >= 0) { c.healOn = G.actors[inp.heal] || null; inp.heal = -1; }
+  if (inp.pot) { c.pot = true; inp.pot = false; }
   if (inp.tg) { const e = G.enemies.find(e => e.id === inp.tg && e.alive); if (e) a.target = e; inp.tg = 0; }
   if (!a.alive) return;
   if (!a.target || !a.target.alive) a.target = nearest(a, G.enemies);
@@ -268,7 +269,7 @@ function updActor(G, a, dt) {
   for (let i = 0; i < 4; i++) if (a.cds[i] > 0) a.cds[i] = Math.max(0, a.cds[i] - dt);
   a.wallT = Math.max(0, a.wallT - dt); a.iframe = Math.max(0, a.iframe - dt);
   const c = a.ctrl;
-  if (!a.alive) { c.cast.fill(false); c.healOn = null; return; }
+  if (!a.alive) { c.cast.fill(false); c.healOn = null; c.pot = false; return; }
   if (a.target && !a.target.alive) a.target = null;
   if (a.rollT > 0) { a.rollT -= dt; a.x += a.rvx * dt; a.y += a.rvy * dt; }
   else {
@@ -280,6 +281,12 @@ function updActor(G, a, dt) {
   if (a.target) a.face = Math.atan2(a.target.y - a.y, a.target.x - a.x);
   if (c.healOn) { if (a.cls === 'heal') tryCast(G, a, 0, c.healOn); c.healOn = null; }
   for (let i = 0; i < 4; i++) if (c.cast[i]) { c.cast[i] = false; tryCast(G, a, i); }
+  if (c.pot) {
+    c.pot = false;
+    if (a.potions <= 0) fail(G, a, '這場的藥水用過了');
+    else if (a.hp >= a.maxHp) fail(G, a, '血是滿的');
+    else { const real = Math.min(a.maxHp * POTION_HEAL, a.maxHp - a.hp); a.potions--; a.stats.pots++; a.hp += real; ev(G, { k: 'heal', i: a.idx, v: R(real), by: a.idx }); ring(G, a.x, a.y, 6, 30, 'heal', .4); }
+  }
   a.atkT -= dt; const t = a.target;
   if (t && a.atkT <= 0 && a.rollT <= 0 && inRange(a, t)) {
     a.atkT = a.def.aspd; const dmg = a.def.atk * a.pow * rand(.9, 1.1);
@@ -377,12 +384,28 @@ function step(G, dt) {
 
 /* ---------- progression: the same rules on the server and in the offline client ---------- */
 const LOOT = { w: ['武器', ['鏽潮錨刃', '沉鐘之舌', '霧燈長弓']], a: ['護甲', ['看守者鍊甲', '鹽殼護肩', '潮紋斗篷']], t: ['飾品', ['霧燈碎片', '潮鳴鐘錘', '生鏽的羅盤']] };
+const MATS = { scrap: '鏽鐵屑', salt: '鹽晶', shard: '沉鐘碎片' };
+const POTION_CAP = 5, POTION_HEAL = .35, MAT_CAP = 9999;
 const ilvlOf = gear => Math.round((gear.w + gear.a + gear.t) / 3);
 const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
-function newProfile() { return { lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0 }; }
-/* r: { win, onTime, t }. Updates the profile p and returns the loot that dropped, or null for a wipe. */
+const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
+const gearCap = lvl => 10 + lvl * 4 + 7;        // how far tempering can push a slot at this tower level
+function newProfile() { return { lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 } }; }
+function fixProfile(p) {   // fill in anything an older save does not have
+  const d = newProfile();
+  for (const k of Object.keys(d)) if (p[k] == null) p[k] = d[k];
+  for (const k of Object.keys(d.inv)) if (!(p.inv[k] >= 0)) p.inv[k] = 0;
+  return p;
+}
+/* r: { win, onTime, t }. Updates the profile p and returns { loot, mats }: the item that dropped (null for a wipe)
+ * and the crafting materials picked up. */
 function applyResult(p, lvl, r) {
-  if (!r.win) return null;
+  fixProfile(p);
+  const mats = r.win
+    ? { scrap: 3 + Math.floor(Math.random() * 3) + Math.floor(lvl / 3), salt: 1 + (Math.random() < .5 ? 1 : 0), shard: r.onTime ? 1 : (Math.random() < .3 ? 1 : 0) }
+    : { scrap: 1 + Math.floor(Math.random() * 2), salt: 0, shard: 0 };
+  for (const k of Object.keys(mats)) p.inv[k] = Math.min(MAT_CAP, p.inv[k] + mats[k]);
+  if (!r.win) return { loot: null, mats };
   p.runs++;
   const ks = ['w', 'a', 't']; let k = pick(ks);
   if (Math.random() < .5) k = ks.reduce((m, x) => p.gear[x] < p.gear[m] ? x : m, 'w');
@@ -390,7 +413,32 @@ function applyResult(p, lvl, r) {
   if (up) p.gear[k] = il;
   if (!p.best[lvl] || r.t < p.best[lvl]) p.best[lvl] = Math.round(r.t * 10) / 10;
   if (r.onTime) p.lvl = Math.max(p.lvl, Math.min(50, lvl + 1));
-  return { slot: LOOT[k][0], name: pick(LOOT[k][1]), il, old, up };
+  return { loot: { slot: LOOT[k][0], name: pick(LOOT[k][1]), il, old, up }, mats };
+}
+
+/* ---------- crafting ---------- */
+const RECIPES = [];
+for (const k of ['w', 'a', 't']) RECIPES.push({ id: 'forge-' + k, kind: 'forge', slot: k, name: '鍛造' + LOOT[k][0], cost: { scrap: 12, salt: 3 } });
+for (const k of ['w', 'a', 't']) RECIPES.push({ id: 'temper-' + k, kind: 'temper', slot: k, name: '淬鍊' + LOOT[k][0], cost: { shard: 2, scrap: 6 } });
+RECIPES.push({ id: 'potion', kind: 'potion', name: '潮息藥水', cost: { salt: 2, scrap: 2 } });
+/* What a recipe would do for this profile right now: { can, why, result }. */
+function recipeInfo(p, rc) {
+  fixProfile(p);
+  let result = '', why = '';
+  if (rc.kind === 'forge') { const il = forgeIlvl(p.lvl); result = `做出裝等 ${il} 的${LOOT[rc.slot][0]}`; if (p.gear[rc.slot] >= il) why = `身上的 ${p.gear[rc.slot]} 已經不比它差`; }
+  else if (rc.kind === 'temper') { const cur = p.gear[rc.slot], cap = gearCap(p.lvl); result = `${LOOT[rc.slot][0]}裝等 ${cur} → ${Math.min(cap, cur + 2)}`; if (cur >= cap) why = `已到第 ${p.lvl} 層的上限 ${cap}`; }
+  else { result = `副本中回復 ${POTION_HEAL * 100}% 血量，每場限用 1 瓶`; if (p.inv.potion >= POTION_CAP) why = `最多帶 ${POTION_CAP} 瓶`; }
+  if (!why && Object.keys(rc.cost).some(k => p.inv[k] < rc.cost[k])) why = '材料不夠';
+  return { can: !why, why, result };
+}
+function craft(p, id) {
+  const rc = RECIPES.find(r => r.id === id); if (!rc) return { ok: false, msg: '沒有這個配方。' };
+  const info = recipeInfo(p, rc); if (!info.can) return { ok: false, msg: `做不了${rc.name}：${info.why}。` };
+  for (const k of Object.keys(rc.cost)) p.inv[k] -= rc.cost[k];
+  if (rc.kind === 'forge') p.gear[rc.slot] = forgeIlvl(p.lvl);
+  else if (rc.kind === 'temper') p.gear[rc.slot] = Math.min(gearCap(p.lvl), p.gear[rc.slot] + 2);
+  else p.inv.potion++;
+  return { ok: true, msg: rc.kind === 'potion' ? `做好一瓶潮息藥水，現在有 ${p.inv.potion} 瓶。` : `${LOOT[rc.slot][0]}現在是裝等 ${p.gear[rc.slot]}。` };
 }
 
 /* ---------- network snapshot: compact arrays, read back by the client ---------- */
@@ -400,7 +448,7 @@ function snapshot(G) {
     tm: r2(G.t), st: G.state, cd: r2(G.cd), w: G.wave,
     a: G.actors.map(a => [r1(a.x), r1(a.y), R(a.hp), a.maxHp, a.alive ? 1 : 0, r2(a.face),
       (a.wallT > 0 ? 1 : 0) | (a.shield > 0 ? 2 : 0) | (a.iframe > 0 ? 4 : 0) | (a.rollT > 0 ? 8 : 0) | (a.human ? 16 : 0),
-      a.target ? a.target.id : 0, a.cds.map(r1), R(a.ult)]),
+      a.target ? a.target.id : 0, a.cds.map(r1), R(a.ult), a.potions]),
     e: G.enemies.map(e => [e.id, e.kind, r1(e.x), r1(e.y), R(e.hp), e.maxHp, r2(e.face), r2(Math.max(0, e.spawnT)), e.stun > 0 ? 1 : 0, e.tm.enraged ? 1 : 0,
       e.cast ? [e.cast.name, r2(e.cast.t), e.cast.dur, e.cast.kickable ? 1 : 0, e.cast.victim ? e.cast.victim.idx : -1] : 0]),
     z: G.zones.map(z => [z.id, z.friendly ? 1 : 0, z.type === 'circle' ? 0 : 1, r1(z.x), r1(z.y), z.r || 0, r2(z.ang || 0), z.half || 0, z.len || 0, r2(z.t), z.dur, z.done ? 1 : 0]),
@@ -408,5 +456,6 @@ function snapshot(G) {
   };
 }
 
-return { W, H, TIME_LIMIT, CLASSES, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot, ilvlOf, powerOf, newProfile, applyResult };
+return { W, H, TIME_LIMIT, CLASSES, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
+  MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft };
 });

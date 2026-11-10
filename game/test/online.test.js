@@ -45,7 +45,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   // accounts
   const A = await named(port, '小明'), B = await named(port, '<b>壞</b>名字超級長');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);
-  assert.deepStrictEqual(A.me.profile, { name: '小明', lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0 });
+  assert.deepStrictEqual(A.me.profile, { name: '小明', lvl: 1, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, potion: 0 } });
   assert.strictEqual(B.me.profile.name, 'b壞/b名字超級');
   const forged = client(port, { id: A.me.id, token: 'x'.repeat(32) }); await forged.ready;
   assert.notStrictEqual(forged.me.id, A.me.id, 'a wrong token must not open someone else\'s account'); forged.ws.close();
@@ -56,7 +56,8 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.ok(!leaked, 'nothing works before signing in'); nohello.close();
   ok('accounts are issued by the server; a forged token gets a fresh account; unsigned sockets get nothing');
 
-  // private room
+  // private room (A brings potions)
+  srv.store.get(A.me.id).inv.potion = 2;
   A.join('dps', 'test'); let lb = await A.wait('lobby', m => m.code === 'TEST');
   assert.strictEqual(lb.you, 2); assert.strictEqual(lb.left, -1);
   B.join('heal', 'TEST'); lb = await A.wait('lobby', m => m.slots[1].name); assert.strictEqual(lb.slots[1].name, 'b壞/b名字超級');
@@ -65,6 +66,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   B.send({ t: 'ready' });
   const [sa, sb] = await Promise.all([A.wait('start'), B.wait('start')]);
   assert.strictEqual(sa.you, 2); assert.strictEqual(sb.you, 1); assert.deepStrictEqual(sa.roster.map(r => r.human), [false, true, true, false]);
+  assert.deepStrictEqual(sa.roster.map(r => r.potions), [0, 0, 1, 0], 'one potion per run, only for the player who owns some');
   X.join('tank', 'TEST'); assert.match((await X.wait('err', m => /正在打副本/.test(m.msg))).msg, /正在打副本/);
   ok('private room: seats by class, refuses a taken seat, starts when everyone present is ready, refuses joins mid-run');
 
@@ -74,7 +76,9 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   const s1 = await A.wait('s'); assert.ok(s1.a[2][0] < x0 - 20, `player should have moved left (${x0} -> ${s1.a[2][0]})`);
   A.send({ t: 'm', x: 'NaN', y: 9e9 }); A.send({ t: 'a', c: 99 }); A.send({ t: 'a', h: -3 }); A.ws.send('not json'); A.ws.send('null');
   await A.wait('s', m => m.a[2][1] > s1.a[2][1] + 5); A.send({ t: 'm', x: 0, y: 0 });
-  ok('server moves the player from inputs, clamps oversized values and ignores malformed input');
+  A.send({ t: 'dbg', k: 'hurt' }); const hurt = await A.wait('s', m => m.a[2][2] < m.a[2][3] * .5);
+  A.send({ t: 'a', p: 1 }); const healed = await A.wait('s', m => m.a[2][10] === 0); assert.ok(healed.a[2][2] > hurt.a[2][2] + 200, 'the potion heals');
+  ok('server moves the player from inputs, clamps oversized values, ignores malformed input, and applies the potion');
 
   // drop and return
   const credB = B.cred(); B.ws.close(); await A.wait('s', m => !(m.a[1][6] & 16));
@@ -89,6 +93,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.strictEqual(endA.win, true); assert.strictEqual(endA.stats.length, 4); assert.ok(endA.stats[2].dmg > 0);
   assert.strictEqual(endA.profile.runs, 1); assert.ok(endA.loot && endA.loot.il >= 14); assert.strictEqual(endA.profile.lvl, endA.onTime ? 2 : 1);
   assert.ok(Object.values(endA.profile.gear).some(v => v === endA.loot.il), 'the dropped item is on the account');
+  assert.ok(endA.mats.scrap >= 3 && endA.mats.salt >= 1); assert.strictEqual(endA.profile.inv.scrap, endA.mats.scrap); assert.strictEqual(endA.profile.inv.potion, 1, 'the potion that was drunk is gone');
   assert.deepStrictEqual(endA.mates.map(m => m.name), ['b壞/b名字超級']); assert.strictEqual(endA.mates[0].friend, false); assert.strictEqual(endA.again, 'TEST');
   assert.ok(JSON.stringify(A.last.s).length < 4000);
   ok(`run finished: loot and level are decided by the server (ilvl ${endA.loot.il}, level ${endA.profile.lvl}), teammates are listed`);
@@ -107,6 +112,18 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   A.send({ t: 'friend', id: A.me.id }); A.send({ t: 'friend', id: 'ffffffffffffffff' }); assert.match((await A.wait('note', m => /找不到/.test(m.msg))).msg, /找不到/);
   A.send({ t: 'leave' }); B2.send({ t: 'leave' });
   ok('friends: request, accept, presence only when mutual, invite only between mutual friends, invite carries the room code');
+
+  // crafting: the server owns the bag
+  A.send({ t: 'craft', id: 'forge-a' }); let cr = await A.wait('crafted'); assert.strictEqual(cr.ok, false); assert.match(cr.msg, /材料不夠/);
+  Object.assign(srv.store.get(A.me.id).inv, { scrap: 40, salt: 10, shard: 4 });
+  const lvlA = cr.profile.lvl, armor = cr.profile.gear.a < 10 + lvlA * 4 + 3;
+  A.send({ t: 'craft', id: 'forge-a' }); cr = await A.wait('crafted');
+  if (armor) { assert.strictEqual(cr.ok, true); assert.strictEqual(cr.profile.gear.a, 10 + lvlA * 4 + 3); assert.strictEqual(cr.profile.inv.scrap, 28); assert.strictEqual(cr.profile.inv.salt, 7); }
+  A.send({ t: 'craft', id: 'temper-a' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, true); assert.strictEqual(cr.profile.inv.shard, 2);
+  A.send({ t: 'craft', id: 'potion' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, true); assert.strictEqual(cr.profile.inv.potion, 2);
+  A.send({ t: 'craft', id: '__proto__' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, false);
+  A.send({ t: 'craft', id: 'nope' }); cr = await A.wait('crafted'); assert.strictEqual(cr.ok, false);
+  ok('crafting spends materials on the server, refuses when short, and rejects unknown recipes');
 
   // solo claims
   A.send({ t: 'solo1', win: true, time: 150 }); assert.strictEqual((await A.wait('solo')).ok, false, 'a claim without a started run is refused');
