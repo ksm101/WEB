@@ -1,0 +1,15 @@
+{
+  "name": "embertide",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Embertide: a portrait, three-minute co-op dungeon. Game server and client.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/online.test.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

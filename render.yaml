@@ -1,0 +1,11 @@
+# Render blueprint for the Embertide game server (page + WebSocket in one service).
+# Not yet deployed from this file; check it against Render's current docs on first use.
+services:
+  - type: web
+    name: embertide
+    runtime: node
+    rootDir: game
+    plan: free
+    buildCommand: npm ci
+    startCommand: node server.js
+    healthCheckPath: /health
