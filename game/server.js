@@ -119,7 +119,7 @@ function start(opts) {
   const ack = (ws, what, r) => { if (r.ok) store.put(ws.acc); send(ws, { t: 'ack', what, ok: r.ok, msg: r.msg, profile: profileOf(ws.acc) }); if (r.ok) { later(ws); refit(ws); } };
   const humans = room => room.slots.filter(Boolean);
   /* gear or talents changed while standing in a field the server runs: the body there follows */
-  const refit = ws => { const info = ws && ws.info, room = info && info.room, c = ws && ws.acc && pc(ws.acc); if (!room || room.kind !== 'field' || !c) return; Sim.refit(room.G.actors[info.idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls)); fieldRoster(room); };
+  const refit = ws => { const info = ws && ws.info, room = info && info.room, c = ws && ws.acc && pc(ws.acc); if (!room || room.kind !== 'field' || !c) return; Sim.refit(room.G.actors[info.idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls), Sim.loadoutOf(c, c.cls)); fieldRoster(room); };
   const sendMe = (ws, extra) => { const r = ws.acc; send(ws, Object.assign({ t: 'me', id: r.id, token: store.token(r.id), bk: store.pack(r), profile: profileOf(r), chars: rosterOf(r), cur: r.cur, unread: r.mail.filter(x => !x.read).length, ev: { now: Date.now(), period: evPeriod, dur: evDur } }, extra)); };
 
   /* ---------- accounts ---------- */
@@ -592,7 +592,7 @@ function start(opts) {
         case 'mail': case 'mail-read': case 'mail-del': case 'mail-take': case 'mail-send': return onMail(ws, m);
         case 'ah': return onAuction(ws, m);
         case 'field0': case 'fg': case 'fk': return onField(ws, m);
-        case 'loadout': { const r = Sim.setLoadout(pc(ws.acc), pc(ws.acc).cls, m.skills); if (r.ok) store.put(ws.acc); return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
+        case 'loadout': { const r = Sim.setLoadout(pc(ws.acc), pc(ws.acc).cls, m.skills); if (r.ok) { store.put(ws.acc); refit(ws); } return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'claim': { const r = Sim.questClaim(pc(ws.acc), String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'craft': { const r = Sim.craft(pc(ws.acc), String(m.id)); if (r.ok) { Sim.questEvent(pc(ws.acc), { type: 'craft', kind: r.kind }, Date.now()); store.put(ws.acc); } return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
       }

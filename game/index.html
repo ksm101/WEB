@@ -151,6 +151,11 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .chip b{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;box-sizing:border-box;padding:0 4px;border-radius:9px;background:var(--ember);color:var(--ink);font-family:var(--f-num);font-size:11px;line-height:18px;text-align:center}
 .overlay.top{z-index:7}
 #app[data-mode="field"] #pips,#app[data-mode="field"] #timer{display:none}
+#hero-btn{display:none;min-width:52px;height:32px;padding:0 10px;border:1px solid var(--brass);border-radius:6px;background:transparent;color:var(--brass);font-size:12px;font-weight:700}
+#app[data-mode="field"] #hero-btn{display:block}
+.pane{display:flex;flex-direction:column;gap:16px}
+.tabs.big{gap:6px;flex-wrap:nowrap}
+.tabs.big .mini{flex:1;min-width:0;height:44px;padding:0 4px;font-size:14px}
 .lvrow{display:flex;align-items:center;gap:10px}
 .lvrow b{font-family:var(--f-num);font-weight:700;font-size:20px;color:var(--brass)}
 .xpbar{flex:1;height:6px;border-radius:3px;background:var(--slate);overflow:hidden}
@@ -268,6 +273,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
   <header id="hud">
     <div class="hud-top">
       <button id="quit" type="button">離開</button>
+      <button id="hero-btn" type="button">角色</button>
       <div class="dungeon"><b id="place">沉鐘塔</b><span id="lvl">第 1 層</span></div>
       <div id="pips" aria-hidden="true"><i></i><i></i><i></i><i class="boss"></i></div>
       <div id="timer">0:00 <small>/ 3:00</small></div>
@@ -315,7 +321,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       </div>
       <div class="chips">
         <button class="chip" id="quests-btn" type="button">任務<b id="q-badge" hidden></b></button>
-        <button class="chip" id="bag-btn" type="button">背包</button>
+        <button class="chip" id="hero-open" type="button">角色</button>
         <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
         <button class="chip" id="mail-btn" type="button" hidden>信箱<b id="mail-badge" hidden></b></button>
       </div>
@@ -324,8 +330,8 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <button class="questline" id="m-quest" type="button"></button>
       <ul class="kit" id="kit"></ul>
       <div class="pair">
-        <button class="btn ghost" id="lo-open" type="button">換技能</button>
-        <button class="btn ghost" id="ta-open" type="button">天賦</button>
+        <button class="btn ghost" id="lo-open" type="button">技能書</button>
+        <button class="btn ghost" id="ta-open" type="button">天賦樹</button>
       </div>
       <p class="how" id="how">拖曳移動，角色會自動普攻。<br>地上出現紅色範圍就離開。<br>敵人讀條變成金色時按「斷」。<br>技能短按會自動找目標；按住拖曳可以自己瞄準。</p>
       <p class="gear" id="gear"></p>
@@ -416,26 +422,30 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div id="quests-body"></div>
     </div>
   </section>
-  <section id="loadout" class="overlay top" hidden>
+  <section id="hero" class="overlay top" hidden>
     <div class="wrap">
       <div class="head">
-        <div><p class="eyebrow" id="lo-eyebrow"></p><h2>換技能</h2></div>
-        <button class="chip" id="lo-close" type="button">關閉</button>
+        <div><p class="eyebrow" id="hero-eyebrow"></p><h2 id="hero-name">角色</h2></div>
+        <button class="chip" id="hero-close" type="button">關閉</button>
       </div>
-      <p class="lore">一般技能帶三個，大招帶一個。先點上面要換掉的格子，再點下面的技能。新技能隨等級解鎖。</p>
-      <div class="cards four" id="lo-slots"></div>
-      <div id="lo-body"></div>
-    </div>
-  </section>
-  <section id="talents" class="overlay top" hidden>
-    <div class="wrap">
-      <div class="head">
-        <div><p class="eyebrow" id="ta-eyebrow"></p><h2>天賦</h2></div>
-        <button class="chip" id="ta-close" type="button">關閉</button>
+      <div class="tabs big" id="hero-tabs">
+        <button class="mini" id="tab-equip" type="button">裝備</button>
+        <button class="mini" id="tab-bag" type="button">背包</button>
+        <button class="mini" id="tab-talents" type="button">天賦樹</button>
+        <button class="mini" id="tab-loadout" type="button">技能書</button>
       </div>
-      <p class="lore" id="ta-info"></p>
-      <div id="ta-body"></div>
-      <div class="cta"><button class="btn ghost" id="ta-reset" type="button">重置天賦</button></div>
+      <div class="pane" id="equip" hidden><div class="pane" id="equip-body"></div></div>
+      <div class="pane" id="bag" hidden><div class="pane" id="bag-body"></div></div>
+      <div class="pane" id="talents" hidden>
+        <p class="lore" id="ta-info"></p>
+        <div class="pane" id="ta-body"></div>
+        <div class="cta"><button class="btn ghost" id="ta-reset" type="button">重置天賦</button></div>
+      </div>
+      <div class="pane" id="loadout" hidden>
+        <p class="lore">一般技能帶三個，大招帶一個。先點上面要換掉的格子，再點下面的技能。新技能隨等級解鎖。</p>
+        <div class="cards four" id="lo-slots"></div>
+        <div class="pane" id="lo-body"></div>
+      </div>
     </div>
   </section>
   <section id="shop" class="overlay top" hidden>
@@ -465,15 +475,6 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       </div>
       <p class="lore">「東西放我這，標個價。有人付錢我就寄給你，抽一點秤錢。」</p>
       <div id="ah-body"></div>
-    </div>
-  </section>
-  <section id="bag" class="overlay top" hidden>
-    <div class="wrap">
-      <div class="head">
-        <div><p class="eyebrow">材料和工坊</p><h2>背包</h2></div>
-        <button class="chip" id="bag-close" type="button">關閉</button>
-      </div>
-      <div id="bag-body"></div>
     </div>
   </section>
   <div id="toast" hidden role="status"><span id="toast-msg"></span><span id="toast-btns"></span></div>
@@ -542,14 +543,14 @@ const inviteRoom = cleanCode(qs.get('room'));   // opened from a friend's invite
 const readyQuests = () => S.questList(save, Date.now(), online).items.filter(x => x.ready).map(x => x.title);
 function newlyDone(change) { const before = readyQuests(); change(); levelCheck(); return readyQuests().filter(t => !before.includes(t)); }
 /* Gear or talents changed: in a field this device runs, the body out there follows. (A party's field is refitted by the server.) */
-function refitMe() { if (mode === 'field' && V && V.me && V.me.def) S.refit(V.me, save.cl, S.charPower(save), S.modsFor(save, save.cls)); }
+function refitMe() { if (mode === 'field' && V && V.me && V.me.def) { S.refit(V.me, save.cl, S.charPower(save), S.modsFor(save, save.cls), S.loadoutOf(save, save.cls)); buildHud(); } }
 /* Announce a level-up once, wherever the experience came from, and make it count straight away in the field. */
 let shownCl = 0;
 function levelCheck(quiet) {
   if (shownCl && !quiet && save.cl > shownCl) {
     banner(`升到 Lv.${save.cl}`, 2400); if (mode === 'field' && V && V.me) S.setLevel(V.me, save.cl, S.charPower(save));
     const d = CLASSES[save.cls], fresh = d ? d.pool.concat(d.ults).map(id => S.SKILLS[id]).filter(k => k.lv > shownCl && k.lv <= save.cl) : [];
-    if (fresh.length) toast(`解鎖新技能：${fresh.map(k => k.name).join('、')}。到主選單的「換技能」換上。`, [], 5000);
+    if (fresh.length) toast(`解鎖新技能：${fresh.map(k => k.name).join('、')}。打開「角色」的技能書換上。`, [], 5000);
   }
   shownCl = save.cl;
 }
@@ -849,17 +850,17 @@ function onMsg(m) {
     }
     case 'crafted': {
       const done = newlyDone(() => applyProfile(m));
-      toast(String(m.msg || '') + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); refitMe(); renderBag(); if (!$('#menu').hidden) renderMenu();
+      toast(String(m.msg || '') + (done.length ? `任務完成：${done.join('、')}。` : ''), [], done.length ? 4500 : 3000); refitMe(); renderEquip(); renderBag(); if (!$('#menu').hidden) renderMenu();
       break;
     }
-    case 'loadout': applyProfile(m); if (!m.ok) toast(String(m.msg || ''), [], 4000); renderLoadout(); if (!$('#menu').hidden) renderMenu(); break;
+    case 'loadout': applyProfile(m); if (!m.ok) toast(String(m.msg || ''), [], 4000); refitMe(); renderLoadout(); if (!$('#menu').hidden) renderMenu(); break;
     case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && inField() && Story.SCENES[id]) say(Story.SCENES[id].lines); break; }
     case 'fy': { const done = newlyDone(() => applyProfile(m)); if (inField() && m.ok) showYield(m.mats || {}, done, m.xp, m.coin, m.item); if (m.item && m.item.up) refitMe(); break; }
     case 'loot': onLoot(m); break;
     case 'mail': net.mail = m; net.unread = m.list.filter(x => !x.read).length; mailBadge(); renderMail(); break;
     case 'ah': net.ah = m; renderAh(); break;
     case 'bk': if (typeof m.bk === 'string') { box.key.bk = m.bk; writeSave(); } break;
-    case 'ack': if (m.what === 'mail' && m.ok && mf.sent) { mf.text = ''; mf.coin = ''; mf.key = ''; mf.qty = '1'; mf.item = '-1'; } mf.sent = false; applyProfile(m); toast(String(m.msg || ''), [], m.ok ? 2600 : 4000); refitMe(); renderTalents(); renderShop(); renderBag(); renderMail(); renderAh(); if (!$('#menu').hidden) renderMenu(); break;
+    case 'ack': if (m.what === 'mail' && m.ok && mf.sent) { mf.text = ''; mf.coin = ''; mf.key = ''; mf.qty = '1'; mf.item = '-1'; } mf.sent = false; applyProfile(m); toast(String(m.msg || ''), [], m.ok ? 2600 : 4000); refitMe(); renderEquip(); renderTalents(); renderShop(); renderBag(); renderMail(); renderAh(); if (!$('#menu').hidden) renderMenu(); break;
     case 'social': net.social = m; renderSocial(); renderMail(); break;
     case 'note': toast(String(m.msg || ''), [], 3500); break;
     case 'invited':
@@ -880,7 +881,7 @@ function onMsg(m) {
       m.roster.forEach((r, i) => {
         const old = V.actors[i];
         if (!r) { if (old) old.out = true; else V.actors[i] = seatView(null, i, V.lvl, FD.spawn); }
-        else if (old && !old.ghost && !old.out && old.name === r.name && old.cls === r.cls) { old.lvl = r.lvl; old.maxHp = r.maxHp; }
+        else if (old && !old.ghost && !old.out && old.name === r.name && old.cls === r.cls) { old.lvl = r.lvl; old.maxHp = r.maxHp; if (r.spd > 0) old.spd = r.spd; if (Array.isArray(r.skills) && r.skills.length === 4 && r.skills.every(id => S.SKILLS[id])) old.skills = r.skills.map(id => S.SKILLS[id]); }
         else if (i !== meIdx) { if (old && old.out && !r) return; if (!old || old.ghost || old.out) banner(`${r.name} 加入了隊伍`, 1800); V.actors[i] = seatView(r, i, V.lvl, old ? [old.sx, old.sy] : FD.spawn); }
       });
       buildHud();
@@ -1328,7 +1329,7 @@ const CLASS_BLURB = {
   dps: '帶著餘燼的弓手。站得遠、打得痛，靠走位活命。三個職業裡最容易上手。'
 };
 let selDel = 0, crCls = 'dps';
-function hideScreens() { for (const id of ['menu', 'lobby', 'result', 'chars', 'create']) $('#' + id).hidden = true; }
+function hideScreens() { for (const id of ['menu', 'lobby', 'result', 'chars', 'create']) $('#' + id).hidden = true; closeHero(); }
 function clearStage() {
   mode = null; G = null; V = null; $('#bossbar').hidden = true; $('#threat').hidden = true; $('#banner').classList.add('off');
   delete $('#app').dataset.mode; talk.lines = null; talk.done = null; gateOpen = false; $('#talk').hidden = true; $('#gatebox').hidden = true; $('#act').hidden = true;
@@ -1521,11 +1522,38 @@ function renderSocial() {
 }
 
 /* ---------- talents ---------- */
-function openTalents() { $('#talents').hidden = false; renderTalents(); }
+/* ---------- the character panel: gear, bag, talents and skills in one place, from the home page or out in the field ---------- */
+const HERO_TABS = ['equip', 'bag', 'talents', 'loadout'];
+let heroTab = 'equip';
+function openHero(tab) {
+  heroTab = HERO_TABS.includes(tab) ? tab : heroTab; lo.cls = save.cls; $('#hero').hidden = false;
+  for (const k of HERO_TABS) { $('#' + k).hidden = k !== heroTab; $('#tab-' + k).classList.toggle('on', k === heroTab); }
+  $('#hero-eyebrow').textContent = `${CLASSES[save.cls].name}　Lv.${save.cl}`; $('#hero-name').textContent = save.nick || '角色';
+  renderEquip(); renderBag(); renderTalents(); renderLoadout();
+}
+function closeHero() { $('#hero').hidden = true; for (const k of ['equip', 'bag', 'talents', 'loadout']) $('#' + k).hidden = true; }
+const openBag = () => openHero('bag'), openLoadout = () => { lo.sel = 0; openHero('loadout'); }, openTalents = () => openHero('talents');
+const MOD_NAME = { hp: '生命', dmg: '造成的傷害', heal: '治療量', taken: '受到的傷害', speed: '移動速度', threat: '仇恨', ult: '大招充能', cdr: '技能冷卻' };
+function renderEquip() {
+  if ($('#equip').hidden) return;
+  const body = $('#equip-body'), d = CLASSES[save.cls], m = S.modsFor(save, save.cls), pow = S.charPower(save); body.textContent = '';
+  const dl = el('dl', 'stats');
+  for (const [k, v] of [['等級', 'Lv.' + save.cl], ['平均裝等', S.ilvlOf(save.gear)], ['生命', Math.round(d.hp * pow * m.hp).toLocaleString()], ['強度', '×' + pow.toFixed(2)]]) { const x = el('div'); x.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(x); }
+  body.appendChild(dl);
+  const plus = Object.keys(MOD_NAME).filter(k => Math.abs(m[k] - 1) > 1e-9).map(k => `${MOD_NAME[k]} ${m[k] > 1 ? '+' : ''}${Math.round((m[k] - 1) * 100)}%`);
+  body.appendChild(el('p', 'gear', plus.length ? '天賦和套裝的加成：' + plus.join('、') : '還沒有天賦或套裝的加成。'));
+  const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', '身上穿的'), ul);
+  for (const k of S.SLOTS) { const best = save.bag.reduce((b, it, i) => it.s === k && it.il > save.gear[k] && (b < 0 || it.il > save.bag[b].il) ? i : b, -1);
+    ul.appendChild(itemRow(S.wornItem(save, k), `${S.SLOT_NAME[k]}・穿著`, best >= 0 ? [[`換上背包的 ${save.bag[best].il}`, () => itemDo('equip', best), 'go', 'equip-best-' + k]] : [], 'worn')); }
+  const sets = el('ul', 'sets');
+  for (const st of S.setList(save)) { const li = el('li'); li.append(el('b', st.have >= 2 ? 'on' : '', `${st.name}套裝 ${st.have}/3`), '　');
+    st.pieces.forEach((pc, i) => li.append(el('span', pc.on ? 'on' : '', pc.n), i < 2 ? '、' : '')); li.append(el('br'), el('span', st.have >= 2 ? 'on' : '', `兩件：${st.two}`), '　', el('span', st.have >= 3 ? 'on' : '', `三件：${st.three}`)); sets.appendChild(li); }
+  g.appendChild(sets); body.appendChild(g);
+}
+
 function renderTalents() {
   if ($('#talents').hidden) return;
   const cls = save.cls, list = S.TALENTS[cls], spent = S.talentSpent(save.talents), pts = S.talentPoints(save.cl), left = pts - spent, body = $('#ta-body'), waiting = online && !net.authed; body.textContent = '';
-  $('#ta-eyebrow').textContent = `${CLASSES[cls].name}　Lv.${save.cl}`;
   $('#ta-info').textContent = `每升一級得到一點天賦。還剩 ${left} 點，已經用了 ${spent} 點。下面的每一排要先投入足夠的點數才會開放。`;
   for (let row = 0; row < 3; row++) {
     const g = el('div', 'group'), ul = el('ul', 'recipes'), open = spent >= row * 3; g.append(el('h3', '', row ? `第 ${row + 1} 排　${open ? '已開放' : `再投入 ${row * 3 - spent} 點開放`}` : '第 1 排'), ul);
@@ -1535,7 +1563,7 @@ function renderTalents() {
       const b = el('button', 'mini' + (open && left > 0 && have < t.max ? ' go' : ''), have >= t.max ? '點滿了' : '加一點'); b.type = 'button'; b.id = 'ta-' + t.id; b.disabled = !open || left <= 0 || have >= t.max || waiting;
       b.addEventListener('click', () => {
         b.disabled = true; if (online) return send({ t: 'talent', id: t.id });       // the server keeps the talents
-        const r = S.learnTalent(save, cls, t.id); writeSave(); if (!r.ok) toast(r.msg, [], 3500); renderTalents();
+        const r = S.learnTalent(save, cls, t.id); writeSave(); refitMe(); if (!r.ok) toast(r.msg, [], 3500); renderTalents(); renderEquip();
       });
       li.append(left2, b); ul.appendChild(li);
     }
@@ -1545,7 +1573,7 @@ function renderTalents() {
 }
 function resetTalents() {
   if (online) return send({ t: 'talent-reset' });
-  const r = S.resetTalents(save); writeSave(); toast(r.msg, [], 3000); renderTalents(); renderMenu();
+  const r = S.resetTalents(save); writeSave(); refitMe(); toast(r.msg, [], 3000); renderTalents(); renderEquip(); renderMenu();
 }
 
 /* ---------- the merchant ---------- */
@@ -1664,11 +1692,10 @@ function renderAh() {
 /* ---------- skill loadout ---------- */
 const AIM_HINT = { self: '按下就放', enemy: '可拖曳選敵人', ally: '可拖曳選隊友', point: '可拖曳選位置', dir: '可拖曳選方向' };
 const lo = { cls: 'dps', sel: 0 };
-function openLoadout() { lo.cls = chosen; lo.sel = 0; $('#loadout').hidden = false; renderLoadout(); }
 function renderLoadout() {
   if ($('#loadout').hidden) return;
   const d = CLASSES[lo.cls], ids = S.loadoutOf(save, lo.cls), slots = $('#lo-slots'), body = $('#lo-body'), waiting = online && !net.authed;
-  $('#lo-eyebrow').textContent = `${d.name}　Lv.${save.cl}`; slots.textContent = ''; body.textContent = '';
+  slots.textContent = ''; body.textContent = '';
   ids.forEach((id, i) => {
     const k = S.SKILLS[id], b = el('button', 'card'); b.type = 'button'; b.id = 'lo-slot' + i; b.setAttribute('aria-pressed', String(i === lo.sel));
     const seal = el('b', '', k.seal); seal.style.color = i === 3 ? C.brass : C[d.color]; b.append(seal, el('span', '', k.name), el('small', '', i === 3 ? '大招' : `第 ${i + 1} 格`));
@@ -1684,7 +1711,7 @@ function renderLoadout() {
       b.addEventListener('click', () => {
         const next = ids.slice(), slot = ult ? 3 : lo.sel < 3 ? lo.sel : 0; next[slot] = id; lo.sel = slot; b.disabled = true;
         if (online) return send({ t: 'loadout', cls: lo.cls, skills: next });      // the server keeps the loadout
-        const r = S.setLoadout(save, lo.cls, next); writeSave(); if (!r.ok) toast(r.msg, [], 4000); renderLoadout(); renderMenu();
+        const r = S.setLoadout(save, lo.cls, next); writeSave(); refitMe(); if (!r.ok) toast(r.msg, [], 4000); renderLoadout(); renderMenu();
       });
       li.append(left, b); ul.appendChild(li);
     }
@@ -1693,19 +1720,12 @@ function renderLoadout() {
 }
 
 /* ---------- bag and workshop ---------- */
-function openBag() { $('#bag').hidden = false; renderBag(); }
 function renderBag() {
   if ($('#bag').hidden) return;
   const body = $('#bag-body'), inv = save.inv, waiting = online && !net.authed; body.textContent = '';
   const dl = el('dl', 'stats');
   for (const [k, v] of [[S.MATS.scrap, inv.scrap], [S.MATS.salt, inv.salt], [S.MATS.herb, inv.herb], [S.MATS.shard, inv.shard], ['潮息藥水', `${inv.potion} / ${S.POTION_CAP}`], ['鐘幣', save.coin]]) { const d = el('div'); d.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(d); }
   body.append(dl, el('p', 'lore', `鏽鐵屑、鹽晶、潮草可以在鏽灘採到。沉鐘碎片只有塔裡有，三分鐘內通關一定掉。淬鍊的上限跟著層數走，第 ${save.lvl} 層是裝等 ${S.gearCap(save.lvl)}。`));
-  { const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', '身上穿的'), ul);
-    for (const k of S.SLOTS) ul.appendChild(itemRow(S.wornItem(save, k), `${S.SLOT_NAME[k]}・穿著`, [], 'worn'));
-    const sets = el('ul', 'sets');
-    for (const st of S.setList(save)) { const li = el('li'); li.append(el('b', st.have >= 2 ? 'on' : '', `${st.name}套裝 ${st.have}/3`), '　');
-      st.pieces.forEach((pc, i) => li.append(el('span', pc.on ? 'on' : '', pc.n), i < 2 ? '、' : '')); li.append(el('br'), el('span', st.have >= 2 ? 'on' : '', `兩件：${st.two}`), '　', el('span', st.have >= 3 ? 'on' : '', `三件：${st.three}`)); sets.appendChild(li); }
-    g.appendChild(sets); body.appendChild(g); }
   { const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', `背包裡的裝備　${save.bag.length} / ${S.BAG_CAP}`));
     save.bag.forEach((it, i) => { const d = it.il - save.gear[it.s];
       ul.appendChild(itemRow(it, `${S.SLOT_NAME[it.s]}・比身上的${d > 0 ? '高 ' + d : d < 0 ? '低 ' + -d : '一樣'}`, [['換上', () => itemDo('equip', i), d > 0 ? 'go' : '', 'bag-equip-' + i]])); });
@@ -1734,7 +1754,7 @@ function itemRow(it, sub, acts, cls) {
 function itemDo(op, i) {
   if (mode === 'online' && V && !inField() && !V.result) return toast('副本裡不能換裝備。', [], 2500);
   if (online) return send({ t: 'item', op, i });
-  const r = op === 'sell' ? S.sellItem(save, i) : S.equipItem(save, i); writeSave(); refitMe(); toast(r.msg, [], r.ok ? 2600 : 4000); renderBag(); renderShop(); renderMenu();
+  const r = op === 'sell' ? S.sellItem(save, i) : S.equipItem(save, i); writeSave(); refitMe(); toast(r.msg, [], r.ok ? 2600 : 4000); renderEquip(); renderBag(); renderShop(); renderMenu();
 }
 function doCraft(id) {
   if (online) return send({ t: 'craft', id });        // the server owns the bag
@@ -1811,7 +1831,7 @@ function renderPile() {
   g.appendChild(ul);
 }
 function onLoot(m) {
-  if (m.profile) { applyProfile(m); if (!$('#menu').hidden) renderMenu(); renderBag(); }
+  if (m.profile) { applyProfile(m); if (!$('#menu').hidden) renderMenu(); renderEquip(); renderBag(); }
   if (!pile || pile.id !== m.L || !pile.items[m.i]) { if (m.give) toast('你分到了一件裝備，在背包裡。', [], 3500); return; }
   pile.out[m.i] = { win: m.win, rolls: m.rolls, give: m.give }; renderPile();
 }
@@ -1914,13 +1934,14 @@ $('#mail-btn').addEventListener('click', openMail);
 $('#mail-close').addEventListener('click', () => { $('#mail').hidden = true; });
 $('#ah-close').addEventListener('click', () => { $('#ah').hidden = true; });
 $('#so-close').addEventListener('click', closeSocial);
-$('#bag-btn').addEventListener('click', openBag);
+$('#hero-open').addEventListener('click', () => openHero('equip'));
+$('#hero-btn').addEventListener('click', () => { if (inField() && !talk.lines) openHero(); });
+$('#hero-close').addEventListener('click', closeHero);
+for (const k of HERO_TABS) $('#tab-' + k).addEventListener('click', () => openHero(k));
 $('#lo-open').addEventListener('click', openLoadout);
 $('#ta-open').addEventListener('click', openTalents);
-$('#ta-close').addEventListener('click', () => { $('#talents').hidden = true; });
 $('#ta-reset').addEventListener('click', resetTalents);
 $('#shop-close').addEventListener('click', () => { $('#shop').hidden = true; });
-$('#lo-close').addEventListener('click', () => { $('#loadout').hidden = true; });
 $('#go-field').addEventListener('click', () => { const code = cleanCode($('#room').value); if (online && net.authed && code) goField(code); else startField(); });
 $('#gate-party').addEventListener('click', () => { chosen = save.cls; goOnline(V.code); });
 $('#act').addEventListener('click', doAct);
@@ -1931,7 +1952,6 @@ $('#gate-online').addEventListener('click', () => { chosen = save.cls; goOnline(
 $('#quests-btn').addEventListener('click', openQuests);
 $('#m-quest').addEventListener('click', openQuests);
 $('#quests-close').addEventListener('click', () => { $('#quests').hidden = true; });
-$('#bag-close').addEventListener('click', () => { $('#bag').hidden = true; });
 $('#pot').addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); act({ p: 1 }); });
 $('#room').addEventListener('input', () => renderMenu());
 let quitArm = 0;

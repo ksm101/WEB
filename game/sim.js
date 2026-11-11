@@ -170,8 +170,8 @@ function scaleMob(e, lvl, size) { const k = e.maxHp ? e.hp / e.maxHp : 1; e.lvl 
 /* Who is actually in the field (a seat whose player left stays in the list, marked out), and the level creatures follow. */
 const present = G => G.actors.filter(a => !a.out);
 function partyLevel(G) { const ps = present(G); return ps.length ? Math.max(1, Math.round(ps.reduce((n, a) => n + a.lvl, 0) / ps.length)) : 1; }
-/* Gear or talents changed while out in the world: new strength, the same share of health. */
-function refit(a, lvl, pow, mods) { const k = a.maxHp ? a.hp / a.maxHp : 1; a.lvl = lvl; a.pow = pow; if (mods) a.mods = mods; a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.alive ? Math.max(1, R(a.maxHp * k)) : 0; }
+/* Gear, talents or skills changed while out in the world: new strength, the same share of health. Cooldowns stay with their slots. */
+function refit(a, lvl, pow, mods, skills) { const k = a.maxHp ? a.hp / a.maxHp : 1; a.lvl = lvl; a.pow = pow; if (mods) a.mods = mods; if (skills) a.skills = skillSet(a.cls, skills); a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.alive ? Math.max(1, R(a.maxHp * k)) : 0; }
 function setLevel(a, lvl, pow) { a.lvl = lvl; a.pow = pow; a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.maxHp; }   // levelling up refills your health
 
 const inCamp = p => Math.hypot(p.x - FIELD.safe.x, p.y - FIELD.safe.y) < FIELD.safe.r;
