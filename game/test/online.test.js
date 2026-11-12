@@ -66,6 +66,35 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     Sim.setLevel(Gf.actors[0], 25, Sim.lvF(25)); Sim.step(Gf, 1 / 30); assert.strictEqual(e0.lvl, Sim.FIELD.packs[0].max, 'and stop at their cap'); }
   ok('levels: curve and cap, creatures scale with the player inside a range, weak creatures give little experience');
 
+  // the numbers as data: export, change, clamp, ignore rubbish, put back
+  { const canon = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {}) : x), base = Sim.exportData();
+    Sim.applyData(base); assert.strictEqual(canon(Sim.exportData()), canon(base), 'applying what was exported changes nothing');
+    for (const junk of [null, 7, 'x', [], { tune: 'x', skills: { blast: 5 }, enemies: [], field: { packs: 'no', nodes: [1, null] }, sets: 3, talents: { dps: 'x' }, shop: { buy: [] }, quests: { main: [{}] }, waves: [[]] }]) Sim.applyData(junk);
+    assert.strictEqual(canon(Sim.exportData()), canon(base), 'rubbish is ignored');
+    Sim.applyData({ tune: { towerLevel: 5, bagCap: 9999, nope: 1 }, skills: { blast: { cd: 2, mul: 9, name: '<b>大爆</b>', aim: 'self', fn: 'x' } }, enemies: { crab: { hp: 777, xp: 50 } }, drop: { field: 2 }, classes: { dps: { hp: -5 } },
+      shop: { buy: { potion: 10, gold: 5 } }, recipes: [{ id: 'potion', cost: { herb: 1 } }, { id: 'nope', cost: { herb: 1 } }], quests: { main: [{ id: 'bell', need: 2, reward: { coin: 99, hack: 5 } }] },
+      plain: { w: ['新劍', '新劍', ''] }, sets: { moon: { name: '月潮', pieces: { w: '月刃', a: '月衣', t: '月環' }, two: ['dmg', .1, '傷害 +10%'], three: ['hp', .2, '生命 +20%'] }, bad: { name: 'x', pieces: { w: '新劍', a: 'a', t: 'b' }, two: ['dmg', .1], three: ['hp', .1] } },
+      talents: { dps: [{ id: 'd-x', row: 0, max: 5, name: '新招', eff: ['dmg', .1], desc: '傷害' }, { id: 'bad id', row: 0, max: 1, name: 'x', eff: ['dmg', .1] }, { id: 'd-y', row: 0, max: 1, name: 'y', eff: ['cd:mend', -.1] }] },
+      waves: [[['grunt', 1]], [['grunt', 1]], [['dragon', 3], ['caster', 2]], [['boss', 1]]],
+      field: { gate: { x: 300, y: 200 }, packs: [{ kind: 'crab', x: 100, y: 100, n: 2, min: 9, max: 3 }, { kind: 'dragon', x: 1, y: 1, n: 1, min: 1, max: 1 }], nodes: [{ id: 1, type: 'herb', x: 50, y: 60 }, { id: 1, type: 'salt', x: 70, y: 80 }, { id: 2, type: 'gold', x: 1, y: 1 }], npcs: [{ id: 'kol', x: 400, y: 1300 }], rocks: [] } });
+    assert.strictEqual(Sim.TOWER_LEVEL, 5); assert.strictEqual(Sim.BAG_CAP, 40, 'a number outside its bounds is pulled back in'); assert.strictEqual(Sim.TUNE.nope, undefined);
+    assert.strictEqual(Sim.SKILLS.blast.cd, 2); assert.strictEqual(Sim.SKILLS.blast.mul, 9); assert.strictEqual(Sim.SKILLS.blast.name, 'b大爆/b'); assert.strictEqual(Sim.SKILLS.blast.aim, 'enemy', 'how a skill works is not data'); assert.strictEqual(Sim.SKILLS.blast.fn, undefined);
+    assert.strictEqual(Sim.ENEMY.crab.hp, 777); assert.strictEqual(Sim.xpForKill('crab', 1, 1), 50); assert.strictEqual(Sim.DROP.field, 1); assert.strictEqual(Sim.CLASSES.dps.hp, 1);
+    assert.deepStrictEqual(Sim.SHOP.buy, { potion: 10 }); assert.deepStrictEqual(Sim.RECIPES.find(r => r.id === 'potion').cost, { herb: 1 });
+    { const p = Sim.fixProfile(Sim.newProfile()); assert.strictEqual(Sim.questList(p, 0, true).items[0].need, 2); assert.match(Sim.questList(p, 0, true).items[0].reward, /鐘幣 \+99/); assert.doesNotMatch(Sim.questList(p, 0, true).items[0].reward, /hack/); }
+    assert.deepStrictEqual(Sim.PLAIN.w, ['新劍']); assert.deepStrictEqual(Object.keys(Sim.SETS), ['moon'], 'a set whose piece shares a name with something else is refused');
+    assert.deepStrictEqual(Sim.fixItem({ s: 'w', il: 20, q: 0, n: '月刃' }), { s: 'w', il: 20, q: 0, n: '月刃' }); assert.strictEqual(Sim.fixItem({ s: 'w', il: 20, q: 0, n: '鏽潮錨刃' }), null, 'a name that was removed is no longer an item');
+    { const p = Sim.fixProfile(Sim.newProfile()); Sim.giveItem(p, { s: 'w', il: 20, q: 0, n: '月刃' }); Sim.giveItem(p, { s: 'a', il: 20, q: 0, n: '月衣' }); assert.ok(Math.abs(Sim.modsFor(p, 'dps').dmg - 1.1) < 1e-9, 'a new set gives its bonus'); }
+    assert.deepStrictEqual(Sim.TALENTS.dps.map(t => t.id), ['d-x'], 'talents with a bad id or another class\'s skill are dropped'); assert.strictEqual(Sim.modsOf({ 'd-x': 5 }, 'dps').dmg, 1.5);
+    assert.deepStrictEqual(Sim.WAVES[2], [['caster', 2]]); assert.deepStrictEqual(Sim.FIELD.gate, Object.assign({}, Sim.FIELD.gate, { x: 300, y: 200 }));
+    assert.deepStrictEqual(Sim.FIELD.packs, [{ kind: 'crab', x: 100, y: 100, n: 2, min: 3, max: 9 }]); assert.deepStrictEqual(Sim.FIELD.nodes, [{ id: 1, type: 'herb', x: 50, y: 60 }]); assert.deepStrictEqual(Sim.FIELD.rocks, []);
+    assert.strictEqual(Sim.FIELD.npcs.find(n => n.id === 'kol').x, 400);
+    { const G = Sim.createField({ lvl: 1, player: { cls: 'dps', name: 'x', pow: 1, id: 'a', lvl: 1 } }); assert.strictEqual(G.enemies.length, 2); assert.strictEqual(G.enemies[0].maxHp, Math.round(777 * Sim.lvF(3))); for (let i = 0; i < 60; i++) Sim.step(G, 1 / 30); }
+    { const G = Sim.createRun({ lvl: 1, players: [{ cls: 'dps', name: 'x', pow: 1, id: 'a', lvl: 1 }] }); while (G.state !== 'run') Sim.step(G, 1 / 30); assert.deepStrictEqual(G.enemies.map(e => e.kind), ['grunt'], 'the tower spawns what the data says'); for (let i = 0; i < 300; i++) Sim.step(G, 1 / 30); }
+    Sim.applyData(base); assert.strictEqual(canon(Sim.exportData()), canon(base), 'and the defaults can be put back');
+    ok('data: every editable number exports and applies; bounds, kinds and names are enforced; the game runs on the changed tables');
+  }
+
   // accounts
   const A = await named(port, '小明', 'dps'), B = await named(port, '<b>壞</b>名字超級長', 'heal');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);

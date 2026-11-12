@@ -351,6 +351,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
         <button class="chip" id="hero-open" type="button">角色</button>
         <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
         <button class="chip" id="mail-btn" type="button" hidden>信箱<b id="mail-badge" hidden></b></button>
+        <button class="chip" id="ed-open" type="button">編輯器</button>
       </div>
       <div class="lvrow"><b id="m-cl">Lv.1</b><span class="xpbar"><i id="m-xpbar"></i></span><small id="m-xp"></small></div>
       <div class="run"><b>沉鐘塔</b><span id="m-lvl">第 1 層</span><small id="m-best"></small></div>
@@ -380,6 +381,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
           <button class="btn ghost" id="ch-new" type="button">創建角色</button>
           <button class="btn ghost" id="ch-del" type="button">刪除角色</button>
         </div>
+        <button class="btn ghost" id="ed-open2" type="button">編輯器（改數值、道具、地圖）</button>
         <p class="note" id="ch-note"></p>
       </div>
     </div>
@@ -523,8 +525,16 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
   <div id="toast" hidden role="status"><span id="toast-msg"></span><span id="toast-btns"></span></div>
 </div>
 
+<script src="data.js"></script>
 <script src="sim.js"></script>
+<script>
+/* What the editor saved on this device goes on top of the committed numbers. It only counts for play without a
+ * server: once a server answers, the page goes back to the committed numbers, because the server uses those. */
+window.__baseData = Sim.exportData(); window.__dataLocal = false;
+try { const d = localStorage.getItem('embertide.data'); if (d) { Sim.applyData(JSON.parse(d)); window.__dataLocal = true; } } catch (e) {}
+</script>
 <script src="story.js"></script>
+<script src="editor.js"></script>
 <script>
 (() => {
 'use strict';
@@ -593,7 +603,7 @@ function levelCheck(quiet) {
   if (shownCl && !quiet && save.cl > shownCl) {
     banner(`升到 Lv.${save.cl}`, 2400); if (mode === 'field' && V && V.me) S.setLevel(V.me, save.cl, S.charPower(save));
     const d = CLASSES[save.cls], fresh = d ? d.pool.concat(d.ults).map(id => S.SKILLS[id]).filter(k => k.lv > shownCl && k.lv <= save.cl) : [];
-    const news = []; if (shownCl < TOWER_LV && save.cl >= TOWER_LV) { news.push('沉鐘塔開放了：點畫面上的「副本」找隊伍，等的時候照常活動。'); $('#finder-btn').classList.add('fresh'); }
+    const news = []; if (shownCl < towerLv() && save.cl >= towerLv()) { news.push('沉鐘塔開放了：點畫面上的「副本」找隊伍，等的時候照常活動。'); $('#finder-btn').classList.add('fresh'); }
     if (fresh.length) news.push(`解鎖新技能：${fresh.map(k => k.name).join('、')}。打開「角色」的技能書換上。`);
     if (news.length) toast(news.join(''), [], 6500);
   }
@@ -681,7 +691,7 @@ function enterRun() {
   resize(); buildHud();
 }
 function startSolo(cls) {
-  if (!towerOpen()) return toast(`沉鐘塔要 Lv.${TOWER_LV} 才開放，你現在 Lv.${save.cl}。`, [], 4000);
+  if (!towerOpen()) return toast(`沉鐘塔要 Lv.${towerLv()} 才開放，你現在 Lv.${save.cl}。`, [], 4000);
   markOrigin(); if (net.authed && mode === 'online') send({ t: 'leave' }); else leaveQueue();
   clearQueue(); closePort(); $('#endchip').hidden = true;
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
@@ -840,7 +850,7 @@ function serverUrl() { return qs.get('server') || ((location.protocol === 'https
 function probe() {   // only offer online play when a game server answers
   if (location.protocol === 'file:' && !qs.get('server')) return;
   const u = qs.get('server') ? qs.get('server').replace(/^ws/, 'http').replace(/\/ws$/, '/health') : 'health';
-  fetch(u, { cache: 'no-store' }).then(r => r.json()).then(j => { if (j && j.embertide) { online = true; connect(); if (!$('#menu').hidden) renderMenu(); } }).catch(() => {});
+  fetch(u, { cache: 'no-store' }).then(r => r.json()).then(j => { if (j && j.embertide) { online = true; if (window.__dataLocal) S.applyData(window.__baseData); connect(); if (!$('#menu').hidden) renderMenu(); } }).catch(() => {});
 }
 function send(o) { const ws = net.ws; if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 /* One connection stays open the whole time the page is: sign-in, friends, invites and the dungeon all use it. */
@@ -862,7 +872,7 @@ function goOnline(roomOverride) {
   if (!net.authed) return;
   const fixed = typeof roomOverride === 'string', room = fixed ? cleanCode(roomOverride) : cleanCode($('#room').value);
   if (fixed) net.roomHint = room; else box.room = room; writeSave();
-  if (!towerOpen()) return toast(`沉鐘塔要 Lv.${TOWER_LV} 才開放，你現在 Lv.${save.cl}。`, [], 4000);
+  if (!towerOpen()) return toast(`沉鐘塔要 Lv.${towerLv()} 才開放，你現在 Lv.${save.cl}。`, [], 4000);
   lastMode = 'online'; net.queueing = true;
   const join = () => { showLobby(null); send({ t: 'join', cls: save.cls, room }); };
   if (inField() || (V && V.result)) return join();    // out in the world, or still inside a finished tower: keep doing what you were doing while the group forms
@@ -1492,9 +1502,9 @@ function createChar() {
 let chosen = 'dps', menuMsg = '';
 const NOTE_SOLO = `進入世界後，在鏽灘打怪、採集、做任務。Lv.${S.TOWER_LEVEL} 起可以用畫面上的「副本」進沉鐘塔，隊友由 AI 補位。`, NOTE_ONLINE = `進入世界後，在鏽灘打怪、採集、做任務。Lv.${S.TOWER_LEVEL} 起可以用畫面上的「副本」找隊伍進沉鐘塔。`;
 /* The group finder: opened from the world (the 副本 button, or by walking up to the tower gate), never from the home page.
- * It opens at TOWER_LV; while you wait for a group you keep playing. */
-const TOWER_LV = qs.has('tower') ? Math.max(1, +qs.get('tower') || 1) : QUICK ? 1 : S.TOWER_LEVEL;
-const towerOpen = () => save.cl >= TOWER_LV;
+ * It opens at towerLv(); while you wait for a group you keep playing. */
+const towerLv = () => qs.has('tower') ? Math.max(1, +qs.get('tower') || 1) : QUICK ? 1 : S.TOWER_LEVEL;      // read each time: the editor can change it
+const towerOpen = () => save.cl >= towerLv();
 function openFinder() {
   $('#finder-btn').classList.remove('fresh');
   if (net.queueing) { $('#lobby').hidden = false; return; }      // already waiting: show the group instead
@@ -1504,7 +1514,7 @@ function renderFinder() {
   $('#finder-btn').classList.toggle('locked', !towerOpen());
   if ($('#finder').hidden) return;
   const on = online && net.authed, open = towerOpen(), party = mode === 'online' && inField() && !!V.code, code = cleanCode($('#room').value);
-  $('#fd-info').textContent = !open ? `沉鐘塔要 Lv.${TOWER_LV} 才開放，你現在 Lv.${save.cl}。先在鏽灘打怪、採集、做任務，等級到了這裡就能找隊伍。`
+  $('#fd-info').textContent = !open ? `沉鐘塔要 Lv.${towerLv()} 才開放，你現在 Lv.${save.cl}。先在鏽灘打怪、採集、做任務，等級到了這裡就能找隊伍。`
     : `你打到第 ${save.lvl} 層，建議等級 Lv.${S.recLevel(save.lvl)}，你現在 Lv.${save.cl}。${on ? '排隊的時候照常活動，隊伍湊齊會直接帶你進塔。' : '這個版本沒有伺服器，隊友由 AI 擔任。'}`;
   $('#fd-acts').hidden = !open; $('#gate-party').hidden = !party; $('#gate-online').hidden = !on; $('#fields').hidden = !on; $('#fd-code').hidden = !on;
   $('#gate-solo').className = on ? 'btn ghost' : 'btn';
@@ -2052,6 +2062,9 @@ $('#mail-close').addEventListener('click', () => { $('#mail').hidden = true; });
 $('#ah-close').addEventListener('click', () => { $('#ah').hidden = true; });
 $('#so-close').addEventListener('click', closeSocial);
 $('#hero-open').addEventListener('click', () => openHero('equip'));
+for (const id of ['ed-open', 'ed-open2']) $('#' + id).addEventListener('click', () => { if (window.Editor) Editor.open(); });
+/* Back from the editor: with a server the committed numbers count again, and whatever is on screen is redrawn. */
+window.__editorClosed = () => { if (online && window.__dataLocal) S.applyData(window.__baseData); if (!$('#menu').hidden) renderMenu(); else if (!$('#chars').hidden) showChars(); renderFinder(); };
 $('#hero-btn').addEventListener('click', () => { if (inField() && !talk.lines) openHero(); });
 $('#hero-close').addEventListener('click', closeHero);
 for (const id of SHEETS) $('#' + id).addEventListener('click', ev => { if (ev.target === ev.currentTarget && inField()) closeSheet(id); });

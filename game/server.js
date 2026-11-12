@@ -9,6 +9,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const Sim = require('./sim.js');
+try { Sim.applyData(require('./data.js')); } catch (e) { console.warn('data.js could not be applied: ' + e.message); }      // the designer's numbers, over the defaults
 const { createStore } = require('./store.js');
 
 const TICK = 1 / 30;            // simulation step
@@ -23,7 +24,9 @@ const FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/sim.js': ['sim.js', 'text/javascript; charset=utf-8'],
-  '/story.js': ['story.js', 'text/javascript; charset=utf-8']
+  '/story.js': ['story.js', 'text/javascript; charset=utf-8'],
+  '/data.js': ['data.js', 'text/javascript; charset=utf-8'],
+  '/editor.js': ['editor.js', 'text/javascript; charset=utf-8']
 };
 
 const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : a; };

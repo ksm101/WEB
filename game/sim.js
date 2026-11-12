@@ -9,6 +9,9 @@
 
 const W = 360, H = 440, TIME_LIMIT = 180;
 const TAU = Math.PI * 2, R = Math.round;
+/* Rules that are a single number. Like every table in this file they can be changed by applyData() (see the end). */
+const TUNE = { towerLevel: 3, maxLevel: 30, lvStep: .06, xpBase: 80, xpGrow: 45, xpPow: 1.6, towerStep: 1.13, trashDrop: .1,
+  gatherTime: 1.4, nodeRespawn: 45, mobRespawn: 25, potionCap: 5, potionHeal: .35, bagCap: 16, respecCost: 30 };
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -21,32 +24,32 @@ const pick = arr => arr[Math.floor(Math.random() * arr.length)];
  * or the ally who needs it most. `lv` is the character level that unlocks the skill; `fn` names a shared handler. */
 const SKILLS = {
   // 盾衛
-  taunt: { seal: '嘲', name: '嘲諷擊', cd: 6, aim: 'enemy', range: 24, lv: 1, desc: '重擊目標，並強迫它攻擊你 4 秒' },
-  wall: { seal: '牆', name: '盾牆', cd: 14, aim: 'self', lv: 1, desc: '4 秒內受到的傷害降低 60%' },
-  bash: { seal: '斷', name: '盾擊', cd: 10, aim: 'enemy', range: 72, kick: true, fn: 'kick', lv: 1, desc: '打斷身邊敵人的金色讀條' },
-  charge: { seal: '衝', name: '衝鋒', cd: 9, aim: 'dir', range: 150, w: 16, lv: 3, desc: '朝指定方向衝出去，撞到的敵人受傷並暈眩' },
-  quake: { seal: '震', name: '震地', cd: 8, aim: 'dir', range: 105, half: .7, lv: 5, desc: '砸向前方的扇形範圍，命中的敵人會轉向你' },
-  guard: { seal: '護', name: '援護', cd: 12, aim: 'ally', range: 230, lv: 8, desc: '替一名隊友套上護盾' },
-  tankUlt: { seal: '鐵', name: '鐵潮', ult: true, aim: 'self', lv: 1, desc: '全場敵人轉向你，全隊獲得護盾' },
-  anchor: { seal: '錨', name: '錨落', ult: true, aim: 'point', range: 170, rad: 80, lv: 10, desc: '把錨砸在指定位置，大範圍重傷並暈眩' },
+  taunt: { seal: '嘲', name: '嘲諷擊', cd: 6, aim: 'enemy', range: 24, lv: 1, mul: 2.4, dur: 4, desc: '重擊目標，並強迫它攻擊你 4 秒' },
+  wall: { seal: '牆', name: '盾牆', cd: 14, aim: 'self', lv: 1, dur: 4, pct: .6, desc: '4 秒內受到的傷害降低 60%' },
+  bash: { seal: '斷', name: '盾擊', cd: 10, aim: 'enemy', range: 72, kick: true, fn: 'kick', lv: 1, mul: 1, stun: 1.2, desc: '打斷身邊敵人的金色讀條' },
+  charge: { seal: '衝', name: '衝鋒', cd: 9, aim: 'dir', range: 150, w: 16, lv: 3, mul: 2.2, stun: .9, desc: '朝指定方向衝出去，撞到的敵人受傷並暈眩' },
+  quake: { seal: '震', name: '震地', cd: 8, aim: 'dir', range: 105, half: .7, lv: 5, mul: 2.6, dur: 3, desc: '砸向前方的扇形範圍，命中的敵人會轉向你' },
+  guard: { seal: '護', name: '援護', cd: 12, aim: 'ally', range: 230, lv: 8, amt: 360, desc: '替一名隊友套上護盾' },
+  tankUlt: { seal: '鐵', name: '鐵潮', ult: true, aim: 'self', lv: 1, amt: 260, dur: 5, desc: '全場敵人轉向你，全隊獲得護盾' },
+  anchor: { seal: '錨', name: '錨落', ult: true, aim: 'point', range: 170, rad: 80, lv: 10, mul: 8, stun: 1.5, desc: '把錨砸在指定位置，大範圍重傷並暈眩' },
   // 潮語者
-  mend: { seal: '泉', name: '湧泉', cd: 2.2, aim: 'ally', range: 600, lv: 1, desc: '治療一名隊友；短按會補血量最低的人' },
-  ring: { seal: '環', name: '潮環', cd: 9, aim: 'self', lv: 1, desc: '治療你身邊的所有隊友' },
-  seal: { seal: '斷', name: '鹽封', cd: 12, aim: 'enemy', range: 240, kick: true, fn: 'kick', lv: 1, desc: '打斷敵人的金色讀條' },
-  wave: { seal: '湧', name: '潮湧', cd: 7, aim: 'dir', range: 210, w: 22, lv: 3, desc: '朝指定方向推出一道潮水，傷害敵人並治療路上的隊友' },
-  pool: { seal: '靜', name: '靜水', cd: 14, aim: 'point', range: 190, rad: 70, lv: 5, desc: '在指定位置留下一片水域，5 秒內持續治療站在裡面的隊友' },
-  barrier: { seal: '幕', name: '潮幕', cd: 10, aim: 'ally', range: 600, lv: 8, desc: '替一名隊友套上護盾' },
-  healUlt: { seal: '漲', name: '漲潮', ult: true, aim: 'self', lv: 1, desc: '全隊回復一半血量，並救起倒地的隊友' },
-  surge: { seal: '逆', name: '逆潮', ult: true, aim: 'self', lv: 10, desc: '全隊獲得護盾，並在 5 秒內持續回血' },
+  mend: { seal: '泉', name: '湧泉', cd: 2.2, aim: 'ally', range: 600, lv: 1, amt: 280, desc: '治療一名隊友；短按會補血量最低的人' },
+  ring: { seal: '環', name: '潮環', cd: 9, aim: 'self', lv: 1, amt: 170, rad: 120, desc: '治療你身邊的所有隊友' },
+  seal: { seal: '斷', name: '鹽封', cd: 12, aim: 'enemy', range: 240, kick: true, fn: 'kick', lv: 1, mul: 1, stun: 1.2, desc: '打斷敵人的金色讀條' },
+  wave: { seal: '湧', name: '潮湧', cd: 7, aim: 'dir', range: 210, w: 22, lv: 3, mul: 3, amt: 150, desc: '朝指定方向推出一道潮水，傷害敵人並治療路上的隊友' },
+  pool: { seal: '靜', name: '靜水', cd: 14, aim: 'point', range: 190, rad: 70, lv: 5, amt: 45, dur: 5, desc: '在指定位置留下一片水域，5 秒內持續治療站在裡面的隊友' },
+  barrier: { seal: '幕', name: '潮幕', cd: 10, aim: 'ally', range: 600, lv: 8, amt: 320, desc: '替一名隊友套上護盾' },
+  healUlt: { seal: '漲', name: '漲潮', ult: true, aim: 'self', lv: 1, pct: .5, desc: '全隊回復一半血量，並救起倒地的隊友' },
+  surge: { seal: '逆', name: '逆潮', ult: true, aim: 'self', lv: 10, amt: 300, dur: 5, pct: .06, desc: '全隊獲得護盾，並在 5 秒內持續回血' },
   // 燼矢
-  blast: { seal: '爆', name: '爆燃箭', cd: 4, aim: 'enemy', range: 210, lv: 1, desc: '對目標造成大量傷害' },
+  blast: { seal: '爆', name: '爆燃箭', cd: 4, aim: 'enemy', range: 210, lv: 1, mul: 3.6, desc: '對目標造成大量傷害' },
   roll: { seal: '滾', name: '翻滾', cd: 6, aim: 'dir', range: 104, w: 10, lv: 1, desc: '朝指定方向翻滾，翻滾中不會受傷' },
-  snipe: { seal: '斷', name: '斷法箭', cd: 10, aim: 'enemy', range: 240, kick: true, fn: 'kick', lv: 1, desc: '打斷敵人的金色讀條' },
-  pierce: { seal: '穿', name: '穿刺箭', cd: 6, aim: 'dir', range: 250, w: 14, lv: 3, desc: '朝指定方向射出一箭，貫穿路上所有敵人' },
-  volley: { seal: '散', name: '散射', cd: 7, aim: 'dir', range: 160, half: .5, lv: 5, desc: '朝前方扇形範圍射出一排箭' },
-  mark: { seal: '印', name: '獵印', cd: 14, aim: 'enemy', range: 210, lv: 8, desc: '標記一個敵人，6 秒內所有人對它的傷害提高 25%' },
-  dpsUlt: { seal: '雨', name: '燼雨', ult: true, aim: 'point', range: 210, rad: 72, lv: 1, desc: '在指定位置降下 4 秒火雨' },
-  sunshot: { seal: '日', name: '貫日', ult: true, aim: 'dir', range: 320, w: 30, lv: 10, desc: '朝指定方向射出一道貫穿全場的重箭' }
+  snipe: { seal: '斷', name: '斷法箭', cd: 10, aim: 'enemy', range: 240, kick: true, fn: 'kick', lv: 1, mul: 1, stun: 1.2, desc: '打斷敵人的金色讀條' },
+  pierce: { seal: '穿', name: '穿刺箭', cd: 6, aim: 'dir', range: 250, w: 14, lv: 3, mul: 3.2, desc: '朝指定方向射出一箭，貫穿路上所有敵人' },
+  volley: { seal: '散', name: '散射', cd: 7, aim: 'dir', range: 160, half: .5, lv: 5, mul: 2.2, desc: '朝前方扇形範圍射出一排箭' },
+  mark: { seal: '印', name: '獵印', cd: 14, aim: 'enemy', range: 210, lv: 8, dur: 6, pct: .25, desc: '標記一個敵人，6 秒內所有人對它的傷害提高 25%' },
+  dpsUlt: { seal: '雨', name: '燼雨', ult: true, aim: 'point', range: 210, rad: 72, lv: 1, mul: 1.6, dur: 4, desc: '在指定位置降下 4 秒火雨' },
+  sunshot: { seal: '日', name: '貫日', ult: true, aim: 'dir', range: 320, w: 30, lv: 10, mul: 14, desc: '朝指定方向射出一道貫穿全場的重箭' }
 };
 for (const id of Object.keys(SKILLS)) SKILLS[id].id = id;
 /* color values are token names; the client maps them to its palette. pool = the regular skills a class can pick
@@ -115,21 +118,18 @@ const ENEMY = {
   grunt: { name: '鏽蝕水鬼', hp: 1000, dmg: 34, aspd: 1.3, range: 8, speed: 70, r: 13 },
   caster: { name: '鹽咒祭司', hp: 800, dmg: 150, aspd: 0, range: 165, speed: 60, r: 12, caster: true },
   // field creatures: tuned for one player; aggro and leash are distances
-  crab: { name: '鏽灘蟹', hp: 300, dmg: 20, aspd: 1.4, range: 6, speed: 64, r: 11, aggro: 95, leash: 300 },
-  acolyte: { name: '鹽咒學徒', hp: 240, dmg: 85, aspd: 0, range: 150, speed: 58, r: 11, aggro: 130, leash: 320, caster: true },
+  crab: { name: '鏽灘蟹', xp: 12, hp: 300, dmg: 20, aspd: 1.4, range: 6, speed: 64, r: 11, aggro: 95, leash: 300 },
+  acolyte: { name: '鹽咒學徒', xp: 16, hp: 240, dmg: 85, aspd: 0, range: 150, speed: 58, r: 11, aggro: 130, leash: 320, caster: true },
   brute: { name: '鏽錨巨蟹', hp: 2200, dmg: 34, aspd: 1.6, range: 10, speed: 54, r: 20, aggro: 200, leash: 9999, elite: true },     // only comes ashore with the surge
   boss: { name: '鏽潮看守者 莫葛', hp: 27000, dmg: 80, aspd: 1.5, range: 10, speed: 58, r: 28 }
 };
-const TOWER_LEVEL = 3;       // the level at which the tower, and the group finder for it, opens
 const PORTAL = { x: W / 2, y: 104, r: 26 };      // where the way out appears once 莫葛 is down
-const TRASH_DROP = .1;      // the chance that an ordinary creature in the tower leaves a piece of gear
 const WAVES = [ [['grunt', 3]], [['grunt', 2], ['caster', 1]], [['grunt', 2], ['caster', 2]], [['boss', 1]] ];
 const ROSTER = ['tank', 'heal', 'dps', 'dps'];
 const SPOTS = [[180, H - 150], [128, H - 84], [236, H - 96], [184, H - 58]];
 const BOT_NAMES = { tank: '柯爾', heal: '蜜拉', dps: ['阿燼', '小霧'] };
 
 /* ---------- the field: 鏽灘, the shore between the camp (south) and the tower gate (north) ---------- */
-const GATHER_TIME = 1.4, NODE_RESPAWN = 45, MOB_RESPAWN = 25;
 const SOLO_BOOST = { tank: 1.8, heal: 3.2, dps: 1 };   // alone in the field, tanks and healers hit harder so every class can hunt
 const FIELD = {
   w: 900, h: 1500,
@@ -156,16 +156,14 @@ const FIELD = {
  * Level comes from experience and is separate from how deep you have gone in the tower. One factor, lvF, turns a
  * level into strength for players and creatures alike, so an even-level fight feels the same at any level and
  * gear is what puts you ahead. */
-const MAX_LEVEL = 30;
-const lvF = L => 1 + .06 * (Math.max(1, L) - 1);
-const xpNeed = L => L >= MAX_LEVEL ? 0 : Math.round(80 + 45 * Math.pow(L - 1, 1.6));   // experience to go from L to L + 1
-const recLevel = floor => Math.min(MAX_LEVEL, 1 + (floor - 1) * 2);                    // the level a tower floor is meant for
+const lvF = L => 1 + TUNE.lvStep * (Math.max(1, L) - 1);
+const xpNeed = L => L >= TUNE.maxLevel ? 0 : Math.round(TUNE.xpBase + TUNE.xpGrow * Math.pow(L - 1, TUNE.xpPow));   // experience to go from L to L + 1
+const recLevel = floor => Math.min(TUNE.maxLevel, 1 + (floor - 1) * 2);                    // the level a tower floor is meant for
 const mobLevel = (pk, cl) => clamp(cl, pk.min, pk.max);
-const KILL_XP = { crab: 12, acolyte: 16 };
 /* Creatures a few levels under you teach less and less; ones above you teach a little more. */
 function xpForKill(kind, mobLvl, cl) {
   const d = cl - mobLvl, mul = d < 0 ? Math.min(1.3, 1 - d * .1) : d <= 2 ? 1 : d >= 7 ? .1 : 1 - (d - 2) * .2;
-  return Math.round((KILL_XP[kind] || 0) * lvF(mobLvl) * mul);
+  return Math.round(((ENEMY[kind] && ENEMY[kind].xp) || 0) * lvF(mobLvl) * mul);
 }
 /* A field creature at a level, for a party of a size: more people means more health, not harder hits. */
 function scaleMob(e, lvl, size) { const k = e.maxHp ? e.hp / e.maxHp : 1; e.lvl = lvl; e.size = size || 1; e.maxHp = R(e.def.hp * lvF(lvl) * (1 + .6 * (e.size - 1))); e.hp = Math.max(1, R(e.maxHp * k)); e.dmg = e.def.dmg * lvF(lvl); }
@@ -203,7 +201,7 @@ function mkActor(cls, name, spot, pow, mods) {
  * Each player takes the first free seat of their class; every other seat is a bot. */
 function createRun(opts) {
   const lvl = opts.lvl || 1, botPow = 1 + .1 * (lvl - 1);
-  const G = { mode: 'dungeon', bw: W, bh: H, t: 0, lvl, elvl: recLevel(lvl), es: Math.pow(1.13, lvl - 1), state: 'countdown', cd: 3, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
+  const G = { mode: 'dungeon', bw: W, bh: H, t: 0, lvl, elvl: recLevel(lvl), es: Math.pow(TUNE.towerStep, lvl - 1), state: 'countdown', cd: 3, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
     boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: !!opts.auto, drops: 0 };
   const pending = (opts.players || []).slice(); let dpsN = 0;
   ROSTER.forEach((c, i) => {
@@ -266,7 +264,7 @@ const bossMul = G => G.t > TIME_LIMIT ? 1 + (G.t - TIME_LIMIT) / 15 : 1;
 
 function hurtActor(G, a, dmg, avoidable) {
   if (!a.alive || a.iframe > 0) return;
-  dmg *= a.mods.taken; if (a.wallT > 0) dmg *= .4;
+  dmg *= a.mods.taken; if (a.wallT > 0) dmg *= 1 - SKILLS.wall.pct;
   if (a.shield > 0) { const s = Math.min(a.shield, dmg); a.shield -= s; dmg -= s; }
   if (dmg <= 0) return;
   a.hp -= dmg; a.ult = Math.min(100, a.ult + dmg / a.maxHp * 40);
@@ -277,15 +275,15 @@ function hurtActor(G, a, dmg, avoidable) {
 function hurtEnemy(G, e, dmg, src, big, noUlt) {
   if (!e.alive || e.ret) return;                        // a creature walking back to its spot cannot be hurt
   if (G.mode === 'field' && present(G).length < 2) dmg *= SOLO_BOOST[src.cls] || 1;     // the boost is for hunting alone
-  dmg *= src.mods.dmg; if (e.vulnT > 0) dmg *= 1.25;                         // marked by a hunter
+  dmg *= src.mods.dmg; if (e.vulnT > 0) dmg *= 1 + SKILLS.mark.pct;                         // marked by a hunter
   e.hp -= dmg; src.stats.dmg += dmg;
   e.threat.set(src, (e.threat.get(src) || 0) + dmg * src.def.threat * src.mods.threat);
   if (!noUlt) src.ult = Math.min(100, src.ult + dmg / (src.pow * src.def.ultK) * src.mods.ult);
   ev(G, { k: 'dmg', x: R(e.x), y: R(e.y - e.r - 6), v: R(dmg), big: big ? 1 : 0, by: src.idx });
   if (e.hp <= 0) {
     e.hp = 0; e.alive = false; ring(G, e.x, e.y, e.r * .5, e.r * 2.2, e.boss ? 'brass' : 'rust', .45);
-    if (G.mode === 'field') { if (!e.evm) G.respawns.push({ pk: e.pk, home: e.home, at: G.t + MOB_RESPAWN }); ev(G, { k: 'kill', kind: e.kind, pk: e.pk, by: src.idx, who: present(G).filter(a => a === src || (a.alive && dist(a, e) < 420)).map(a => a.idx) }); }   // everyone nearby gets credit
-    if (G.mode !== 'field' && !e.boss && Math.random() < TRASH_DROP) { G.drops++; text(G, e.x, e.y - e.r - 20, '掉了東西', 'brass', 12, 1.3); }
+    if (G.mode === 'field') { if (!e.evm) G.respawns.push({ pk: e.pk, home: e.home, at: G.t + TUNE.mobRespawn }); ev(G, { k: 'kill', kind: e.kind, pk: e.pk, by: src.idx, who: present(G).filter(a => a === src || (a.alive && dist(a, e) < 420)).map(a => a.idx) }); }   // everyone nearby gets credit
+    if (G.mode !== 'field' && !e.boss && Math.random() < TUNE.trashDrop) { G.drops++; text(G, e.x, e.y - e.r - 20, '掉了東西', 'brass', 12, 1.3); }
     if (e.boss) { for (const o of G.enemies) if (o !== e && o.alive) { o.alive = false; ring(G, o.x, o.y, 6, 30, 'rust', .4); } G.zones.length = 0; shake(G, .6); }
   }
 }
@@ -354,8 +352,8 @@ function stunFoe(G, a, e, t) {      // bosses shrug it off; a stun also breaks a
 
 /* ---------- skills: SK[id](G, caster, aim, skill) ---------- */
 const SK = {
-  taunt(G, a, aim, sk) { const t = aimEnemy(G, a, aim, sk.range); if (!t) return fail(G, a, '離目標太遠'); hurtEnemy(G, t, a.def.atk * a.pow * 2.4, a, true); t.fix = a; t.fixT = 4; ring(G, t.x, t.y, 8, 36, 'tank'); },
-  wall(G, a) { a.wallT = 4; ring(G, a.x, a.y, 8, 32, 'tank'); },
+  taunt(G, a, aim, sk) { const t = aimEnemy(G, a, aim, sk.range); if (!t) return fail(G, a, '離目標太遠'); hurtEnemy(G, t, a.def.atk * a.pow * sk.mul, a, true); t.fix = a; t.fixT = sk.dur; ring(G, t.x, t.y, 8, 36, 'tank'); },
+  wall(G, a, aim, sk) { a.wallT = sk.dur; ring(G, a.x, a.y, 8, 32, 'tank'); },
   kick(G, a, aim, sk) {
     const want = aim && aim.k === 'id' ? aim.id : 0; let best = null;
     for (const e of G.enemies) {
@@ -363,49 +361,49 @@ const SK = {
       const score = (e.id === want ? 4 : 0) + (e === a.target ? 2 : 0) + e.cast.t / e.cast.dur; if (!best || score > best.s) best = { e, s: score };
     }
     if (!best) return fail(G, a, '沒有金色讀條可以打斷');
-    const e = best.e; e.cast = null; e.stun = 1.2; if (e.def.caster) e.tm.cast = rand(4, 5);
-    hurtEnemy(G, e, a.def.atk * a.pow, a); beam(G, a, e, 'brass'); ring(G, e.x, e.y, e.r, e.r + 22, 'brass');
+    const e = best.e; e.cast = null; e.stun = sk.stun; if (e.def.caster) e.tm.cast = rand(4, 5);
+    hurtEnemy(G, e, a.def.atk * a.pow * sk.mul, a); beam(G, a, e, 'brass'); ring(G, e.x, e.y, e.r, e.r + 22, 'brass');
     text(G, e.x, e.y - e.r - 24, '打斷', 'brass', 16, 1.1); a.stats.kicks++;
   },
   charge(G, a, aim, sk) {
     const d = aimDir(G, a, aim), o = { x: a.x, y: a.y };
     a.rvx = d.x * sk.range / .22; a.rvy = d.y * sk.range / .22; a.rollT = .22; a.iframe = Math.max(a.iframe, .25);
-    for (const e of G.enemies) if (e.alive && inLine(e, o, d, sk.range, sk.w)) { hurtEnemy(G, e, a.def.atk * a.pow * 2.2, a, true); stunFoe(G, a, e, .9); }
+    for (const e of G.enemies) if (e.alive && inLine(e, o, d, sk.range, sk.w)) { hurtEnemy(G, e, a.def.atk * a.pow * sk.mul, a, true); stunFoe(G, a, e, sk.stun); }
     lineFx(G, o, d, sk.range, sk.w, 'tank');
   },
   quake(G, a, aim, sk) {
     const d = aimDir(G, a, aim), ang = Math.atan2(d.y, d.x);
-    for (const e of G.enemies) if (e.alive && inCone(e, a, ang, sk.half, sk.range)) { hurtEnemy(G, e, a.def.atk * a.pow * 2.6, a, true); e.fix = a; e.fixT = 3; }
+    for (const e of G.enemies) if (e.alive && inCone(e, a, ang, sk.half, sk.range)) { hurtEnemy(G, e, a.def.atk * a.pow * sk.mul, a, true); e.fix = a; e.fixT = sk.dur; }
     coneFx(G, a, ang, sk.half, sk.range, 'tank'); shake(G, .2);
   },
-  guard(G, a, aim) { const t = aimAlly(G, a, aim, true); t.shield = Math.max(t.shield, 360 * a.pow); if (t !== a) beam(G, a, t, 'tank'); ring(G, t.x, t.y, 8, 30, 'tank'); },
-  tankUlt(G, a) { for (const e of G.enemies) { e.fix = a; e.fixT = 5; } for (const p of G.actors) if (p.alive) p.shield = Math.max(p.shield, 260 * a.pow); ring(G, a.x, a.y, 10, 170, 'tank', .55); },
+  guard(G, a, aim, sk) { const t = aimAlly(G, a, aim, true); t.shield = Math.max(t.shield, sk.amt * a.pow); if (t !== a) beam(G, a, t, 'tank'); ring(G, t.x, t.y, 8, 30, 'tank'); },
+  tankUlt(G, a, aim, sk) { for (const e of G.enemies) { e.fix = a; e.fixT = sk.dur; } for (const p of G.actors) if (p.alive) p.shield = Math.max(p.shield, sk.amt * a.pow); ring(G, a.x, a.y, 10, 170, 'tank', .55); },
   anchor(G, a, aim, sk) {
     const t = a.target && a.target.alive ? a.target : nearestFoe(G, a, sk.range), p = aimPoint(G, a, aim, sk.range, t); if (!p) return fail(G, a, '沒有目標');
-    for (const e of G.enemies) if (e.alive && Math.hypot(e.x - p.x, e.y - p.y) <= sk.rad + e.r) { hurtEnemy(G, e, a.def.atk * a.pow * 8, a, true); stunFoe(G, a, e, 1.5); }
+    for (const e of G.enemies) if (e.alive && Math.hypot(e.x - p.x, e.y - p.y) <= sk.rad + e.r) { hurtEnemy(G, e, a.def.atk * a.pow * sk.mul, a, true); stunFoe(G, a, e, sk.stun); }
     ring(G, p.x, p.y, 10, sk.rad, 'tank', .5); shake(G, .5);
   },
-  mend(G, a, aim) {
+  mend(G, a, aim, sk) {
     let t = aim && aim.k === 'id' && aim.id < 0 ? G.actors[-aim.id - 1] : null; if (t && !t.alive) t = null;
     if (!t) { let br = 1; for (const p of G.actors) { if (!p.alive) continue; const r = p.hp / p.maxHp; if (r < br) { br = r; t = p; } } }
     if (!t) return fail(G, a, '隊友都是滿血');
-    healActor(G, t, 280 * a.pow, a); if (t !== a) beam(G, a, t, 'heal'); ring(G, t.x, t.y, 6, 22, 'heal');
+    healActor(G, t, sk.amt * a.pow, a); if (t !== a) beam(G, a, t, 'heal'); ring(G, t.x, t.y, 6, 22, 'heal');
   },
-  ring(G, a) { for (const p of G.actors) if (p.alive && dist(a, p) <= 120) healActor(G, p, 170 * a.pow, a); ring(G, a.x, a.y, 10, 120, 'heal', .45); },
+  ring(G, a, aim, sk) { for (const p of G.actors) if (p.alive && dist(a, p) <= sk.rad) healActor(G, p, sk.amt * a.pow, a); ring(G, a.x, a.y, 10, sk.rad, 'heal', .45); },
   wave(G, a, aim, sk) {
     const d = aimDir(G, a, aim);
-    for (const e of G.enemies) if (e.alive && inLine(e, a, d, sk.range, sk.w)) hurtEnemy(G, e, a.def.atk * a.pow * 3, a, true);
-    for (const p of G.actors) if (p.alive && p !== a && inLine(p, a, d, sk.range, sk.w)) healActor(G, p, 150 * a.pow, a);
+    for (const e of G.enemies) if (e.alive && inLine(e, a, d, sk.range, sk.w)) hurtEnemy(G, e, a.def.atk * a.pow * sk.mul, a, true);
+    for (const p of G.actors) if (p.alive && p !== a && inLine(p, a, d, sk.range, sk.w)) healActor(G, p, sk.amt * a.pow, a);
     lineFx(G, a, d, sk.range, sk.w, 'heal');
   },
   pool(G, a, aim, sk) {
     const p = aimPoint(G, a, aim, sk.range, aimAlly(G, a, null, false));
-    G.zones.push({ id: G.nextId++, friendly: true, heal: true, type: 'circle', x: p.x, y: p.y, r: sk.rad, t: 0, dur: 5, tick: 0, dmg: 45 * a.pow, src: a, ign: new Set() });
+    G.zones.push({ id: G.nextId++, friendly: true, heal: true, type: 'circle', x: p.x, y: p.y, r: sk.rad, t: 0, dur: sk.dur, tick: 0, dmg: sk.amt * a.pow, src: a, ign: new Set() });
   },
-  barrier(G, a, aim) { const t = aimAlly(G, a, aim, false); t.shield = Math.max(t.shield, 320 * a.pow); if (t !== a) beam(G, a, t, 'heal'); ring(G, t.x, t.y, 8, 30, 'heal'); },
-  healUlt(G, a) { for (const p of G.actors) { if (!p.alive) revive(G, p); else healActor(G, p, p.maxHp * .5, a); } ring(G, a.x, a.y, 10, 240, 'heal', .7); },
-  surge(G, a) { for (const p of G.actors) if (p.alive) { p.shield = Math.max(p.shield, 300 * a.pow); p.hotT = 5; p.hotPer = p.maxHp * .06; } ring(G, a.x, a.y, 10, 240, 'heal', .7); },
-  blast(G, a, aim, sk) { const t = aimEnemy(G, a, aim, sk.range); if (!t) return fail(G, a, '離目標太遠'); shoot(G, a, t, a.def.atk * a.pow * 3.6, true); },
+  barrier(G, a, aim, sk) { const t = aimAlly(G, a, aim, false); t.shield = Math.max(t.shield, sk.amt * a.pow); if (t !== a) beam(G, a, t, 'heal'); ring(G, t.x, t.y, 8, 30, 'heal'); },
+  healUlt(G, a, aim, sk) { for (const p of G.actors) { if (!p.alive) revive(G, p); else healActor(G, p, p.maxHp * sk.pct, a); } ring(G, a.x, a.y, 10, 240, 'heal', .7); },
+  surge(G, a, aim, sk) { for (const p of G.actors) if (p.alive) { p.shield = Math.max(p.shield, sk.amt * a.pow); p.hotT = sk.dur; p.hotPer = p.maxHp * sk.pct; } ring(G, a.x, a.y, 10, 240, 'heal', .7); },
+  blast(G, a, aim, sk) { const t = aimEnemy(G, a, aim, sk.range); if (!t) return fail(G, a, '離目標太遠'); shoot(G, a, t, a.def.atk * a.pow * sk.mul, true); },
   roll(G, a, aim) {
     let mx = a.ctrl.mx, my = a.ctrl.my, m = Math.hypot(mx, my);
     if (aim && aim.k === 'd' && Math.hypot(aim.x, aim.y) > .001) { mx = aim.x; my = aim.y; m = Math.hypot(mx, my); }   // an aimed roll goes where you pointed
@@ -414,22 +412,22 @@ const SK = {
   },
   pierce(G, a, aim, sk) {
     const d = aimDir(G, a, aim);
-    for (const e of G.enemies) if (e.alive && inLine(e, a, d, sk.range, sk.w)) hurtEnemy(G, e, a.def.atk * a.pow * 3.2, a, true);
+    for (const e of G.enemies) if (e.alive && inLine(e, a, d, sk.range, sk.w)) hurtEnemy(G, e, a.def.atk * a.pow * sk.mul, a, true);
     lineFx(G, a, d, sk.range, sk.w, 'ember');
   },
   volley(G, a, aim, sk) {
     const d = aimDir(G, a, aim), ang = Math.atan2(d.y, d.x);
-    for (const e of G.enemies) if (e.alive && inCone(e, a, ang, sk.half, sk.range)) hurtEnemy(G, e, a.def.atk * a.pow * 2.2, a, true);
+    for (const e of G.enemies) if (e.alive && inCone(e, a, ang, sk.half, sk.range)) hurtEnemy(G, e, a.def.atk * a.pow * sk.mul, a, true);
     coneFx(G, a, ang, sk.half, sk.range, 'ember');
   },
-  mark(G, a, aim, sk) { const t = aimEnemy(G, a, aim, sk.range); if (!t) return fail(G, a, '離目標太遠'); t.vulnT = 6; text(G, t.x, t.y - t.r - 24, '獵印', 'ember', 14, 1.1); ring(G, t.x, t.y, t.r, t.r + 20, 'ember'); },
+  mark(G, a, aim, sk) { const t = aimEnemy(G, a, aim, sk.range); if (!t) return fail(G, a, '離目標太遠'); t.vulnT = sk.dur; text(G, t.x, t.y - t.r - 24, '獵印', 'ember', 14, 1.1); ring(G, t.x, t.y, t.r, t.r + 20, 'ember'); },
   dpsUlt(G, a, aim, sk) {
     const t = a.target && a.target.alive ? a.target : nearestFoe(G, a, sk.range), p = aimPoint(G, a, aim, sk.range, t); if (!p) return fail(G, a, '沒有目標');
-    G.zones.push({ id: G.nextId++, friendly: true, type: 'circle', x: p.x, y: p.y, r: sk.rad, t: 0, dur: 4, tick: 0, dmg: a.def.atk * a.pow * 1.6, src: a, ign: new Set() });
+    G.zones.push({ id: G.nextId++, friendly: true, type: 'circle', x: p.x, y: p.y, r: sk.rad, t: 0, dur: sk.dur, tick: 0, dmg: a.def.atk * a.pow * sk.mul, src: a, ign: new Set() });
   },
   sunshot(G, a, aim, sk) {
     const d = aimDir(G, a, aim);
-    for (const e of G.enemies) if (e.alive && inLine(e, a, d, sk.range, sk.w)) hurtEnemy(G, e, a.def.atk * a.pow * 14, a, true);
+    for (const e of G.enemies) if (e.alive && inLine(e, a, d, sk.range, sk.w)) hurtEnemy(G, e, a.def.atk * a.pow * sk.mul, a, true);
     lineFx(G, a, d, sk.range, sk.w, 'brass'); shake(G, .4);
   }
 };
@@ -556,7 +554,7 @@ function updActor(G, a, dt) {
     c.pot = false;
     if (a.potions <= 0) fail(G, a, '這場的藥水用過了');
     else if (a.hp >= a.maxHp) fail(G, a, '血是滿的');
-    else { const real = Math.min(a.maxHp * POTION_HEAL, a.maxHp - a.hp); a.potions--; a.stats.pots++; a.hp += real; ev(G, { k: 'heal', i: a.idx, v: R(real), by: a.idx }); ring(G, a.x, a.y, 6, 30, 'heal', .4); }
+    else { const real = Math.min(a.maxHp * TUNE.potionHeal, a.maxHp - a.hp); a.potions--; a.stats.pots++; a.hp += real; ev(G, { k: 'heal', i: a.idx, v: R(real), by: a.idx }); ring(G, a.x, a.y, 6, 30, 'heal', .4); }
   }
   a.atkT -= dt; const t = a.target;
   if (t && a.atkT <= 0 && a.rollT <= 0 && inRange(a, t)) {
@@ -686,7 +684,7 @@ function fieldActor(G, a, dt) {
   if (!a.gather || a.gather.id !== node.id) a.gather = { id: node.id, t: 0 };
   a.gather.t += dt;
   // done: the spot regrows for this person only
-  if (a.gather.t >= GATHER_TIME) { node.cd[a.idx] = NODE_RESPAWN; a.gather = null; ev(G, { k: 'gathered', id: node.id, type: node.type, by: a.idx }); }
+  if (a.gather.t >= TUNE.gatherTime) { node.cd[a.idx] = TUNE.nodeRespawn; a.gather = null; ev(G, { k: 'gathered', id: node.id, type: node.type, by: a.idx }); }
 }
 function stepField(G, dt) {
   G.t += dt;
@@ -772,7 +770,7 @@ function step(G, dt) {
 /* ---------- progression: the same rules on the server and in the offline client ---------- */
 const LOOT = { w: ['武器'], a: ['護甲'], t: ['飾品'] };
 const MATS = { scrap: '鏽鐵屑', salt: '鹽晶', shard: '沉鐘碎片', herb: '潮草' };
-const POTION_CAP = 5, POTION_HEAL = .35, MAT_CAP = 9999;
+const MAT_CAP = 9999;
 const ilvlOf = gear => Math.round((gear.w + gear.a + gear.t) / 3);
 const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
 const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
@@ -789,10 +787,10 @@ function fixProfile(p) {   // fill in anything an older save does not have
   { const t = {}, old = p.talents && typeof p.talents === 'object' ? p.talents : {};      // keep only real talents at real ranks
     for (const list of Object.values(TALENTS)) for (const d of list) if (Number.isInteger(old[d.id]) && old[d.id] > 0) t[d.id] = Math.min(d.max, old[d.id]); p.talents = t; }
   { const bag = [], eq = {}, old = p.eq && typeof p.eq === 'object' ? p.eq : {};      // keep only real items
-    if (Array.isArray(p.bag)) for (const o of p.bag.slice(0, BAG_CAP)) { const it = fixItem(o); if (it) bag.push(it); }
+    if (Array.isArray(p.bag)) for (const o of p.bag.slice(0, TUNE.bagCap)) { const it = fixItem(o); if (it) bag.push(it); }
     for (const k of SLOTS) { const o = old[k]; eq[k] = o && typeof o === 'object' && typeof o.n === 'string' && NAME_SLOT[o.n] === k ? { n: o.n, q: qInt(o.q, 0, 2) } : { n: '', q: 0 }; }
     p.bag = bag; p.eq = eq; }
-  p.cl = Number.isInteger(p.cl) ? clamp(p.cl, 1, MAX_LEVEL) : 1; p.xp = p.xp >= 0 && p.cl < MAX_LEVEL ? Math.min(Math.floor(p.xp), xpNeed(p.cl)) : 0;
+  p.cl = Number.isInteger(p.cl) ? clamp(p.cl, 1, TUNE.maxLevel) : 1; p.xp = p.xp >= 0 && p.cl < TUNE.maxLevel ? Math.min(Math.floor(p.xp), xpNeed(p.cl)) : 0;
   fixQuests(p);
   const lo = {}, old = p.loadout && typeof p.loadout === 'object' ? p.loadout : {};      // keep only loadouts that are still allowed
   for (const k of Object.keys(CLASSES)) if (validLoadout(k, old[k], p.cl)) lo[k] = old[k].slice();
@@ -800,15 +798,15 @@ function fixProfile(p) {   // fill in anything an older save does not have
   return p;
 }
 function addXp(p, n) {
-  n = Math.max(0, Math.round(n)); let ups = 0; if (p.cl >= MAX_LEVEL || !n) return { xp: 0, ups: 0 };
-  p.xp += n; while (p.cl < MAX_LEVEL && p.xp >= xpNeed(p.cl)) { p.xp -= xpNeed(p.cl); p.cl++; ups++; }
-  if (p.cl >= MAX_LEVEL) p.xp = 0; return { xp: n, ups };
+  n = Math.max(0, Math.round(n)); let ups = 0; if (p.cl >= TUNE.maxLevel || !n) return { xp: 0, ups: 0 };
+  p.xp += n; while (p.cl < TUNE.maxLevel && p.xp >= xpNeed(p.cl)) { p.xp -= xpNeed(p.cl); p.cl++; ups++; }
+  if (p.cl >= TUNE.maxLevel) p.xp = 0; return { xp: n, ups };
 }
 /* ---------- gear as things you can hold ----------
  * An item is { s: slot, il: item level, q: quality 0 to 2, n: name }. What you wear is p.gear (the item levels, which
  * are what make you stronger) together with p.eq (each piece's name and quality). Everything else waits in p.bag.
  * A name can belong to a set: wearing two or three pieces of one set adds its bonuses. */
-const SLOTS = ['w', 'a', 't'], BAG_CAP = 16, QUALITY = ['普通', '精良', '稀有'];
+const SLOTS = ['w', 'a', 't'], QUALITY = ['普通', '精良', '稀有'];
 const PLAIN = { w: ['鏽潮錨刃', '沉鐘之舌', '拆船鉤'], a: ['鹽殼護肩', '潮紋斗篷', '纜繩綁腿'], t: ['生鏽的羅盤', '舊船釘', '潮音貝'] };
 const SETS = {
   warden: { name: '看守者', pieces: { w: '看守者鐘錘', a: '看守者鍊甲', t: '看守者徽記' }, two: ['hp', .06, '生命 +6%'], three: ['taken', -.05, '受到的傷害 -5%'] },
@@ -817,13 +815,17 @@ const SETS = {
 };
 /* How often gear drops, and how often a drop is a set piece. */
 const DROP = { field: .05, fieldSet: .08, event: .4, eventSet: .3, bossSet: .4, trashSet: .1 };
-const NAME_SLOT = {}, NAME_SET = {};
-for (const k of SLOTS) { for (const n of PLAIN[k]) NAME_SLOT[n] = k; NAME_SLOT['工坊' + LOOT[k][0]] = k; NAME_SLOT['用舊的' + LOOT[k][0]] = k; }
-for (const id of Object.keys(SETS)) for (const k of SLOTS) { NAME_SLOT[SETS[id].pieces[k]] = k; NAME_SET[SETS[id].pieces[k]] = id; }
+const NAME_SLOT = {}, NAME_SET = {}, PLAIN_FIRST = () => ({ w: PLAIN.w[0], a: PLAIN.a[0], t: PLAIN.t[0] });
+function indexNames() {
+  for (const k of Object.keys(NAME_SLOT)) delete NAME_SLOT[k]; for (const k of Object.keys(NAME_SET)) delete NAME_SET[k];
+  for (const k of SLOTS) { for (const n of PLAIN[k]) NAME_SLOT[n] = k; NAME_SLOT['工坊' + LOOT[k][0]] = k; NAME_SLOT['用舊的' + LOOT[k][0]] = k; }
+  for (const id of Object.keys(SETS)) for (const k of SLOTS) { NAME_SLOT[SETS[id].pieces[k]] = k; NAME_SET[SETS[id].pieces[k]] = id; }
+}
+indexNames();
 const fieldIlvl = mobLvl => 10 + Math.round(mobLvl * 1.5) + Math.floor(Math.random() * 3);
 function rollItem(base, slot, setChance) {
   const k = slot || pick(SLOTS), q = Math.random() < .06 ? 2 : Math.random() < .25 ? 1 : 0;
-  return { s: k, il: base + q * 2, q, n: Math.random() < (setChance || 0) ? SETS[pick(Object.keys(SETS))].pieces[k] : pick(PLAIN[k]) };
+  return { s: k, il: base + q * 2, q, n: Math.random() < (setChance || 0) ? (SETS[pick(Object.keys(SETS))] || { pieces: PLAIN_FIRST() }).pieces[k] : pick(PLAIN[k]) };
 }
 function fixItem(o) { return o && typeof o === 'object' && typeof o.n === 'string' && SLOTS.includes(o.s) && NAME_SLOT[o.n] === o.s ? { s: o.s, il: qInt(o.il, 10, 999), q: qInt(o.q, 0, 2), n: o.n } : null; }
 const itemPrice = it => Math.round(it.il * (1 + it.q) * 1.5);       // what the merchant pays for it
@@ -840,7 +842,7 @@ function modsFor(p, cls) {
 /* For the bag screen: every set, which pieces are on, and what it gives. */
 function setList(p) { const n = setCount(p); return Object.keys(SETS).map(id => { const d = SETS[id]; return { id, name: d.name, have: n[id] || 0, pieces: SLOTS.map(k => ({ s: k, n: d.pieces[k], on: !!p.eq && p.eq[k].n === d.pieces[k] })), two: d.two[2], three: d.three[2] }; }); }
 /* Put an item in the bag. With no room left it is sold on the spot: returns the coins it became, 0 when it was kept. */
-function stow(p, it) { if (p.bag.length < BAG_CAP) { p.bag.push(it); return 0; } return addCoin(p, itemPrice(it)); }
+function stow(p, it) { if (p.bag.length < TUNE.bagCap) { p.bag.push(it); return 0; } return addCoin(p, itemPrice(it)); }
 function wear(p, it) { p.gear[it.s] = it.il; p.eq[it.s] = { n: it.n, q: it.q }; }
 /* A new item arrives. It is put on at once when it beats what is worn, unless that would break a set bonus;
  * otherwise it goes to the bag. Returns { it, up, old, sold }: sold is what the piece that found no room fetched. */
@@ -905,11 +907,10 @@ function learnTalent(p, cls, id) {
   if (spent < d.row * 3) return { ok: false, msg: `這一排要先在別的天賦投入 ${d.row * 3} 點。` };
   p.talents[id] = have + 1; return { ok: true, msg: `「${d.name}」${have + 1} / ${d.max}。` };
 }
-const RESPEC_COST = 30;
 function resetTalents(p) {
   fixProfile(p); if (!talentSpent(p.talents)) return { ok: false, msg: '還沒有點任何天賦。' };
-  if (p.coin < RESPEC_COST) return { ok: false, msg: `重置要 ${RESPEC_COST} 鐘幣，你只有 ${p.coin}。` };
-  p.coin -= RESPEC_COST; p.talents = {}; return { ok: true, msg: `天賦重置了，花了 ${RESPEC_COST} 鐘幣。` };
+  if (p.coin < TUNE.respecCost) return { ok: false, msg: `重置要 ${TUNE.respecCost} 鐘幣，你只有 ${p.coin}。` };
+  p.coin -= TUNE.respecCost; p.talents = {}; return { ok: true, msg: `天賦重置了，花了 ${TUNE.respecCost} 鐘幣。` };
 }
 
 /* ---------- the merchant ---------- */
@@ -917,7 +918,7 @@ const SHOP = { buy: { potion: 60, herb: 12, salt: 16, scrap: 7 }, sell: { scrap:
 const itemName = k => k === 'potion' ? '潮息藥水' : MATS[k];
 function shopBuy(p, key, n) {
   fixProfile(p); const price = Object.prototype.hasOwnProperty.call(SHOP.buy, key) ? SHOP.buy[key] : 0; if (!price || !Number.isInteger(n) || n < 1 || n > 99) return { ok: false, msg: '商人不賣這個。' };
-  const cap = key === 'potion' ? POTION_CAP : MAT_CAP; if (p.inv[key] + n > cap) return { ok: false, msg: `${itemName(key)}帶不了那麼多，上限 ${cap}。` };
+  const cap = key === 'potion' ? TUNE.potionCap : MAT_CAP; if (p.inv[key] + n > cap) return { ok: false, msg: `${itemName(key)}帶不了那麼多，上限 ${cap}。` };
   if (p.coin < price * n) return { ok: false, msg: `鐘幣不夠，要 ${price * n}，你只有 ${p.coin}。` };
   p.coin -= price * n; p.inv[key] += n; return { ok: true, msg: `買了 ${itemName(key)} ×${n}，花了 ${price * n} 鐘幣。` };
 }
@@ -938,7 +939,7 @@ function recipeInfo(p, rc) {
   let result = '', why = '';
   if (rc.kind === 'forge') { const il = forgeIlvl(p.lvl); result = `做出裝等 ${il} 的${LOOT[rc.slot][0]}`; if (p.gear[rc.slot] >= il) why = `身上的 ${p.gear[rc.slot]} 已經不比它差`; }
   else if (rc.kind === 'temper') { const cur = p.gear[rc.slot], cap = gearCap(p.lvl); result = `${LOOT[rc.slot][0]}裝等 ${cur} → ${Math.min(cap, cur + 2)}`; if (cur >= cap) why = `已到第 ${p.lvl} 層的上限 ${cap}`; }
-  else { result = `副本中回復 ${POTION_HEAL * 100}% 血量，每場限用 1 瓶`; if (p.inv.potion >= POTION_CAP) why = `最多帶 ${POTION_CAP} 瓶`; }
+  else { result = `副本中回復 ${TUNE.potionHeal * 100}% 血量，每場限用 1 瓶`; if (p.inv.potion >= TUNE.potionCap) why = `最多帶 ${TUNE.potionCap} 瓶`; }
   if (!why && Object.keys(rc.cost).some(k => p.inv[k] < rc.cost[k])) why = '材料不夠';
   return { can: !why, why, result };
 }
@@ -1023,7 +1024,7 @@ function questClaim(p, id, now) {
   if (it.claimed) return { ok: false, msg: '這個任務的獎勵已經領過了。' };
   if (!it.ready) return { ok: false, msg: `「${it.title}」還沒完成。` };
   const d = MAIN.concat(WEEK, SIDE).find(x => x.id === id);
-  for (const k of Object.keys(d.reward)) { if (k === 'xp') addXp(p, d.reward.xp); else if (k === 'coin') addCoin(p, d.reward.coin); else p.inv[k] = Math.min(k === 'potion' ? POTION_CAP : MAT_CAP, p.inv[k] + d.reward[k]); }
+  for (const k of Object.keys(d.reward)) { if (k === 'xp') addXp(p, d.reward.xp); else if (k === 'coin') addCoin(p, d.reward.coin); else p.inv[k] = Math.min(k === 'potion' ? TUNE.potionCap : MAT_CAP, p.inv[k] + d.reward[k]); }
   if (it.group === 'main') { q.main++; q.mp = 0; } else if (it.group === 'week') q.week.c[id] = 1; else q.side[id] = -1;
   return { ok: true, msg: `「${it.title}」完成，領到 ${it.reward}。` };
 }
@@ -1047,13 +1048,101 @@ function snapshot(G) {
   };
 }
 
-return { W, H, TIME_LIMIT, CLASSES, SKILLS, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
+/* ---------- the game's numbers as data ----------
+ * exportData() gives everything a designer may change as one plain object. applyData() takes such an object, or any
+ * part of one, and writes it into the live tables: only known fields, of the right kind, inside the bounds in LIM.
+ * The server applies game/data.js when it starts; the page applies the same file and then what the editor saved on
+ * that device. LIM is also what the editor reads for labels and steps: [label, min, max, step]. */
+const LIM = {
+  towerLevel: ['進塔等級', 1, 60, 1], maxLevel: ['等級上限', 5, 60, 1], lvStep: ['每升一級的強度增幅', 0, .5, .01], xpBase: ['升級經驗：基礎', 10, 5000, 1], xpGrow: ['升級經驗：成長', 0, 1000, 1], xpPow: ['升級經驗：曲線', 1, 3, .05],
+  towerStep: ['塔每高一層的強度倍率', 1, 2, .01], trashDrop: ['塔內小怪掉裝機率', 0, 1, .01], gatherTime: ['採集秒數', .2, 10, .1], nodeRespawn: ['採集點重生秒數', 1, 600, 1], mobRespawn: ['野怪重生秒數', 1, 600, 1],
+  potionCap: ['藥水攜帶上限', 1, 20, 1], potionHeal: ['藥水回復比例', .05, 1, .01], bagCap: ['背包格數', 4, 40, 1], respecCost: ['重置天賦價格', 0, 9999, 1],
+  hp: ['生命', 1, 1e6, 10], atk: ['攻擊力', 0, 1e5, 1], aspd: ['攻擊間隔（秒，0 是不普攻）', 0, 10, .05], range: ['距離', 0, 900, 1], speed: ['移動速度', 10, 400, 1], threat: ['仇恨倍率', 0, 50, .5], ultK: ['大招充能難度（越大越慢）', 1, 500, 1],
+  cd: ['冷卻（秒）', .5, 180, .1], lv: ['解鎖等級', 1, 60, 1], w: ['直線半寬', 2, 120, 1], half: ['扇形半角（弧度）', .1, 1.6, .05], rad: ['範圍半徑', 10, 400, 1], mul: ['攻擊力倍率', 0, 100, .1], amt: ['基礎量（再乘上角色強度）', 0, 1e5, 5],
+  dur: ['持續秒數', 0, 60, .5], stun: ['暈眩秒數', 0, 15, .1], pct: ['比例（0 到 1）', 0, 1, .01],
+  dmg: ['傷害', 0, 1e5, 1], aggro: ['警戒距離', 0, 900, 5], leash: ['追擊距離', 0, 9999, 10], xp: ['擊倒給的經驗', 0, 1e5, 1],
+  field: ['野怪掉裝機率', 0, 1, .01], fieldSet: ['野怪掉的是套裝的機率', 0, 1, .01], event: ['漲潮多給一件的機率', 0, 1, .01], eventSet: ['漲潮給的是套裝的機率', 0, 1, .01], bossSet: ['王掉的是套裝的機率', 0, 1, .01], trashSet: ['塔內小怪掉的是套裝的機率', 0, 1, .01],
+  need: ['需要的次數', 1, 999, 1], n: ['數量', 1, 6, 1], min: ['最低等級', 1, 60, 1], max: ['最高等級', 1, 60, 1]
+};
+const TEXT = { name: 14, desc: 60, title: 14, goal: 40, seal: 1 };
+const MOD_KEYS = ['hp', 'dmg', 'heal', 'taken', 'speed', 'threat', 'ult', 'cdr'], NODE_TYPES = ['herb', 'wreck', 'salt'], TOWER_KINDS = ['grunt', 'caster', 'boss'], FIELD_KINDS = ['crab', 'acolyte', 'brute'];
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const cleanStr = (v, max) => typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, max) : '';
+const numIn = (v, lo, hi, int) => typeof v === 'number' && Number.isFinite(v) ? clamp(int ? Math.round(v) : v, lo, hi) : null;
+/* copy the editable fields of src onto tgt: numbers named in LIM, texts named in TEXT, and only where tgt already has that field */
+function patch(tgt, src) {
+  for (const k of Object.keys(src)) {
+    if (LIM[k] && typeof tgt[k] === 'number') { const v = numIn(src[k], LIM[k][1], LIM[k][2], LIM[k][3] >= 1); if (v !== null) tgt[k] = v; }
+    else if (TEXT[k] && typeof tgt[k] === 'string') { const v = cleanStr(src[k], TEXT[k]); if (v) tgt[k] = v; }
+  }
+}
+const editable = o => { const r = {}; for (const k of Object.keys(o)) if ((LIM[k] && typeof o[k] === 'number') || (TEXT[k] && typeof o[k] === 'string')) r[k] = o[k]; return r; };
+function exportData() {
+  const map = t => { const r = {}; for (const k of Object.keys(t)) r[k] = editable(t[k]); return r; }, quests = list => list.map(x => Object.assign({ id: x.id }, editable(x), { reward: x.reward }));
+  return JSON.parse(JSON.stringify({ v: 1, tune: TUNE, classes: map(CLASSES), skills: map(SKILLS), enemies: map(ENEMY), drop: DROP, shop: SHOP, recipes: RECIPES.map(r => ({ id: r.id, name: r.name, cost: r.cost })),
+    talents: TALENTS, sets: SETS, plain: PLAIN, quests: { main: quests(MAIN), week: quests(WEEK), side: quests(SIDE) }, waves: WAVES, evWaves: EV_WAVES,
+    field: { w: FIELD.w, h: FIELD.h, gate: { x: FIELD.gate.x, y: FIELD.gate.y }, packs: FIELD.packs, nodes: FIELD.nodes, rocks: FIELD.rocks, events: FIELD.events, npcs: FIELD.npcs, stalls: FIELD.stalls.map(o => ({ id: o.id, x: o.x, y: o.y })) } }));
+}
+function applyData(d) {
+  if (!isObj(d)) return false;
+  const each = (src, tgt, f) => { if (isObj(src)) for (const k of Object.keys(tgt)) if (isObj(src[k])) f(tgt[k], src[k], k); };
+  const prices = (src, lo, hi, keys) => { const r = {}; if (isObj(src)) for (const k of keys) { const v = numIn(src[k], lo, hi, true); if (v !== null && v > 0) r[k] = v; } return r; };
+  const matKeys = Object.keys(MATS), pos = (o, r) => { const x = numIn(o && o.x, 20, FIELD.w - 20, true), y = numIn(o && o.y, 20, FIELD.h - 20, true); return x === null || y === null ? null : Object.assign(r || {}, { x, y }); };
+  if (isObj(d.tune)) patch(TUNE, d.tune);
+  each(d.classes, CLASSES, patch); each(d.skills, SKILLS, patch); each(d.enemies, ENEMY, patch);
+  if (isObj(d.drop)) patch(DROP, d.drop);
+  if (isObj(d.shop)) { if (isObj(d.shop.buy)) SHOP.buy = prices(d.shop.buy, 1, 99999, ['potion'].concat(matKeys)); if (isObj(d.shop.sell)) SHOP.sell = prices(d.shop.sell, 1, 99999, matKeys); }
+  if (Array.isArray(d.recipes)) for (const r of d.recipes) { const t = isObj(r) && RECIPES.find(x => x.id === r.id), cost = t ? prices(r.cost, 1, 999, matKeys) : null; if (cost && Object.keys(cost).length) t.cost = cost; }
+  if (isObj(d.talents)) for (const cls of Object.keys(TALENTS)) {
+    const src = d.talents[cls]; if (!Array.isArray(src)) continue; const out = [], seen = new Set();
+    for (const t of src.slice(0, 15)) {
+      if (!isObj(t) || typeof t.id !== 'string' || !/^[a-z]-[a-z0-9]{1,12}$/.test(t.id) || seen.has(t.id) || !Array.isArray(t.eff)) continue;
+      const key = t.eff[0], val = numIn(t.eff[1], -1, 1, false), okKey = MOD_KEYS.includes(key) || (typeof key === 'string' && key.startsWith('cd:') && CLASSES[cls].pool.includes(key.slice(3)));
+      const name = cleanStr(t.name, TEXT.name), row = numIn(t.row, 0, 2, true), max = numIn(t.max, 1, 10, true); if (!okKey || !val || !name || row === null || max === null) continue;
+      seen.add(t.id); out.push({ id: t.id, row, max, name, eff: [key, val], desc: cleanStr(t.desc, TEXT.desc) });
+    }
+    if (out.length) TALENTS[cls] = out;
+  }
+  if (isObj(d.plain)) for (const k of SLOTS) { const src = d.plain[k]; if (!Array.isArray(src)) continue; const out = []; for (const n of src.slice(0, 20)) { const v = cleanStr(n, 8); if (v && !out.includes(v)) out.push(v); } if (out.length) PLAIN[k] = out; }
+  if (isObj(d.sets)) {
+    const out = {}, used = new Set(SLOTS.reduce((a, k) => a.concat(PLAIN[k], ['工坊' + LOOT[k][0], '用舊的' + LOOT[k][0]]), []));
+    const bonus = b => { const v = Array.isArray(b) ? numIn(b[1], -1, 1, false) : null; return v && MOD_KEYS.includes(b[0]) ? [b[0], v, cleanStr(b[2], 20)] : null; };
+    for (const id of Object.keys(d.sets).slice(0, 12)) {
+      const src = d.sets[id]; if (!/^[a-z][a-z0-9]{1,11}$/.test(id) || !isObj(src) || !isObj(src.pieces)) continue;
+      const name = cleanStr(src.name, 6), pieces = {}, two = bonus(src.two), three = bonus(src.three); let ok = !!name && !!two && !!three;
+      for (const k of SLOTS) { const v = cleanStr(src.pieces[k], 8); if (!v || used.has(v)) ok = false; pieces[k] = v; }
+      if (!ok) continue; for (const k of SLOTS) used.add(pieces[k]); out[id] = { name, pieces, two, three };
+    }
+    for (const id of Object.keys(SETS)) delete SETS[id]; Object.assign(SETS, out);
+  }
+  indexNames();
+  if (isObj(d.quests)) for (const [key, list] of [['main', MAIN], ['week', WEEK], ['side', SIDE]]) if (Array.isArray(d.quests[key])) for (const q of d.quests[key]) {
+    const t = isObj(q) && list.find(x => x.id === q.id); if (!t) continue; patch(t, q);
+    if (isObj(q.reward)) { const r = prices(q.reward, 1, 99999, ['coin', 'xp', 'potion'].concat(matKeys)); if (Object.keys(r).length) t.reward = r; }
+  }
+  const waves = (src, tgt, kinds) => { if (!Array.isArray(src) || src.length !== tgt.length) return; src.forEach((w, i) => { const out = []; if (Array.isArray(w)) for (const e of w.slice(0, 4)) { const n = Array.isArray(e) ? numIn(e[1], 1, 8, true) : null; if (n && kinds.includes(e[0])) out.push([e[0], n]); } if (out.length) tgt[i] = out; }); };
+  waves(d.waves, WAVES, TOWER_KINDS); waves(d.evWaves, EV_WAVES, FIELD_KINDS);
+  const f = d.field;
+  if (isObj(f)) {
+    if (pos(f.gate)) Object.assign(FIELD.gate, pos(f.gate));
+    if (Array.isArray(f.packs)) { const out = []; for (const o of f.packs.slice(0, 30)) { const p = isObj(o) && FIELD_KINDS.includes(o.kind) ? pos(o, { kind: o.kind }) : null, n = p && numIn(o.n, 1, 6, true), lo = p && numIn(o.min, 1, 60, true), hi = p && numIn(o.max, 1, 60, true); if (p && n && lo && hi) out.push(Object.assign(p, { n, min: Math.min(lo, hi), max: Math.max(lo, hi) })); } if (out.length) FIELD.packs = out; }
+    if (Array.isArray(f.nodes)) { const out = [], ids = new Set(); for (const o of f.nodes.slice(0, 40)) { const id = isObj(o) ? numIn(o.id, 1, 999, true) : null, p = id && !ids.has(id) && NODE_TYPES.includes(o.type) ? pos(o, { id, type: o.type }) : null; if (p) { ids.add(id); out.push(p); } } if (out.length) FIELD.nodes = out; }
+    if (Array.isArray(f.rocks)) { const out = []; for (const o of f.rocks.slice(0, 30)) { const p = isObj(o) ? pos(o) : null, r = p && numIn(o.r, 10, 80, true); if (r) out.push(Object.assign(p, { r })); } FIELD.rocks = out; }
+    if (Array.isArray(f.events)) { const out = []; for (const o of f.events.slice(0, 6)) { const p = isObj(o) ? pos(o) : null, r = p && numIn(o.r, 60, 200, true); if (r) out.push(Object.assign(p, { r })); } if (out.length) FIELD.events = out; }
+    for (const [key, list] of [['npcs', FIELD.npcs], ['stalls', FIELD.stalls]]) if (Array.isArray(f[key])) for (const o of f[key]) { const t = isObj(o) && list.find(x => x.id === o.id), p = t && pos(o); if (p) Object.assign(t, p); }
+  }
+  return true;
+}
+{ const pre = typeof self !== 'undefined' && self ? self.EmbertideData : null; if (pre) applyData(pre); }      // the committed data file, when the page loaded one before this script
+
+return { exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_TYPES, TOWER_KINDS, FIELD_KINDS, EV_WAVES, PLAIN, TUNE,
+  W, H, TIME_LIMIT, CLASSES, SKILLS, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
   cleanAim, defaultLoadout, validLoadout, loadoutOf, setLoadout,
-  FIELD, GATHER_TIME, NODE_RESPAWN, createField, addFieldActor, removeFieldActor, present, pushOut, fieldYield, grant, fieldGain, eventReward,
-  MAX_LEVEL, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
-  MATS, RECIPES, POTION_CAP, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
+  FIELD, get GATHER_TIME() { return TUNE.gatherTime; }, get NODE_RESPAWN() { return TUNE.nodeRespawn; }, createField, addFieldActor, removeFieldActor, present, pushOut, fieldYield, grant, fieldGain, eventReward,
+  get MAX_LEVEL() { return TUNE.maxLevel; }, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
+  MATS, RECIPES, get POTION_CAP() { return TUNE.potionCap; }, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id),
-  TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, RESPEC_COST, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
-  SLOTS, SLOT_NAME: { w: '武器', a: '護甲', t: '飾品' }, BAG_CAP, QUALITY, SETS, DROP, TRASH_DROP, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
-  runDrops, bossDrops, refit, TOWER_LEVEL, PORTAL };
+  TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, get RESPEC_COST() { return TUNE.respecCost; }, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
+  SLOTS, SLOT_NAME: { w: '武器', a: '護甲', t: '飾品' }, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
+  runDrops, bossDrops, refit, get TOWER_LEVEL() { return TUNE.towerLevel; }, PORTAL };
 });
