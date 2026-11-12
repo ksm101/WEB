@@ -196,7 +196,8 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   A.send({ t: 'leave' }); B2.send({ t: 'leave' });
   ok('friends: request, accept, presence only when mutual, invite only between mutual friends, invite carries the room code');
 
-  // crafting: the server owns the bag
+  // crafting: the server owns the bag. What A wears is set here, because the gear won by rolling earlier is random
+  { const ca = srv.store.get(A.me.id).chars[0]; ca.gear = { w: 10, a: 10, t: 10 }; ca.eq = { w: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } }; ca.bag = []; }
   A.send({ t: 'craft', id: 'forge-a' }); let cr = await A.wait('crafted'); assert.strictEqual(cr.ok, false); assert.match(cr.msg, /材料不夠/);
   Object.assign(srv.store.get(A.me.id).chars[0].inv, { scrap: 40, salt: 10, shard: 4, herb: 5 });
   const lvlA = cr.profile.lvl, armor = cr.profile.gear.a < 10 + lvlA * 4 + 3;
