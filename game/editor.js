@@ -153,15 +153,21 @@ const VIEW = {
     body.appendChild(ul);
   },
   dungeons(body) {
-    body.appendChild(note('每個副本有名字、開放等級和幾波怪。打完最後一波就通關，通常把王放在最後一波。每個角色在每個副本各有自己的層數。'));
+    body.appendChild(note('副本有兩種。波次型：一個場地，怪一波一波來，打完最後一波通關。場景型：像編輯場景一樣自己擺地形、怪、王、寶箱和事件，玩家走進去探索，全部的王倒下就通關。每個角色在每個副本各有自己的層數。'));
     const ul = list();
-    for (const id of Object.keys(doc.dungeons)) { const d = doc.dungeons[id];
-      ul.appendChild(card('d:' + id, d.name, `Lv.${d.min} 開放　${d.waves.length} 波`, b => {
-        const f = el('div', 'fields'); f.append(textField('名字', ['dungeons', id, 'name'], S.TEXT.name), numField('開放等級（角色幾級才能進）', ['dungeons', id, 'min'], S.LIM.min)); b.appendChild(f); waveList(b, ['dungeons', id, 'waves'], kindsOf(true), 8);
+    for (const id of Object.keys(doc.dungeons)) { const d = doc.dungeons[id], lay = d.type === 'layout';
+      ul.appendChild(card('d:' + id, d.name, `${lay ? '場景型' : '波次型'}　Lv.${d.min} 開放　${lay ? `${d.map.mobs.length} 組怪` : `${d.waves.length} 波`}`, b => {
+        const f = el('div', 'fields'); f.append(textField('名字', ['dungeons', id, 'name'], S.TEXT.name), numField('開放等級（角色幾級才能進）', ['dungeons', id, 'min'], S.LIM.min), numField(S.LIM.time[0], ['dungeons', id, 'time'], S.LIM.time)); b.appendChild(f);
+        if (lay) b.append(note(`場景裡現在有 ${d.map.mobs.length} 組怪、${d.map.chests.length} 個寶箱、${d.map.events.length} 個事件。`), btn('編輯場景（擺地形、怪、王、寶箱、事件）', 'mini go', () => { mapId = 'd:' + id; tab = 'map'; sel = null; tool = 'move'; root.scrollTop = 0; render(); }));
+        else waveList(b, ['dungeons', id, 'waves'], kindsOf(true), 8);
         if (id !== 'tower') b.appendChild(btn('刪除這個副本', 'mini', () => { delete doc.dungeons[id]; commit(); }));
       }, !same(d, base.dungeons[id])));
     }
-    body.append(ul, btn('新增副本', 'mini go', () => { const id = freeId(doc.dungeons, 'd'); doc.dungeons[id] = { name: '新副本', min: 1, waves: [[['grunt', 3]], [['grunt', 2], ['caster', 1]], [['boss', 1]]] }; opened['d:' + id] = true; commit(); if (!doc.dungeons[id]) say('沒有加進去：副本已經到上限。'); }));
+    const row = el('div', 'ed-btns'), boss0 = kindsOf(true).find(k => baseOf(k) === 'boss'), full = id => { if (!doc.dungeons[id]) say('沒有加進去：副本已經到上限。'); };
+    row.append(btn('新增場景型副本', 'mini go', () => { const id = freeId(doc.dungeons, 'd'); doc.dungeons[id] = { type: 'layout', name: '新副本', min: 1, time: 300, map: { w: 700, h: 1000, spawn: { x: 350, y: 930 }, rocks: [], walls: [], chests: [], events: [],
+        mobs: [{ kind: 'grunt', x: 350, y: 620, n: 2, chance: 1, rare: false, roam: 50 }, { kind: boss0, x: 350, y: 180, n: 1, chance: 1, rare: false, roam: 0 }] } }; opened['d:' + id] = true; commit(); full(id); }),
+      btn('新增波次型副本', 'mini', () => { const id = freeId(doc.dungeons, 'd'); doc.dungeons[id] = { type: 'waves', name: '新副本', min: 1, time: 180, waves: [[['grunt', 3]], [['grunt', 2], ['caster', 1]], [[boss0, 1]]] }; opened['d:' + id] = true; commit(); full(id); }));
+    body.append(ul, row);
     const g = group('漲潮（鏽灘的野外事件）'); g.appendChild(note('固定三波。螃蟹的數量還會隨在場人數增加。')); waveList(g, ['evWaves'], kindsOf(false), 0); body.appendChild(g);
   },
   drop(body) { body.append(note('機率填 0 到 1，例如 0.05 是 5%。塔內小怪的掉裝機率在「規則」那一頁。'), form(['drop'])); },
@@ -209,46 +215,58 @@ const VIEW = {
   map: mapView
 };
 
-/* ---------- the maps: pick or add one, drag things about, tap to select, add with a tool ---------- */
-const LAYERS = [['packs', '怪群', 16], ['nodes', '採集點', 12], ['rocks', '岩石', 0], ['walls', '牆／水／路', 0], ['exits', '出入口', 22], ['events', '漲潮點', 20], ['npcs', '營地的人', 14], ['stalls', '攤位', 14]];
-const WALLL = { wall: '牆（擋路）', water: '水（擋路）', road: '路（只是顏色）' };
+/* ---------- maps and dungeon scenes: pick or add one, drag things about, tap to select, add with a tool ----------
+ * mapId is a field map's id, or 'd:<dungeon>' for the scene of a laid-out dungeon. */
+const LAYERS = [['mobs', '怪', 18], ['chests', '寶箱', 14], ['packs', '怪群', 16], ['nodes', '採集點', 12], ['rocks', '岩石', 0], ['walls', '牆／水／路', 0], ['exits', '出入口', 22], ['events', '事件', 0], ['npcs', '營地的人', 14], ['stalls', '攤位', 14]];
+const WALLL = { wall: '牆（擋路）', water: '水（擋路）', road: '路（只是顏色）' }, EVL = { ambush: '伏擊：冒出怪', say: '旁白：畫面上出現一行字', heal: '回復泉：全隊補滿' };
 function mapView(body) {
-  if (!doc.maps[mapId]) mapId = 'shore';
-  const f = doc.maps[mapId], home = mapId === 'shore', pick = el('div', 'tabs'), tools = el('div', 'tabs'), wrap = el('div', 'ed-map'), cv = el('canvas'), panel = el('div', 'ed-panel'), P = ['maps', mapId];
-  for (const id of Object.keys(doc.maps)) pick.appendChild(btn(doc.maps[id].name, 'mini' + (id === mapId ? ' on' : ''), () => { mapId = id; sel = null; tool = 'move'; render(); }));
+  let isD = mapId.startsWith('d:'), did = mapId.slice(2);
+  if (isD ? !(doc.dungeons[did] && doc.dungeons[did].type === 'layout') : !doc.maps[mapId]) { mapId = 'shore'; isD = false; }
+  const P = isD ? ['dungeons', did, 'map'] : ['maps', mapId], f = get(doc, P), home = mapId === 'shore', pick = el('div', 'tabs'), tools = el('div', 'tabs'), wrap = el('div', 'ed-map'), cv = el('canvas'), panel = el('div', 'ed-panel');
+  const go = id => { mapId = id; sel = null; tool = 'move'; render(); }, soldiers = () => kindsOf(true).filter(k => baseOf(k) !== 'boss'), bosses = () => kindsOf(true).filter(k => baseOf(k) === 'boss');
+  for (const id of Object.keys(doc.maps)) pick.appendChild(btn(doc.maps[id].name, 'mini' + (id === mapId ? ' on' : ''), () => go(id)));
+  for (const id of Object.keys(doc.dungeons)) if (doc.dungeons[id].type === 'layout') pick.appendChild(btn('副本：' + doc.dungeons[id].name, 'mini' + ('d:' + id === mapId ? ' on' : ''), () => go('d:' + id)));
   pick.appendChild(btn('＋新地圖', 'mini go', () => { const id = freeId(doc.maps, 'map'); doc.maps[id] = { name: '新地圖', w: 900, h: 900, spawn: { x: 450, y: 800 }, gate: null, packs: [], nodes: [], rocks: [], walls: [], exits: [{ x: 450, y: 860, to: 'shore' }] };
-    commit(true); if (!doc.maps[id]) { say('沒有加進去：地圖已經到上限。'); return render(); } mapId = id; sel = null; render(); say('新地圖開好了，裡面先放了一個回鏽灘的出入口。記得到鏽灘也放一個通到這裡的出入口。'); }));
-  const add = [['move', '移動／選取'], ['packs', '＋怪群'], ['nodes', '＋採集點'], ['rocks', '＋岩石'], ['wall', '＋牆'], ['water', '＋水'], ['road', '＋路'], ['exits', '＋出入口']].concat(home ? [['events', '＋漲潮點']] : []).concat(f.gate ? [] : [['gate', '＋副本入口']]);
+    commit(true); if (!doc.maps[id]) { say('沒有加進去：地圖已經到上限。'); return render(); } go(id); say('新地圖開好了，裡面先放了一個回鏽灘的出入口。記得到鏽灘也放一個通到這裡的出入口。'); }));
+  const add = isD ? [['move', '移動／選取'], ['mobs', '＋怪'], ['boss', '＋王'], ['rare', '＋稀有精英'], ['chests', '＋寶箱'], ['events', '＋事件'], ['rocks', '＋岩石'], ['wall', '＋牆'], ['water', '＋水'], ['road', '＋路']]
+    : [['move', '移動／選取'], ['packs', '＋怪群'], ['nodes', '＋採集點'], ['rocks', '＋岩石'], ['wall', '＋牆'], ['water', '＋水'], ['road', '＋路'], ['exits', '＋出入口']].concat(home ? [['events', '＋漲潮點']] : []).concat(f.gate ? [] : [['gate', '＋副本入口']]);
   for (const [k, t] of add) tools.appendChild(btn(t, 'mini' + (tool === k ? ' on' : ''), () => { tool = k; render(); }));
-  const props = el('div', 'fields'); props.appendChild(textField('地圖名字', P.concat('name'), 8));
-  if (!home) props.append(numField('寬', P.concat('w'), ['', 360, 2400, 10]), numField('高', P.concat('h'), ['', 440, 3000, 10]));
-  body.append(pick, props, note(tool === 'move' ? '拖曳可以移動，點一下可以選取，選到的東西在地圖下面改細節。要捲動頁面請拖地圖左右兩邊或以外的地方。' : '在地圖上點一下要放的位置。'), tools, wrap, panel); wrap.appendChild(cv);
-  if (!home) body.appendChild(btn('刪除這張地圖', 'mini', ev => { const b = ev.currentTarget; if (b.textContent !== '確定刪除？') { b.textContent = '確定刪除？'; return; } delete doc.maps[mapId]; mapId = 'shore'; sel = null; commit(); say('刪掉了。通到那張地圖的出入口也一起拿掉了。'); }));
+  const props = el('div', 'fields'); if (!isD) props.appendChild(textField('地圖名字', P.concat('name'), 8));
+  if (!home) props.append(numField('寬', P.concat('w'), ['', 360, isD ? 1800 : 2400, 10]), numField('高', P.concat('h'), ['', 440, isD ? 2400 : 3000, 10]));
+  body.append(pick, props, note(tool !== 'move' ? '在地圖上點一下要放的位置。' : isD ? '這是副本的場景。拖曳可以移動，點一下可以選取，選到的東西在地圖下面改細節。怪要等玩家靠近才會開戰。' : '拖曳可以移動，點一下可以選取，選到的東西在地圖下面改細節。要捲動頁面請拖地圖左右兩邊或以外的地方。'), tools, wrap, panel); wrap.appendChild(cv);
+  if (!home && !isD) body.appendChild(btn('刪除這張地圖', 'mini', ev => { const b = ev.currentTarget; if (b.textContent !== '確定刪除？') { b.textContent = '確定刪除？'; return; } delete doc.maps[mapId]; mapId = 'shore'; sel = null; commit(); say('刪掉了。通到那張地圖的出入口也一起拿掉了。'); }));
   const cw = Math.max(160, Math.min(wrap.clientWidth || 340, Math.floor((window.innerHeight - 110) * f.w / f.h), 480)), k = cw / f.w, dpr = Math.min(2, window.devicePixelRatio || 1);
   cv.style.width = cw + 'px'; cv.style.height = Math.round(f.h * k) + 'px'; cv.width = Math.round(cw * dpr); cv.height = Math.round(f.h * k * dpr);
   const c = cv.getContext('2d'), css = n => getComputedStyle(document.documentElement).getPropertyValue('--' + n).trim() || '#888';
   const S1 = n => n * (f.w / 900) / Math.max(.6, cw / 358);      // a size in map units that looks like n on the default map
-  const at = s0 => s0.single ? f[s0.single] : f[s0.list][s0.i], isSel = (l, i) => sel && sel.list === l && sel.i === i;
+  const L = key => f[key] || [], at = s0 => s0.single ? f[s0.single] : f[s0.list][s0.i], isSel = (l, i) => sel && sel.list === l && sel.i === i;
   function label(t, x, y, col) { c.font = `700 ${S1(26)}px sans-serif`; c.textAlign = 'center'; c.fillStyle = col; c.fillText(t, x, y); }
   function draw() {
     c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0); c.fillStyle = css('deep'); c.fillRect(0, 0, f.w, f.h);
-    for (const o of f.walls) { c.globalAlpha = o.type === 'road' ? .6 : 1; c.fillStyle = o.type === 'road' ? css('slate') : o.type === 'water' ? css('glow') : css('ink'); c.fillRect(o.x - o.w / 2, o.y - o.h / 2, o.w, o.h); c.globalAlpha = 1; c.strokeStyle = css('line'); c.lineWidth = S1(3); c.strokeRect(o.x - o.w / 2, o.y - o.h / 2, o.w, o.h); }
+    for (const o of L('walls')) { c.globalAlpha = o.type === 'road' ? .6 : 1; c.fillStyle = o.type === 'road' ? css('slate') : o.type === 'water' ? css('glow') : css('ink'); c.fillRect(o.x - o.w / 2, o.y - o.h / 2, o.w, o.h); c.globalAlpha = 1; c.strokeStyle = css('line'); c.lineWidth = S1(3); c.strokeRect(o.x - o.w / 2, o.y - o.h / 2, o.w, o.h); }
     if (home) { const cp = S.FIELD.safe; c.strokeStyle = css('line'); c.lineWidth = S1(2); c.setLineDash([10, 10]); c.beginPath(); c.arc(cp.x, cp.y, cp.r, 0, 7); c.stroke(); c.setLineDash([]); label('營地（怪不會進來）', cp.x, cp.y + cp.r + 30, css('mute')); }
-    for (const o of f.rocks) { c.fillStyle = css('line'); c.beginPath(); c.arc(o.x, o.y, o.r, 0, 7); c.fill(); }
-    (f.events || []).forEach((o, i) => { c.strokeStyle = css('ember'); c.lineWidth = S1(isSel('events', i) ? 6 : 3); c.setLineDash([14, 10]); c.beginPath(); c.arc(o.x, o.y, o.r, 0, 7); c.stroke(); c.setLineDash([]); label('漲潮', o.x, o.y + 9, css('ember')); });
-    f.exits.forEach(o => { c.strokeStyle = css('hex'); c.lineWidth = S1(5); c.beginPath(); c.arc(o.x, o.y, S1(30), 0, 7); c.stroke(); label('往 ' + (doc.maps[o.to] ? doc.maps[o.to].name : '？'), o.x, o.y - S1(40), css('foam')); });
-    f.packs.forEach(o => { c.fillStyle = css('rust'); c.beginPath(); c.arc(o.x, o.y, S1(26), 0, 7); c.fill(); label(o.n, o.x, o.y + S1(9), css('ink')); label(`${kindName(o.kind).slice(0, 3)} ${o.min}-${o.max}`, o.x, o.y - S1(34), css('foam')); });
-    f.nodes.forEach(o => { c.fillStyle = o.type === 'herb' ? css('heal') : o.type === 'salt' ? css('foam') : css('brass'); c.fillRect(o.x - S1(14), o.y - S1(14), S1(28), S1(28)); });
-    (f.npcs || []).forEach(o => { c.fillStyle = css('foam'); c.beginPath(); c.arc(o.x, o.y, S1(16), 0, 7); c.fill(); label(window.Story && Story.CAST[o.id] ? Story.CAST[o.id].name : o.id, o.x, o.y - S1(24), css('foam')); });
-    (f.stalls || []).forEach(o => { const d = S.FIELD.stalls.find(x => x.id === o.id); c.fillStyle = css('brass'); c.fillRect(o.x - S1(16), o.y - S1(16), S1(32), S1(32)); label(d ? d.name : o.id, o.x, o.y - S1(24), css('brass')); });
-    c.fillStyle = css('heal'); c.beginPath(); c.arc(f.spawn.x, f.spawn.y, S1(12), 0, 7); c.fill(); label('出生點', f.spawn.x, f.spawn.y + S1(40), css('heal'));
+    for (const o of L('rocks')) { c.fillStyle = css('line'); c.beginPath(); c.arc(o.x, o.y, o.r, 0, 7); c.fill(); }
+    L('events').forEach((o, i) => { const col = isD ? (o.type === 'heal' ? css('heal') : o.type === 'say' ? css('foam') : css('danger')) : css('ember'); c.strokeStyle = col; c.lineWidth = S1(isSel('events', i) ? 6 : 3); c.setLineDash([14, 10]); c.beginPath(); c.arc(o.x, o.y, o.r, 0, 7); c.stroke(); c.setLineDash([]); label(isD ? EVL[o.type].split('：')[0] : '漲潮', o.x, o.y + S1(9), col); });
+    L('exits').forEach(o => { c.strokeStyle = css('hex'); c.lineWidth = S1(5); c.beginPath(); c.arc(o.x, o.y, S1(30), 0, 7); c.stroke(); label('往 ' + (doc.maps[o.to] ? doc.maps[o.to].name : '？'), o.x, o.y - S1(40), css('foam')); });
+    L('packs').forEach(o => { c.fillStyle = css('rust'); c.beginPath(); c.arc(o.x, o.y, S1(26), 0, 7); c.fill(); label(o.n, o.x, o.y + S1(9), css('ink')); label(`${kindName(o.kind).slice(0, 3)} ${o.min}-${o.max}`, o.x, o.y - S1(34), css('foam')); });
+    L('mobs').forEach(o => { const boss = baseOf(o.kind) === 'boss', r = S1(boss ? 36 : 26);
+      if (o.roam > 0) { c.strokeStyle = css('rust'); c.lineWidth = S1(2); c.setLineDash([8, 8]); c.beginPath(); c.arc(o.x, o.y, o.roam, 0, 7); c.stroke(); c.setLineDash([]); }
+      if (o.px != null) { c.strokeStyle = css('rust'); c.lineWidth = S1(3); c.beginPath(); c.moveTo(o.x, o.y); c.lineTo(o.px, o.py); c.stroke(); c.fillStyle = css('rust'); c.beginPath(); c.arc(o.px, o.py, S1(12), 0, 7); c.fill(); }
+      c.fillStyle = boss ? css('danger') : css('rust'); c.beginPath(); c.arc(o.x, o.y, r, 0, 7); c.fill(); if (o.rare || boss) { c.strokeStyle = css('brass'); c.lineWidth = S1(5); c.stroke(); }
+      label(boss ? '王' : o.n, o.x, o.y + S1(9), css('ink')); label(`${o.rare ? '稀有 ' : ''}${kindName(o.kind).slice(0, 4)}${o.chance < 1 ? ` ${Math.round(o.chance * 100)}%` : ''}`, o.x, o.y - r - S1(8), css('foam')); });
+    L('chests').forEach(o => { c.fillStyle = css('brass'); c.fillRect(o.x - S1(18), o.y - S1(13), S1(36), S1(26)); label(`寶箱 ${Math.round(o.chance * 100)}%`, o.x, o.y - S1(22), css('brass')); });
+    L('nodes').forEach(o => { c.fillStyle = o.type === 'herb' ? css('heal') : o.type === 'salt' ? css('foam') : css('brass'); c.fillRect(o.x - S1(14), o.y - S1(14), S1(28), S1(28)); });
+    L('npcs').forEach(o => { c.fillStyle = css('foam'); c.beginPath(); c.arc(o.x, o.y, S1(16), 0, 7); c.fill(); label(window.Story && Story.CAST[o.id] ? Story.CAST[o.id].name : o.id, o.x, o.y - S1(24), css('foam')); });
+    L('stalls').forEach(o => { const d = S.FIELD.stalls.find(x => x.id === o.id); c.fillStyle = css('brass'); c.fillRect(o.x - S1(16), o.y - S1(16), S1(32), S1(32)); label(d ? d.name : o.id, o.x, o.y - S1(24), css('brass')); });
+    c.fillStyle = css('heal'); c.beginPath(); c.arc(f.spawn.x, f.spawn.y, S1(12), 0, 7); c.fill(); label(isD ? '入口' : '出生點', f.spawn.x, f.spawn.y + S1(40), css('heal'));
     if (f.gate) { const g = f.gate; c.fillStyle = css('brass'); c.beginPath(); c.moveTo(g.x, g.y - S1(34)); c.lineTo(g.x + S1(30), g.y + S1(22)); c.lineTo(g.x - S1(30), g.y + S1(22)); c.closePath(); c.fill(); label(home ? '塔門' : '副本入口', g.x, g.y + S1(56), css('brass')); }
-    if (sel) { const o = at(sel); if (o) { c.strokeStyle = css('foam'); c.lineWidth = S1(5); if (sel.list === 'walls') c.strokeRect(o.x - o.w / 2 - S1(6), o.y - o.h / 2 - S1(6), o.w + S1(12), o.h + S1(12)); else { c.beginPath(); c.arc(o.x, o.y, (o.r || S1(26)) + S1(12), 0, 7); c.stroke(); } } }
+    if (sel) { const o = at(sel); if (o) { c.strokeStyle = css('foam'); c.lineWidth = S1(5); if (sel.list === 'walls') c.strokeRect(o.x - o.w / 2 - S1(6), o.y - o.h / 2 - S1(6), o.w + S1(12), o.h + S1(12)); else { c.beginPath(); c.arc(sel.handle ? o.px : o.x, sel.handle ? o.py : o.y, (sel.handle || sel.list === 'events' ? 0 : o.r || 0) + S1(sel.list === 'events' ? 30 : 38), 0, 7); c.stroke(); } } }
   }
   const hit = p => { let best = null, bd = S1(52); const tryOne = (s0, o, r) => { const d = Math.hypot(o.x - p.x, o.y - p.y) - (r || 0) * .6; if (d < bd) { bd = d; best = s0; } };
     if (f.gate) tryOne({ single: 'gate' }, f.gate); tryOne({ single: 'spawn' }, f.spawn);
-    for (const [l, , r] of LAYERS) if (l !== 'walls') (f[l] || []).forEach((o, i) => tryOne({ list: l, i }, o, l === 'rocks' ? o.r : S1(r)));
-    if (!best) f.walls.forEach((o, i) => { if (Math.abs(p.x - o.x) <= o.w / 2 + S1(8) && Math.abs(p.y - o.y) <= o.h / 2 + S1(8)) best = { list: 'walls', i }; });      // a box only when nothing smaller is under the finger
+    L('mobs').forEach((o, i) => { if (o.px != null) tryOne({ list: 'mobs', i, handle: true }, { x: o.px, y: o.py }); });      // the far end of a patrol can be dragged too
+    for (const [l, , r] of LAYERS) if (l !== 'walls') L(l).forEach((o, i) => tryOne({ list: l, i }, o, l === 'rocks' ? o.r : l === 'events' ? 0 : S1(r)));
+    if (!best) L('walls').forEach((o, i) => { if (Math.abs(p.x - o.x) <= o.w / 2 + S1(8) && Math.abs(p.y - o.y) <= o.h / 2 + S1(8)) best = { list: 'walls', i }; });      // a box only when nothing smaller is under the finger
     return best; };
   const pos = ev => { const r = cv.getBoundingClientRect(); return { x: Math.round((ev.clientX - r.left) / k), y: Math.round((ev.clientY - r.top) / k) }; };
   let drag = null;
@@ -256,33 +274,50 @@ function mapView(body) {
     ev.preventDefault(); const p = pos(ev);
     if (tool === 'gate') { f.gate = { x: p.x, y: p.y }; sel = { single: 'gate' }; tool = 'move'; return commit(); }
     if (tool !== 'move') {
-      const lst = ['wall', 'water', 'road'].includes(tool) ? 'walls' : tool, other = Object.keys(doc.maps).find(id => id !== mapId);
+      const lst = ['wall', 'water', 'road'].includes(tool) ? 'walls' : ['boss', 'rare'].includes(tool) ? 'mobs' : tool, other = Object.keys(doc.maps).find(id => id !== mapId);
       if (lst === 'exits' && !other) { tool = 'move'; say('只有一張地圖，出入口沒有地方可以通。先新增一張地圖。'); return render(); }
-      const fresh = lst === 'packs' ? { kind: kindsOf(false)[0], x: p.x, y: p.y, n: 2, min: 1, max: 6 } : lst === 'nodes' ? { id: 1 + f.nodes.reduce((m, o) => Math.max(m, o.id), 0), type: 'herb', x: p.x, y: p.y } : lst === 'rocks' ? { x: p.x, y: p.y, r: 32 }
+      const fresh = lst === 'mobs' ? { kind: tool === 'boss' ? bosses()[0] : soldiers()[0], x: p.x, y: p.y, n: tool === 'mobs' ? 2 : 1, chance: tool === 'rare' ? .3 : 1, rare: tool === 'rare', roam: 0 }
+        : lst === 'chests' ? { x: p.x, y: p.y, chance: .5 } : lst === 'events' && isD ? { type: 'ambush', x: p.x, y: p.y, r: 70, kind: soldiers()[0], n: 2, text: '' }
+        : lst === 'packs' ? { kind: kindsOf(false)[0], x: p.x, y: p.y, n: 2, min: 1, max: 6 } : lst === 'nodes' ? { id: 1 + f.nodes.reduce((m, o) => Math.max(m, o.id), 0), type: 'herb', x: p.x, y: p.y } : lst === 'rocks' ? { x: p.x, y: p.y, r: 32 }
         : lst === 'walls' ? { x: p.x, y: p.y, w: tool === 'road' ? 80 : 200, h: tool === 'road' ? 300 : 40, type: tool } : lst === 'exits' ? { x: p.x, y: p.y, to: other } : { x: p.x, y: p.y, r: 115 };
-      const before = f[lst].length; f[lst].push(fresh); sel = { list: lst, i: before }; tool = 'move'; commit(); if (doc.maps[mapId][sel.list].length <= before) { sel = null; say('放不下：已經到這一種的數量上限，或位置太靠邊。'); render(); } return;
+      const before = f[lst].length; f[lst].push(fresh); sel = { list: lst, i: before }; tool = 'move'; commit(); if (get(doc, P)[sel.list].length <= before) { sel = null; say('放不下：已經到這一種的數量上限，或位置太靠邊。'); render(); } return;
     }
     sel = hit(p); if (sel) { drag = { id: ev.pointerId, moved: false }; try { cv.setPointerCapture(ev.pointerId); } catch (e) {} } draw(); showPanel();
   });
-  cv.addEventListener('pointermove', ev => { if (!drag || ev.pointerId !== drag.id || !sel) return; const p = pos(ev), o = at(sel); o.x = Math.max(20, Math.min(f.w - 20, p.x)); o.y = Math.max(20, Math.min(f.h - 20, p.y)); drag.moved = true; draw(); });
+  cv.addEventListener('pointermove', ev => { if (!drag || ev.pointerId !== drag.id || !sel) return; const p = pos(ev), o = at(sel), x = Math.max(20, Math.min(f.w - 20, p.x)), y = Math.max(20, Math.min(f.h - 20, p.y));
+    if (sel.handle) { o.px = x; o.py = y; } else { if (o.px != null) { o.px += x - o.x; o.py += y - o.y; } o.x = x; o.y = y; } drag.moved = true; draw(); });
   const up = ev => { if (!drag || ev.pointerId !== drag.id) return; const moved = drag.moved; drag = null; if (moved) commit(); };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  /* a choice that is not stored as one field: it writes the object back whole */
+  function choice(label0, value, options, write) { const sl = el('select'); for (const [v, t] of options) { const o = el('option', '', t); o.value = v; sl.appendChild(o); } sl.value = value; sl.addEventListener('change', () => { write(sl.value); commit(); }); return field(label0, sl); }
   function showPanel() {
     panel.textContent = ''; if (!sel) return panel.appendChild(note('還沒選東西。'));
     const o = at(sel); if (!o) { sel = null; return; }
-    const title = sel.single ? (sel.single === 'spawn' ? '出生點（進這張地圖、或倒下後站起來的位置）' : home ? '塔門' : '副本入口') : LAYERS.find(l => l[0] === sel.list)[1], p = sel.single ? P.concat(sel.single) : P.concat(sel.list, sel.i), box = el('div', 'fields');
-    panel.appendChild(el('h3', '', `選到：${title}　位置 ${o.x}, ${o.y}`));
+    const title = sel.single ? (sel.single === 'spawn' ? (isD ? '入口（隊伍進副本時出現的位置）' : '出生點（進這張地圖、或倒下後站起來的位置）') : home ? '塔門' : '副本入口') : isD && sel.list === 'events' ? '事件' : home && sel.list === 'events' ? '漲潮點' : LAYERS.find(l => l[0] === sel.list)[1];
+    const p = sel.single ? P.concat(sel.single) : P.concat(sel.list, sel.i), box = el('div', 'fields');
+    panel.appendChild(el('h3', '', `選到：${title}${sel.handle ? '的巡邏終點' : ''}　位置 ${sel.handle ? o.px : o.x}, ${sel.handle ? o.py : o.y}`));
     if (sel.list === 'packs') box.append(pickField('怪物', p.concat('kind'), kindsOf(false).map(x => [x, kindName(x)])), numField('數量', p.concat('n'), S.LIM.n), numField('最低等級', p.concat('min'), S.LIM.min), numField('最高等級', p.concat('max'), S.LIM.max));
+    if (sel.list === 'mobs') { const mode = o.px != null ? 'path' : o.roam > 0 ? 'roam' : 'none';
+      box.append(pickField('怪物（選王型的就是王）', p.concat('kind'), kindsOf(true).map(x => [x, kindName(x) + (baseOf(x) === 'boss' ? '（王）' : '')])), numField('這一組幾隻', p.concat('n'), ['', 1, 4, 1]), numField(S.LIM.chance[0], p.concat('chance'), S.LIM.chance),
+        choice('稀有精英（更硬、更痛、必掉裝備）', o.rare ? '1' : '0', [['0', '不是'], ['1', '是']], v => { o.rare = v === '1'; }),
+        choice('平常做什麼', mode, [['none', '站著不動'], ['roam', '在範圍內遊走'], ['path', '兩點之間來回巡邏']], v => { delete o.px; delete o.py; o.roam = v === 'roam' ? 80 : 0; if (v === 'path') { o.px = Math.min(f.w - 20, o.x + 140); o.py = o.y; } }));
+      if (mode === 'roam') box.appendChild(numField('遊走半徑', p.concat('roam'), ['', 10, 300, 5])); }
+    if (sel.list === 'chests') box.append(numField(S.LIM.chance[0], p.concat('chance'), S.LIM.chance));
     if (sel.list === 'nodes') box.append(pickField('種類', p.concat('type'), S.NODE_TYPES.map(x => [x, NODEL[x]])));
     if (sel.list === 'rocks') box.append(numField('大小', p.concat('r'), ['', 10, 80, 1]));
-    if (sel.list === 'events') box.append(numField('範圍', p.concat('r'), ['', 60, 200, 5]));
+    if (sel.list === 'events' && !isD) box.append(numField('範圍', p.concat('r'), ['', 60, 200, 5]));
+    if (sel.list === 'events' && isD) { box.append(pickField('踩進去會發生什麼', p.concat('type'), S.EVENT_TYPES.map(x => [x, EVL[x]])), numField('觸發範圍', p.concat('r'), ['', 30, 250, 5]));
+      if (o.type === 'ambush') box.append(pickField('冒出哪種怪', p.concat('kind'), soldiers().map(x => [x, kindName(x)])), numField('幾隻', p.concat('n'), ['', 1, 4, 1]));
+      if (o.type !== 'heal') box.append(textField(o.type === 'say' ? '畫面上的字' : '出現時畫面上的字（可不填）', p.concat('text'), 20)); }
     if (sel.list === 'walls') box.append(pickField('種類', p.concat('type'), S.WALL_TYPES.map(x => [x, WALLL[x]])), numField('寬', p.concat('w'), ['', 20, 1200, 10]), numField('高', p.concat('h'), ['', 20, 1200, 10]));
     if (sel.list === 'exits') box.append(pickField('通到哪張地圖', p.concat('to'), Object.keys(doc.maps).filter(id => id !== mapId).map(id => [id, doc.maps[id].name])), numField('到了那邊站在 X', p.concat('tx'), ['', 20, 2400, 10]), numField('到了那邊站在 Y', p.concat('ty'), ['', 20, 3000, 10]));
     panel.appendChild(box);
     if (sel.list === 'packs') panel.appendChild(note('野怪的等級會跟著玩家，但不會低於最低等級、不會高於最高等級。'));
+    if (sel.list === 'mobs') panel.appendChild(note(o.px != null ? '巡邏的另一端是地圖上連著線的小圓點，可以直接拖。' : '同一組的怪會一起開戰。出現機率小於 1 的，每次進副本重新決定在不在。'));
+    if (sel.list === 'events' && isD) panel.appendChild(note('每個事件一場只會觸發一次，要有玩家（不是 AI 隊友）走進範圍。'));
     if (sel.list === 'exits') panel.appendChild(note('出入口是單向的：要能走回來，那張地圖也要放一個通回這裡的。'));
     if (sel.single === 'gate' && !home) panel.appendChild(btn('拿掉這個副本入口', 'mini', () => { f.gate = null; sel = null; commit(); }));
-    if (['packs', 'nodes', 'rocks', 'events', 'walls', 'exits'].includes(sel.list)) panel.appendChild(btn('刪除這個', 'mini', () => { const arr = doc.maps[mapId][sel.list]; if (home && ['packs', 'nodes', 'events'].includes(sel.list) && arr.length < 2) return say('鏽灘至少要留一個。'); arr.splice(sel.i, 1); sel = null; commit(); }));
+    if (sel.list && !['npcs', 'stalls'].includes(sel.list)) panel.appendChild(btn('刪除這個', 'mini', () => { const arr = get(doc, P)[sel.list]; if (home && ['packs', 'nodes', 'events'].includes(sel.list) && arr.length < 2) return say('鏽灘至少要留一個。'); arr.splice(sel.i, 1); sel = null; commit(); }));
   }
   draw(); showPanel();
 }

@@ -374,7 +374,7 @@ function start(opts) {
     // alone with bots, everything that dropped is yours; a group gets a pile and divides it
     const share = r.win && hs.length > 1, lead = room.slots[room.leader];
     const L = share ? { id: ++lootN, mode: !room.pub && room.loot === 'leader' && lead && lead.ws ? 'leader' : 'roll', leader: hs.indexOf(lead), deadline: now + lootWait,
-      items: Sim.runDrops(G.lvl, r, Sim.bossDrops(hs.length), Math.min(3, G.drops)).map(it => ({ it, picks: {}, done: false })),
+      items: Sim.runDrops(G.lvl, r, Sim.bossDrops(hs.length), Math.min(6, G.drops)).map(it => ({ it, picks: {}, done: false })),
       members: hs.map(s => { const rec = store.get(s.id), c = rec && rec.chars[s.ci]; return { id: s.id, ci: s.ci, made: c ? c.made : -1, name: s.name, cls: s.cls }; }) } : null;
     if (L) loots.set(L.id, L);
     room.slots.forEach((s, i) => {
@@ -443,8 +443,8 @@ function start(opts) {
     let rw = { loot: [], mats: null, xp: 0, coin: 0 };
     if (s && m.pots > 0) c.inv.potion = Math.max(0, c.inv.potion - 1);   // a potion drunk in the run is gone either way
     if (ok) {     // kicks and hits are the device's own count: fine for quests, not for anything worth cheating
-      rw = Sim.applyResult(c, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time }, { trash: clampInt(m.drops, 0, 3), dungeon: Sim.DUNGEONS[s.did] ? s.did : 'tower' });
-      Sim.questEvent(c, { type: 'run', win, onTime: win && time <= Sim.TIME_LIMIT, cls: s.cls, kicks: clampInt(m.kicks, 0, 50), hits: clampInt(m.hits, 0, 999), mates: 0 }, Date.now());
+      rw = Sim.applyResult(c, s.lvl, { win, onTime: win && time <= ((Sim.DUNGEONS[s.did] || {}).time || Sim.TIME_LIMIT), t: time }, { trash: clampInt(m.drops, 0, 6), dungeon: Sim.DUNGEONS[s.did] ? s.did : 'tower' });
+      Sim.questEvent(c, { type: 'run', win, onTime: win && time <= ((Sim.DUNGEONS[s.did] || {}).time || Sim.TIME_LIMIT), cls: s.cls, kicks: clampInt(m.kicks, 0, 50), hits: clampInt(m.hits, 0, 999), mates: 0 }, Date.now());
     }
     if (s) store.put(rec);
     send(ws, { t: 'solo', ok, loot: rw.loot, mats: rw.mats, xp: rw.xp, coin: rw.coin, profile: profileOf(rec), bk: store.pack(rec) });

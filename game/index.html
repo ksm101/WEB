@@ -302,7 +302,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <button id="finder-btn" type="button">副本</button>
       <div class="dungeon"><b id="place">沉鐘塔</b><span id="lvl">第 1 層</span></div>
       <div id="pips" aria-hidden="true"></div>
-      <div id="timer">0:00 <small>/ 3:00</small></div>
+      <div id="timer">0:00 <small id="timer-of">/ 3:00</small></div>
     </div>
     <div id="timebar"><i></i></div>
     <div id="party"></div>
@@ -700,7 +700,8 @@ function startSolo(cls, d) {
   G = S.createRun({ dungeon: did, lvl: floorNow(did), auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsFor(save, cls) }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
   if (net.authed) send({ t: 'solo0', lvl: floorNow(did), cls, d: did });
-  enterRun(); banner('三名 AI 隊友已就位', 2200);
+  if (G.layout) FD = G.F;      // a laid-out dungeon is a map of its own
+  enterRun(); if (G.layout) Object.assign(cam, camGoal()); banner('三名 AI 隊友已就位', 2200);
 }
 /* A finished run. Online, the server has already decided the rewards (extra). Solo with a server, the result is
  * reported and the server answers with the rewards. With no server at all, the rewards are rolled on this device. */
@@ -1003,11 +1004,12 @@ function beginOnline(m) {
   const back = net.back, field = !!m.field, here = net.travel || (field && inField() && V.me && V.map === (S.MAPS[m.map] ? m.map : 'shore') ? [V.me.x, V.me.y] : null); net.travel = null; net.back = false; net.evJoin = 0;      // here: already standing in the field, so nobody jumps to the camp
   mode = 'online'; if (!field) lastMode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.emap = new Map(); net.sx = net.sy = NaN;
   if (field) FD = S.MAPS[m.map] || S.FIELD; else did = S.DUNGEONS[m.d] ? m.d : 'tower';
-  V = { mode: field ? 'field' : 'dungeon', did, map: FD.id, code: field ? String(m.code || '') : '', t: 0, state: field ? 'run' : 'countdown', cd: field ? 0 : 3, wave: -1, lvl: m.lvl, elvl: m.elvl || 1, enemies: [], zones: [], shots: [], boss: null, result: null,
+  const lay = !field && dgn(did).type === 'layout' && !!dgn(did).F; if (lay) FD = dgn(did).F;
+  V = { mode: field ? 'field' : 'dungeon', layout: lay, limit: dgn(did).time || TIME_LIMIT, chests: [], tg: 0, portal: null, did, map: FD.id, code: field ? String(m.code || '') : '', t: 0, state: field ? 'run' : 'countdown', cd: field ? 0 : 3, wave: -1, lvl: m.lvl, elvl: m.elvl || 1, enemies: [], zones: [], shots: [], boss: null, result: null,
     nodes: field ? FD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, ready: true })) : [],
     event: !!m.event, cycle: m.cycle, evs: null, evInfo: null,
-    actors: m.roster.map((r, i) => seatView(r, i, m.lvl, field ? here || FD.spawn : SPOTS[i])) };
-  V.me = V.actors[meIdx];
+    actors: m.roster.map((r, i) => seatView(r, i, m.lvl, field ? here || FD.spawn : lay ? FD.spawn : SPOTS[i])) };
+  V.me = V.actors[meIdx]; if (lay) Object.assign(cam, camGoal());
   enterRun();
   const n = m.roster.filter(r => r && r.human).length;
   if (!field) return banner(back ? '已重新連線' : n > 1 ? `${n} 名玩家，${4 - n} 名 AI 補位` : '沒等到其他玩家，三名 AI 補位', 2400);
@@ -1031,16 +1033,17 @@ function buildView(now) {
   const s0 = b[0], s1 = b.length > 1 ? b[1] : b[0];
   const k = s1 === s0 ? 1 : clamp((rt - s0.c) / (s1.c - s0.c), 0, 1), L = (p, q) => p + (q - p) * k;
   V.t = L(s0.tm, s1.tm); V.state = s1.st; V.cd = L(s0.cd, s1.cd); V.wave = s1.w;
+  if (s1.ch) V.chests = s1.ch.map(q => ({ x: q[0], y: q[1], open: !!q[2] })); V.tg = s1.tg || 0; V.portal = s1.pt ? { x: s1.pt[0], y: s1.pt[1] } : null;
   const em = net.emap, seen = new Set(); V.boss = null;
   for (const d of s1.e) {
     let e = em.get(d[0]);
-    if (!e) { const def = ENEMY[d[1]] || ENEMY.grunt; e = { id: d[0], kind: d[1], def, name: def.name, lvl: V.elvl, r: def.r, boss: !!def.boss, tm: { enraged: false }, alive: true }; em.set(d[0], e); }
+    if (!e) { const def = ENEMY[d[1]] || ENEMY.grunt; e = { id: d[0], kind: d[1], def, rare: !!d[16], name: (d[16] ? '稀有・' : '') + def.name, lvl: V.elvl, r: def.r, boss: !!def.boss, tm: { enraged: false }, alive: true }; em.set(d[0], e); }
     e.lvl = d[11] || V.elvl; e.engaged = !!d[12]; e.ret = !!d[13]; e.tgt = d[14] >= 0 ? d[14] : -1; e.th = Array.isArray(d[15]) ? d[15] : null;
     const p = s0.e.find(q => q[0] === d[0]) || d;
     e.x = L(p[2], d[2]); e.y = L(p[3], d[3]); e.hp = d[4]; e.maxHp = d[5]; e.face = d[6]; e.spawnT = L(p[7], d[7]); e.stun = d[8]; e.tm.enraged = !!d[9];
     const c = d[10], pc = p[10];
     e.cast = c ? { name: c[0], t: pc && pc[0] === c[0] && pc[1] <= c[1] ? L(pc[1], c[1]) : c[1], dur: c[2], kickable: !!c[3], victim: c[4] >= 0 ? V.actors[c[4]] : null } : null;
-    seen.add(d[0]); if (e.boss) V.boss = e;
+    seen.add(d[0]); if (e.boss && (!V.layout || d[12])) V.boss = e;      // in a laid-out dungeon the boss bar waits for the fight
   }
   for (const id of Array.from(em.keys())) if (!seen.has(id)) em.delete(id);
   V.enemies = s1.e.map(d => em.get(d[0]));
@@ -1066,7 +1069,7 @@ function predictMe(dt, now) {
   const moving = a.alive && (V.state === 'run' || V.state === 'won') && m > .05 && !a.rolling;
   if (moving) {
     let mx = input.mx, my = input.my; if (m > 1) { mx /= m; my /= m; }
-    const f = inField(), bw = f ? FD.w : W, bh = f ? FD.h : H;
+    const f = inField() || !!V.layout, bw = f ? FD.w : W, bh = f ? FD.h : H;
     a.x = clamp(a.x + mx * speed * dt, a.r + 6, bw - a.r - 6); a.y = clamp(a.y + my * speed * dt, a.r + (f ? 6 : 36), bh - a.r - 8); if (f) S.pushOut(a, FD); net.lastMove = now;
   }
   const ex = a.sx - a.x, ey = a.sy - a.y, d = Math.hypot(ex, ey);
@@ -1329,10 +1332,10 @@ function drawAim() {
   c.restore();
 }
 function render(dt) {
-  const c = ctx, field = !!V && V.mode === 'field'; let sx = 0, sy = 0;
+  const c = ctx, field = !!V && V.mode === 'field', scroll = field || (!!V && !!V.layout); let sx = 0, sy = 0;
   if (FX.shake > 0 && !reduced) { sx = rand(-1, 1) * FX.shake * 5; sy = rand(-1, 1) * FX.shake * 5; }
   c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = C.ink; c.fillRect(0, 0, cv.width, cv.height);
-  if (field) { c.setTransform(dpr * fscale, 0, 0, dpr * fscale, (sx - cam.x * fscale) * dpr, (sy - cam.y * fscale) * dpr); drawField(); }
+  if (scroll) { c.setTransform(dpr * fscale, 0, 0, dpr * fscale, (sx - cam.x * fscale) * dpr, (sy - cam.y * fscale) * dpr); drawField(); if (!field) drawScene(); }
   else { if (floor) c.drawImage(floor, sx * dpr, sy * dpr); c.setTransform(dpr * scale, 0, 0, dpr * scale, (offX + sx) * dpr, (offY + sy) * dpr); }
   if (!V) return;
   for (const z of V.zones) drawZone(z);
@@ -1358,8 +1361,8 @@ function render(dt) {
     c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText(t.str, t.x, t.y); c.fillStyle = t.col; c.fillText(t.str, t.x, t.y);
   }
   c.globalAlpha = 1;
-  if (V.state === 'countdown' && V.cd > 0) { c.font = `700 96px ${F.num}`; c.fillStyle = C.brass; c.lineWidth = 6; c.strokeStyle = C.ink; const n = String(Math.ceil(V.cd)); c.strokeText(n, W / 2, H * .42); c.fillText(n, W / 2, H * .42); }
-  if (field) drawMinimap();
+  if (V.state === 'countdown' && V.cd > 0) { c.font = `700 96px ${F.num}`; c.fillStyle = C.brass; c.lineWidth = 6; c.strokeStyle = C.ink; const n = String(Math.ceil(V.cd)); const cx0 = scroll ? cam.x + stageW / fscale / 2 : W / 2, cy0 = scroll ? cam.y + stageH / fscale * .42 : H * .42; c.strokeText(n, cx0, cy0); c.fillText(n, cx0, cy0); }
+  if (scroll) drawMinimap();
 }
 function updFx(dt) {
   for (const f of FX.fx) f.t += dt; FX.fx = FX.fx.filter(f => f.t < f.dur);
@@ -1371,7 +1374,7 @@ function updFx(dt) {
 let frames = [], skBtns = [];
 function buildHud() {
   const field = V.mode === 'field'; $('#place').textContent = field ? (V.event ? `${FD.name}　漲潮` : V.code ? `${FD.name}　隊伍 ${V.code}` : FD.name) : dname(V.did); $('#lvl').textContent = field ? (FD.id === 'shore' ? '燼港外緣' : '') : `第 ${V.lvl} 層`;
-  { const pp = $('#pips'), n = field ? 0 : dgn(V.did).waves.length; pp.textContent = ''; for (let i = 0; i < n; i++) pp.appendChild(el('i', i === n - 1 ? 'boss' : '')); }      // one mark for each wave of this dungeon
+  { const pp = $('#pips'), n = field || V.layout ? 0 : dgn(V.did).waves.length; pp.textContent = ''; for (let i = 0; i < n; i++) pp.appendChild(el('i', i === n - 1 ? 'boss' : '')); }      // one mark for each wave of this dungeon
   const party = $('#party'); party.textContent = ''; frames = [];
   V.actors.forEach((a, i) => {
     if (a.out || a.ghost) return;      // an empty seat in the party
@@ -1403,9 +1406,9 @@ function hud() {
     const need = S.xpNeed(save.cl), txt = need ? `Lv.${save.cl}　經驗 ${save.xp} / ${need}` : `Lv.${save.cl}　已滿級`, lv = $('#lvl');
     if (lv.textContent !== txt) lv.textContent = txt; $('#timebar').classList.remove('late'); $('#timebar').firstElementChild.style.width = (need ? Math.min(100, save.xp / need * 100) : 100) + '%';
   } else {
-    const t = V.t, late = t > TIME_LIMIT;
+    const lim = V.limit || TIME_LIMIT, t = V.t, late = t > lim; { const of = $('#timer-of'), want = '/ ' + fmt(lim); if (of.textContent !== want) of.textContent = want; }
     $('#timer').firstChild.nodeValue = fmt(t) + ' '; $('#timer').classList.toggle('late', late);
-    $('#timebar').classList.toggle('late', late); $('#timebar').firstElementChild.style.width = Math.min(100, t / TIME_LIMIT * 100) + '%';
+    $('#timebar').classList.toggle('late', late); $('#timebar').firstElementChild.style.width = Math.min(100, t / lim * 100) + '%';
   }
   const pips = $('#pips').children, won = !!(V.result && V.result.win);
   for (let i = 0; i < pips.length; i++) { pips[i].classList.toggle('done', i < V.wave || won); pips[i].classList.toggle('now', i === V.wave && V.state === 'run'); }
@@ -1545,16 +1548,17 @@ function renderFinder() {
   $('#fd-title').textContent = dname(did); lst.textContent = ''; lst.hidden = ids.length < 2;
   for (const k of ids) { const b = el('button', 'mini' + (k === did ? ' on' : ''), `${dname(k)}${dungeonOpen(k) ? '' : `　Lv.${dungeonLv(k)}`}`); b.type = 'button'; b.id = 'fd-pick-' + k; b.addEventListener('click', () => { did = k; renderFinder(); }); lst.appendChild(b); }
   $('#fd-info').textContent = !open ? `${dname(did)}要 Lv.${dungeonLv(did)} 才開放，你現在 Lv.${save.cl}。先在野外打怪、採集、做任務，等級到了這裡就能找隊伍。`
-    : `${dgn(did).waves.length} 波。你打到第 ${floorNow(did)} 層，建議等級 Lv.${S.recLevel(floorNow(did))}，你現在 Lv.${save.cl}。${on ? '排隊的時候照常活動，隊伍湊齊會直接帶你進塔。' : '這個版本沒有伺服器，隊友由 AI 擔任。'}`;
+    : `${dgn(did).type === 'layout' ? '要自己走進去探索，打倒王就通關' : dgn(did).waves.length + ' 波'}，限時 ${fmt(dgn(did).time || TIME_LIMIT)}。你打到第 ${floorNow(did)} 層，建議等級 Lv.${S.recLevel(floorNow(did))}，你現在 Lv.${save.cl}。${on ? '排隊的時候照常活動，隊伍湊齊會直接帶你進塔。' : '這個版本沒有伺服器，隊友由 AI 擔任。'}`;
   $('#fd-acts').hidden = !open; $('#gate-party').hidden = !party; $('#gate-online').hidden = !on; $('#fields').hidden = !on; $('#fd-code').hidden = !on;
   $('#gate-solo').className = on ? 'btn ghost' : 'btn';
   $('#go-online').disabled = $('#go-party').disabled = !code; $('#go-online').textContent = code ? `用 ${code} 進塔` : '用房號進塔'; $('#go-party').textContent = code ? `去 ${code} 的野外` : '去他們的野外';
 }
 /* ---------- the way out of a cleared tower ---------- */
 let portOpen = false;
-const nearPortal = () => !!V && V.mode !== 'field' && V.state === 'won' && !!V.me && V.me.alive && Math.hypot(V.me.x - S.PORTAL.x, V.me.y - S.PORTAL.y) < S.PORTAL.r + 24;
+const nearPortal = () => !!V && V.mode !== 'field' && V.state === 'won' && !!V.me && V.me.alive && Math.hypot(V.me.x - portalAt().x, V.me.y - portalAt().y) < S.PORTAL.r + 24;
 function closePort() { portOpen = false; $('#portbox').hidden = true; }
-function towerView() {
+function towerView(dt) {
+  if (V.layout && V.me) { const g = camGoal(), k = 1 - Math.exp(-(dt || .016) * 8); cam.x += (g.x - cam.x) * k; cam.y += (g.y - cam.y) * k; }      // the camera follows you through a laid-out dungeon
   const near = nearPortal(); if (portOpen && !near) closePort();
   const btn = $('#act'), label = near && !portOpen ? '走進傳送門' : ''; if (btn.textContent !== label) btn.textContent = label; btn.hidden = !label;
 }
@@ -1565,8 +1569,19 @@ function exitTower(back) {
   if (o && o.party && net.authed) { net.travel = at; send({ t: 'join', field: true, room: o.party, map, x: at[0], y: at[1] }); }
   else { if (net.authed && mode === 'online') send({ t: 'leave' }); chosen = save.cls; startField(null, at, map); }
 }
+const portalAt = () => (V && V.portal) || S.PORTAL;
+/* what a laid-out dungeon has on top of its terrain: chests, and the springs that have not been used yet */
+function drawScene() {
+  const c = ctx, evs = dgn(V.did).map ? dgn(V.did).map.events : [];
+  evs.forEach((t, i) => { if (t.type !== 'heal' || (V.trigs ? V.trigs[i] && V.trigs[i].done : (V.tg >> i) & 1)) return;
+    c.globalAlpha = .22 + (reduced ? 0 : .06 * Math.sin(clock * 3)); c.fillStyle = C.heal; c.beginPath(); c.arc(t.x, t.y, t.r, 0, TAU); c.fill(); c.globalAlpha = 1; c.strokeStyle = C.heal; c.lineWidth = 2; c.stroke();
+    c.font = `900 12px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText('回復泉', t.x, t.y - t.r - 6); c.fillStyle = C.heal; c.fillText('回復泉', t.x, t.y - t.r - 6); });
+  for (const q of V.chests || []) { shadow(q.x, q.y, 13); c.lineWidth = 2; c.strokeStyle = C.ink; c.fillStyle = q.open ? C.slate : C.brass; c.beginPath(); c.rect(q.x - 13, q.y - 9, 26, 18); c.fill(); c.stroke();
+    if (!q.open) { c.beginPath(); c.moveTo(q.x - 13, q.y - 2); c.lineTo(q.x + 13, q.y - 2); c.stroke(); c.fillStyle = C.ink; c.fillRect(q.x - 2, q.y - 4, 4, 6);
+      c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; c.strokeText('寶箱', q.x, q.y - 16); c.fillStyle = C.brass; c.fillText('寶箱', q.x, q.y - 16); } }
+}
 function drawPortal() {
-  const c = ctx, { x, y, r } = S.PORTAL, t = clock;
+  const c = ctx, { x, y } = portalAt(), r = S.PORTAL.r, t = clock;
   c.save(); c.globalAlpha = .9;
   for (let i = 0; i < 3; i++) { c.strokeStyle = i === 1 ? C.foam : C.brass; c.lineWidth = 3 - i * .7; c.beginPath(); c.ellipse(x, y, r - i * 6 + Math.sin(t * 3 + i) * 1.5, (r - i * 6) * .62, 0, t * (1.2 + i * .5), t * (1.2 + i * .5) + 4.6); c.stroke(); }
   c.globalAlpha = .28 + .1 * Math.sin(t * 4); c.fillStyle = C.brass; c.beginPath(); c.ellipse(x, y, r * .7, r * .44, 0, 0, TAU); c.fill();
@@ -1994,8 +2009,8 @@ function showResult(r, s, loot, lvl, more) {
   const head = el('div', 'endhead'); head.append(el('h2', '', r.win ? '通關' : '滅團'), el('div', 'clock', fmt(r.t)), el('p', 'eyebrow', `${dname(V.did)} · 第 ${lvl} 層`));
   const time = el('div'); time.append(
     !r.win ? el('p', 'verdict bad', '隊伍全滅，這一層還沒過。')
-      : r.onTime ? el('p', 'verdict good', floorNow(V.did) > lvl ? `三分鐘內通關，你的層數升到第 ${floorNow(V.did)} 層。` : '三分鐘內通關。')
-      : el('p', 'verdict', '通關了，但超過三分鐘，層數不變。'));
+      : r.onTime ? el('p', 'verdict good', floorNow(V.did) > lvl ? `在限時內通關，你的層數升到第 ${floorNow(V.did)} 層。` : '在限時內通關。')
+      : el('p', 'verdict', '通關了，但超過限時，層數不變。'));
   const dl = el('p', 'statline');
   for (const [k, v] of [['傷害', Math.round(s.dmg).toLocaleString()], ['治療', Math.round(s.heal).toLocaleString()], ['打斷', s.kicks], ['踩到紅圈', s.hits]]) { const d = el('span', '', k + ' '); d.append(el('b', '', v)); dl.appendChild(d); }
   body.append(head, time, dl);
@@ -2046,7 +2061,7 @@ deck.addEventListener('pointerup', stickEnd); deck.addEventListener('pointercanc
 cv.addEventListener('pointerdown', ev => {
   if (talk.lines) return nextSay();
   if (!V || !V.me || !V.me.alive) return;
-  const r = cv.getBoundingClientRect(), field = V.mode === 'field';
+  const r = cv.getBoundingClientRect(), field = V.mode === 'field' || !!V.layout;
   const p = field ? { x: (ev.clientX - r.left) / fscale + cam.x, y: (ev.clientY - r.top) / fscale + cam.y } : { x: (ev.clientX - r.left - offX) / scale, y: (ev.clientY - r.top - offY) / scale };
   let best = null, bd = 40; for (const e of V.enemies) { const d = dist(p, e) - e.r; if (d < bd) { bd = d; best = e; } }
   if (best) act({ g: best.id });
@@ -2139,8 +2154,8 @@ function frame(ts) {
       if (SPEED > 1 && !G.result) { for (let i = 0; i < SPEED && !G.result; i++) S.step(G, 1 / 60); } else S.step(G, dt);
       const evs = G.events; G.events = []; for (const o of evs) handleEvent(o);
       if (G.result && !G.result.shown) { G.result.shown = true; conclude(G.result, V.me.stats); }
-      towerView();
-    } else { buildView(ts); predictMe(dt, ts); if (inField()) fieldView(dt); else towerView(); }
+      towerView(dt);
+    } else { buildView(ts); predictMe(dt, ts); if (inField()) fieldView(dt); else towerView(dt); }
     updFx(dt); hud();
   }
   render(dt);
