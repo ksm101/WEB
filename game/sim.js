@@ -120,6 +120,8 @@ const ENEMY = {
   brute: { name: '鏽錨巨蟹', hp: 2200, dmg: 34, aspd: 1.6, range: 10, speed: 54, r: 20, aggro: 200, leash: 9999, elite: true },     // only comes ashore with the surge
   boss: { name: '鏽潮看守者 莫葛', hp: 27000, dmg: 80, aspd: 1.5, range: 10, speed: 58, r: 28 }
 };
+const TOWER_LEVEL = 3;       // the level at which the tower, and the group finder for it, opens
+const PORTAL = { x: W / 2, y: 104, r: 26 };      // where the way out appears once 莫葛 is down
 const TRASH_DROP = .1;      // the chance that an ordinary creature in the tower leaves a piece of gear
 const WAVES = [ [['grunt', 3]], [['grunt', 2], ['caster', 1]], [['grunt', 2], ['caster', 2]], [['boss', 1]] ];
 const ROSTER = ['tank', 'heal', 'dps', 'dps'];
@@ -636,8 +638,10 @@ function updWorld(G, dt) {
   G.zones = G.zones.filter(z => z.t < z.dur + (z.friendly ? 0 : .25));
 }
 function finish(G, win) {
-  if (G.state === 'over') return;
-  G.state = 'over'; G.result = { win, onTime: win && G.t <= TIME_LIMIT, t: G.t };
+  if (G.state === 'over' || G.state === 'won') return;
+  // a win does not stop the world: the clock stops, everyone gets up, and a portal opens for whoever wants to leave
+  G.state = win ? 'won' : 'over'; G.result = { win, onTime: win && G.t <= TIME_LIMIT, t: G.t };
+  if (win) for (const a of G.actors) { if (!a.alive) revive(G, a); a.target = null; }
   banner(G, win ? '莫葛沉回海底' : '全隊倒下', 1500);
 }
 /* ---------- field rules ---------- */
@@ -745,6 +749,11 @@ function fieldGain(p, what, key, pk) {
 function step(G, dt) {
   if (G.mode === 'field') return stepField(G, dt);
   if (G.state === 'countdown') { G.cd -= dt; if (G.cd <= 0) { G.cd = 0; G.state = 'run'; nextWave(G); } return; }
+  if (G.state === 'won') {      // nothing left to fight: people walk about, the others wait
+    for (const a of G.actors) { if (a.human && !G.auto) playerThink(G, a, dt); else { a.ctrl.mx = a.ctrl.my = 0; a.ctrl.cast.fill(false); } }
+    for (const a of G.actors) updActor(G, a, dt);
+    updWorld(G, dt); return;
+  }
   if (G.state !== 'run') return;
   G.t += dt;
   for (const a of G.actors) { if (a.human && !G.auto) playerThink(G, a, dt); else botThink(G, a, dt); }
@@ -1046,5 +1055,5 @@ return { W, H, TIME_LIMIT, CLASSES, SKILLS, ENEMY, WAVES, ROSTER, SPOTS, createR
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id),
   TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, RESPEC_COST, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
   SLOTS, SLOT_NAME: { w: '武器', a: '護甲', t: '飾品' }, BAG_CAP, QUALITY, SETS, DROP, TRASH_DROP, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
-  runDrops, bossDrops, refit };
+  runDrops, bossDrops, refit, TOWER_LEVEL, PORTAL };
 });

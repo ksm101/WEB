@@ -172,6 +172,12 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 #app[data-mode="field"] #pips,#app[data-mode="field"] #timer{display:none}
 #hero-btn{display:none;min-width:52px;height:32px;padding:0 10px;border:1px solid var(--brass);border-radius:6px;background:transparent;color:var(--brass);font-size:12px;font-weight:700}
 #app[data-mode="field"] #hero-btn{display:block}
+#finder-btn{display:none;min-width:52px;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--foam);font-size:12px;font-weight:700}
+#app[data-mode="field"] #finder-btn{display:block}
+#finder-btn.locked{color:var(--mute);font-weight:400}
+#finder-btn.fresh{border-color:var(--ember);color:var(--ember)}
+#fd-acts{margin-top:4px}
+#endchip{position:absolute;left:var(--gl);top:52px;z-index:3;height:36px;padding:0 14px;border:1.5px solid var(--brass);border-radius:18px;background:rgba(10,22,27,.92);color:var(--brass);font-size:12px;font-weight:700}
 .pane{display:flex;flex-direction:column;gap:16px}
 .tabs.big{gap:6px;flex-wrap:nowrap}
 .tabs.big .mini{flex:1;min-width:0;height:44px;padding:0 4px;font-size:14px}
@@ -181,17 +187,17 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .xpbar i{display:block;height:100%;width:0;background:var(--brass)}
 .lvrow small{font-family:var(--f-num);font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
 #act{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:2;height:46px;padding:0 24px;border:0;border-radius:23px;background:var(--ember);color:var(--ink);font-weight:700;font-size:15px;white-space:nowrap}
-#talk,#gatebox{position:absolute;left:var(--gl);right:var(--gr);bottom:12px;z-index:3;display:flex;flex-direction:column;box-sizing:border-box;border:1.5px solid var(--brass);border-radius:8px;background:rgba(10,22,27,.94)}
+#talk,#portbox{position:absolute;left:var(--gl);right:var(--gr);bottom:12px;z-index:3;display:flex;flex-direction:column;box-sizing:border-box;border:1.5px solid var(--brass);border-radius:8px;background:rgba(10,22,27,.94)}
 #talk{gap:6px;min-height:104px;padding:12px 14px 8px;cursor:pointer}
 #talk b{font-family:var(--f-display);font-weight:900;font-size:15px;letter-spacing:.1em}
 #talk p{margin:0;font-size:16px;line-height:1.75;text-wrap:pretty}
 #talk.narr p{color:var(--mute)}
 #talk .row{display:flex;justify-content:space-between;align-items:center;margin-top:auto;font-size:11px;color:var(--mute)}
 #talk .mini{height:30px;font-size:12px}
-#gatebox{gap:8px;padding:14px}
-#gatebox p{margin:0 0 2px;font-size:13px;color:var(--mute)}
-#gatebox p b{font-family:var(--f-display);font-size:17px;color:var(--foam);letter-spacing:.08em}
-#gatebox .btn{height:48px;font-size:17px}
+#portbox{gap:8px;padding:14px}
+#portbox p{margin:0 0 2px;font-size:13px;color:var(--mute)}
+#portbox p b{font-family:var(--f-display);font-size:17px;color:var(--foam);letter-spacing:.08em}
+#portbox .btn{height:48px;font-size:17px}
 #aim-cancel{position:absolute;left:50%;transform:translateX(-50%);top:8px;padding:9px 16px;border:1.5px dashed var(--mute);border-radius:8px;font-size:12px;color:var(--mute);background:var(--ink);pointer-events:none;white-space:nowrap}
 #aim-cancel.hot{border-color:var(--danger);color:var(--danger)}
 .cards.four{grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -293,6 +299,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     <div class="hud-top">
       <button id="quit" type="button">離開</button>
       <button id="hero-btn" type="button">角色</button>
+      <button id="finder-btn" type="button">副本</button>
       <div class="dungeon"><b id="place">沉鐘塔</b><span id="lvl">第 1 層</span></div>
       <div id="pips" aria-hidden="true"><i></i><i></i><i></i><i class="boss"></i></div>
       <div id="timer">0:00 <small>/ 3:00</small></div>
@@ -316,12 +323,12 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <b id="talk-who"></b><p id="talk-text" aria-live="polite"></p>
       <div class="row"><span id="talk-count"></span><button class="mini" id="talk-skip" type="button">跳過</button></div>
     </div>
-    <div id="gatebox" hidden>
-      <p><b>沉鐘塔</b>　門後就是塔的第一層。</p>
-      <button class="btn" id="gate-party" type="button" hidden>和隊伍一起進塔</button>
-      <button class="btn" id="gate-online" type="button" hidden>線上配對</button>
-      <button class="btn ghost" id="gate-solo" type="button">單人進塔</button>
-      <button class="btn ghost" id="gate-cancel" type="button">先不要</button>
+    <button id="endchip" type="button" hidden>戰利品</button>
+    <div id="portbox" hidden>
+      <p><b>傳送門</b>　要去哪裡？</p>
+      <button class="btn" id="port-back" type="button">回到原本的位置</button>
+      <button class="btn ghost" id="port-gate" type="button">到塔門口</button>
+      <button class="btn ghost" id="port-cancel" type="button">先不要</button>
     </div>
   </main>
 
@@ -355,15 +362,8 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       </div>
       <p class="how" id="how">拖曳移動，角色會自動普攻。<br>地上出現紅色範圍就離開。<br>敵人讀條變成金色時按「斷」。<br>技能短按會自動找目標；按住拖曳可以自己瞄準。</p>
       <p class="gear" id="gear"></p>
-      <div class="fields one" id="fields" hidden>
-        <label for="room">房號（和朋友輸入同一組）<input id="room" type="text" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="留空就隨機配對"></label>
-      </div>
       <div class="cta">
-        <button class="btn" id="go-field" type="button">進入野外</button>
-        <div class="pair">
-          <button class="btn ghost" id="go-online" type="button" hidden>線上配對</button>
-          <button class="btn ghost" id="go" type="button">單人進塔</button>
-        </div>
+        <button class="btn" id="go-field" type="button">進入世界</button>
         <p class="note" id="note"></p>
       </div>
     </div>
@@ -403,6 +403,27 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     </div>
   </section>
 
+  <section id="finder" class="overlay top" hidden>
+    <div class="wrap">
+      <div class="head">
+        <div><p class="eyebrow">找隊伍</p><h2>沉鐘塔</h2></div>
+        <button class="chip" id="finder-close" type="button">關閉</button>
+      </div>
+      <p class="lore" id="fd-info"></p>
+      <div class="cta" id="fd-acts">
+        <button class="btn" id="gate-party" type="button" hidden>和隊伍一起進塔</button>
+        <button class="btn" id="gate-online" type="button" hidden>隨機配對</button>
+        <button class="btn ghost" id="gate-solo" type="button">單人進塔（隊友是 AI）</button>
+        <div class="fields one" id="fields" hidden>
+          <label for="room">和朋友約好的房號<input id="room" type="text" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="例如 AB12"></label>
+        </div>
+        <div class="pair" id="fd-code" hidden>
+          <button class="btn ghost" id="go-online" type="button">用房號進塔</button>
+          <button class="btn ghost" id="go-party" type="button">去他們的野外</button>
+        </div>
+      </div>
+    </div>
+  </section>
   <section id="lobby" class="overlay top" hidden>
     <div class="wrap">
       <div class="head">
@@ -572,9 +593,11 @@ function levelCheck(quiet) {
   if (shownCl && !quiet && save.cl > shownCl) {
     banner(`升到 Lv.${save.cl}`, 2400); if (mode === 'field' && V && V.me) S.setLevel(V.me, save.cl, S.charPower(save));
     const d = CLASSES[save.cls], fresh = d ? d.pool.concat(d.ults).map(id => S.SKILLS[id]).filter(k => k.lv > shownCl && k.lv <= save.cl) : [];
-    if (fresh.length) toast(`解鎖新技能：${fresh.map(k => k.name).join('、')}。打開「角色」的技能書換上。`, [], 5000);
+    const news = []; if (shownCl < TOWER_LV && save.cl >= TOWER_LV) { news.push('沉鐘塔開放了：點畫面上的「副本」找隊伍，等的時候照常活動。'); $('#finder-btn').classList.add('fresh'); }
+    if (fresh.length) news.push(`解鎖新技能：${fresh.map(k => k.name).join('、')}。打開「角色」的技能書換上。`);
+    if (news.length) toast(news.join(''), [], 6500);
   }
-  shownCl = save.cl;
+  shownCl = save.cl; renderFinder();
 }
 
 /* ================= Canvas ================= */
@@ -653,13 +676,14 @@ function act(o) {
 function enterRun() {
   FX.fx = []; FX.texts = []; FX.shake = 0; stick.x = stick.y = 0;
   hideScreens();
-  $('#app').dataset.mode = inField() ? 'field' : mode; talk.lines = null; talk.done = null; talk.focus = null; gateOpen = false;
-  $('#talk').hidden = true; $('#gatebox').hidden = true; $('#act').hidden = true;
+  $('#app').dataset.mode = inField() ? 'field' : mode; talk.lines = null; talk.done = null; talk.focus = null;
+  $('#talk').hidden = true; $('#portbox').hidden = true; $('#act').hidden = true;
   resize(); buildHud();
 }
 function startSolo(cls) {
-  if (net.authed && mode === 'online') send({ t: 'leave' }); else leaveQueue();
-  clearQueue();
+  if (!towerOpen()) return toast(`沉鐘塔要 Lv.${TOWER_LV} 才開放，你現在 Lv.${save.cl}。`, [], 4000);
+  markOrigin(); if (net.authed && mode === 'online') send({ t: 'leave' }); else leaveQueue();
+  clearQueue(); closePort(); $('#endchip').hidden = true;
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
   G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsFor(save, cls) }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
@@ -689,10 +713,10 @@ function conclude(r, stats, extra) {
 const FD = S.FIELD, cam = { x: 0, y: 0 }, NPC_CLS = { kol: 'tank', mira: 'heal', jin: 'dps', wu: 'dps' };
 const talk = { lines: null, i: 0, done: null, focus: null }, quest = { giver: '' };
 const inField = () => !!V && V.mode === 'field';      // alone (run on this device) or with a party (run on the server)
-let nearNpc = null, nearGate = false, gateOpen = false, nearStall = null;
+let nearNpc = null, nearGate = false, nearStall = null;
 
 /* The panel that is open over the world, if any, and how far the camera has to lift for your character to show above it. */
-const SHEETS = ['social', 'hero', 'shop', 'mail', 'ah', 'quests', 'lobby'];
+const SHEETS = ['social', 'hero', 'shop', 'mail', 'ah', 'quests', 'lobby', 'finder'];
 const openSheet = () => { for (const id of SHEETS) if (!$('#' + id).hidden) return id; return ''; };
 function closeSheet(id) { if (id === 'hero') closeHero(); else if (id === 'social') closeSocial(); else if (id) $('#' + id).hidden = true; }
 let sheetLift = 0, lastHurt = -1e9;
@@ -717,8 +741,13 @@ function startField(then, pos) {
   if (online && net.authed) send({ t: 'field0' });
   if (pos) { V.me.x = pos[0]; V.me.y = pos[1]; }      // stepping back out of a surge: same place, no fanfare
   enterRun(); Object.assign(cam, camGoal()); renderQuests(); if (pos) return; banner('鏽灘', 1500);
-  const pro = Story.SCENES.prologue, go = () => { if (then) then(); };
+  const pro = Story.SCENES.prologue, go = () => { if (then) then(); else linkOffer(); };
   if (pro && !box.intro && !AUTO && !qs.has('nostory')) say(pro.lines, () => { box.intro = true; writeSave(); go(); }); else go();
+}
+/* Opened from a friend's link: once you are in the world, ask where you want to meet them. */
+function linkOffer() {
+  if (!inviteRoom || net.linkDone || !online || !net.authed) return; net.linkDone = true;
+  toast(`朋友給了你房號 ${inviteRoom}`, [['去他們的野外', () => goField(inviteRoom)], ['一起進塔', () => goOnline(inviteRoom)], ['略過', null]], 20000);
 }
 function fieldFrame(dt) {
   S.step(G, dt);
@@ -749,8 +778,7 @@ function fieldView(dt) {
   nearNpc = null; for (const n of FD.npcs) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearNpc = n;
   nearStall = null; for (const n of FD.stalls) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearStall = n;
   nearGate = Math.hypot(FD.gate.x - me.x, FD.gate.y - me.y) < FD.gate.r + 34;
-  if (gateOpen && !nearGate) { gateOpen = false; $('#gatebox').hidden = true; }
-  const btn = $('#act'), label = talk.lines || gateOpen || !me.alive ? '' : nearStall ? STALL_ACT[nearStall.id] : nearNpc ? `和${Story.CAST[nearNpc.id] ? Story.CAST[nearNpc.id].name : '他們'}說話` : nearGate ? '進入沉鐘塔' : '';
+  const btn = $('#act'), label = talk.lines || !me.alive ? '' : nearStall ? STALL_ACT[nearStall.id] : nearNpc ? `和${Story.CAST[nearNpc.id] ? Story.CAST[nearNpc.id].name : '他們'}說話` : nearGate ? '進入沉鐘塔' : '';
   if (btn.textContent !== label) btn.textContent = label; btn.hidden = !label;
   sheetView(); const g = camGoal(), k = 1 - Math.exp(-dt * 8); cam.x += (g.x - cam.x) * k; cam.y += (g.y - cam.y) * k;
 }
@@ -772,7 +800,7 @@ function fieldReport(t, body, what, key, pk) {
 }
 
 /* ---------- talking: a box over the world, one line per tap ---------- */
-function say(lines, done) { talk.lines = lines; talk.i = 0; talk.done = done || null; gateOpen = false; $('#gatebox').hidden = true; $('#talk').hidden = false; nextSay(); }
+function say(lines, done) { talk.lines = lines; talk.i = 0; talk.done = done || null; $('#portbox').hidden = true; $('#talk').hidden = false; nextSay(); }
 function nextSay() {
   if (!talk.lines) return;
   if (talk.i >= talk.lines.length) return endSay();
@@ -797,10 +825,11 @@ function claimMain(id) {
 function toCamp(msg) { $('#quests').hidden = true; if (!inField()) { chosen = save.cls; startField(); } if (msg) banner(msg, 2800); }
 function replayScene(id) { const sc = Story.SCENES[id]; if (!sc) return; $('#quests').hidden = true; if (inField()) say(sc.lines); else { chosen = save.cls; startField(() => say(sc.lines)); } }
 function doAct() {
-  if (!inField() || talk.lines || gateOpen) return;
+  if (!inField()) { if (nearPortal()) { portOpen = true; $('#port-back').hidden = !net.origin; $('#portbox').hidden = false; } return; }
+  if (talk.lines) return;
   if (nearStall) return nearStall.id === 'shop' ? openShop() : nearStall.id === 'ah' ? openAh() : openMail();
   if (nearNpc) return talkTo(nearNpc.id);
-  if (nearGate) { const on = online && net.authed, party = mode === 'online' && !!V.code; gateOpen = true; $('#gate-party').hidden = !party; $('#gate-online').hidden = !on; $('#gate-solo').className = on ? 'btn ghost' : 'btn'; $('#gatebox').hidden = false; }
+  if (nearGate) openFinder();
 }
 
 /* ================= Online ================= */
@@ -829,20 +858,18 @@ function connect() {
     if (!net.kicked) { net.backoff = Math.min(15000, (net.backoff || 500) * 2); setTimeout(connect, net.backoff); }
   };
 }
-function goOnline(roomOverride, o) {
+function goOnline(roomOverride) {
   if (!net.authed) return;
   const fixed = typeof roomOverride === 'string', room = fixed ? cleanCode(roomOverride) : cleanCode($('#room').value);
   if (fixed) net.roomHint = room; else box.room = room; writeSave();
-  lastMode = 'online'; net.queueing = true; gateOpen = false; $('#gatebox').hidden = true;
-  const join = () => { showLobby(null); send({ t: 'join', cls: save.cls, room }); }, at = [FD.gate.x, FD.gate.y + 64];
-  if (inField()) return join();                       // already out in the world: keep playing while the group forms
-  chosen = save.cls;
-  if (o && o.party) { send({ t: 'join', field: true, room: o.party, x: at[0], y: at[1] }); join(); }      // back outside the gate with the party
-  else if (o && o.gate) { startField(null, at); join(); }
-  else startField(join);
+  if (!towerOpen()) return toast(`沉鐘塔要 Lv.${TOWER_LV} 才開放，你現在 Lv.${save.cl}。`, [], 4000);
+  lastMode = 'online'; net.queueing = true;
+  const join = () => { showLobby(null); send({ t: 'join', cls: save.cls, room }); };
+  if (inField() || (V && V.result)) return join();    // out in the world, or still inside a finished tower: keep doing what you were doing while the group forms
+  chosen = save.cls; startField(join);
 }
-/* Where you stand after a run: outside the tower gate, with your party if you came with one. */
-function leaveTower() { const at = [FD.gate.x, FD.gate.y + 64]; if (net.party && net.authed) send({ t: 'join', field: true, room: net.party, x: at[0], y: at[1] }); else { chosen = save.cls; startField(null, at); } }
+/* Remember where you stood when the tower took you in, so the portal can put you back. Kept when you go again from inside. */
+function markOrigin() { if (inField() && V.me) net.origin = { party: mode === 'online' && V.code && !V.event ? V.code : '', x: V.me.x, y: V.me.y }; else if (!V || !V.result) net.origin = null; }
 function clearQueue() { net.lobby = null; net.queueing = false; $('#queue').hidden = true; $('#lobby').hidden = true; }
 function leaveQueue() { if (net.queueing && net.authed) send({ t: 'unqueue' }); clearQueue(); }
 /* Go to the field with a party. A code names the party; without one the server makes a new party of one. */
@@ -880,12 +907,12 @@ function onMsg(m) {
     case 'kicked': net.kicked = true; showMenu('這個帳號在別的分頁或裝置上開著，這裡先離線了。重新整理頁面可以換回這裡。'); break;
     case 'lobby':
       if (!net.queueing) break;                       // stopped waiting while this was on its way
-      net.roomHint = ''; if (!inField() && !(mode === 'online' && V && V.result)) { chosen = save.cls; startField(); }
+      net.roomHint = ''; if (!inField() && !(V && V.result)) { chosen = save.cls; startField(); }
       { const first = !net.lobby; showLobby(m); if (first && m.code && !net.pendingInvite && m.slots.filter(x => x.name).length === 1) toast(`房間 ${m.code} 開好了。點左上的提示可以邀請朋友、改分配方式。`, [], 4500); }
       if (net.pendingInvite && m.code) { send({ t: 'invite', id: net.pendingInvite }); net.pendingInvite = ''; }
       break;
-    case 'start': if (!m.field) { net.party = mode === 'online' && inField() && V.code ? V.code : ''; clearQueue(); } beginOnline(m); break;
-    case 's': if (mode === 'online' && V && !V.result) onSnap(m); break;
+    case 'start': if (!m.field) { markOrigin(); clearQueue(); } beginOnline(m); break;
+    case 's': if (mode === 'online' && V && (!V.result || V.result.win)) onSnap(m); break;      // after a win the tower is still there to walk about in
     case 'end': {
       const cl0 = save.cl, done = newlyDone(() => applyProfile(m));
       if (mode === 'online' && V && !V.result) conclude({ win: m.win, onTime: m.onTime, t: m.time }, m.stats[meIdx], { loot: m.loot, pile: m.pile, mats: m.mats, xp: m.xp, coin: m.coin, up: save.cl > cl0, mates: m.mates, again: m.again, quests: done });
@@ -914,7 +941,7 @@ function onMsg(m) {
     case 'invited':
       if (mode === 'online' && V && !inField() && !V.result) break;        // in the middle of a dungeon run: not now
       if (m.field) toast(`${m.from.name} 邀請你去野外`, [['加入', () => { closeSocial(); goField(String(m.code)); }], ['略過', null]], 15000);
-      else toast(m.gate ? `${m.from.name} 在塔門等你，一起進塔` : `${m.from.name} 邀請你一起打`, [['加入', () => { closeSocial(); chosen = save.cls; goOnline(String(m.code)); }], ['略過', null]], 15000);
+      else toast(m.again ? `${m.from.name} 想原隊再打一場` : m.gate ? `${m.from.name} 在塔門等你，一起進塔` : `${m.from.name} 邀請你一起打`, [['加入', () => { closeSocial(); chosen = save.cls; goOnline(String(m.code)); }], ['略過', null]], 15000);
       break;
     case 'event-no': net.evJoin = 0; net.evSkip = m.cycle; net.home = null; toast(String(m.msg || ''), [], 3000); break;
     case 'event-end': {
@@ -934,7 +961,7 @@ function onMsg(m) {
       });
       buildHud();
       break;
-    case 'err': net.pendingInvite = ''; showMenu(String(m.msg || '伺服器拒絕了這次連線。')); break;
+    case 'err': net.pendingInvite = ''; if (V && (inField() || V.result)) { clearQueue(); toast(String(m.msg || '伺服器拒絕了這個要求。'), [], 4500); } else showMenu(String(m.msg || '伺服器拒絕了這次連線。')); break;
     case 'p': net.rtt = net.rtt * .7 + clamp(performance.now() - m.c, 0, 2000) * .3; break;
   }
 }
@@ -1008,7 +1035,7 @@ function buildView(now) {
  * where the server says you are. While you are moving, being a little ahead of the server is expected. */
 function predictMe(dt, now) {
   const a = V.me, m = Math.hypot(input.mx, input.my), lag = (INTERP + net.rtt) / 1000 + .04, speed = a.def.speed * (a.spd || 1);      // talents can make you faster
-  const moving = a.alive && V.state === 'run' && m > .05 && !a.rolling;
+  const moving = a.alive && (V.state === 'run' || V.state === 'won') && m > .05 && !a.rolling;
   if (moving) {
     let mx = input.mx, my = input.my; if (m > 1) { mx /= m; my /= m; }
     const f = inField(), bw = f ? FD.w : W, bh = f ? FD.h : H;
@@ -1271,6 +1298,7 @@ function render(dt) {
   else { if (floor) c.drawImage(floor, sx * dpr, sy * dpr); c.setTransform(dpr * scale, 0, 0, dpr * scale, (offX + sx) * dpr, (offY + sy) * dpr); }
   if (!V) return;
   for (const z of V.zones) drawZone(z);
+  if (!field && V.state === 'won') drawPortal();
   drawAim();
   for (const a of V.actors) if (!a.alive && !a.out && !a.ghost) drawActor(a, dt);
   if (field) { for (const n of V.nodes) drawNode(n); for (const n of FD.npcs) drawNpc(n); for (const n of FD.stalls) drawStall(n); }
@@ -1377,10 +1405,10 @@ const CLASS_BLURB = {
   dps: '帶著餘燼的弓手。站得遠、打得痛，靠走位活命。三個職業裡最容易上手。'
 };
 let selDel = 0, crCls = 'dps';
-function hideScreens() { for (const id of ['menu', 'endbox', 'chars', 'create']) $('#' + id).hidden = true; closeHero(); }
+function hideScreens() { for (const id of ['menu', 'endbox', 'endchip', 'chars', 'create', 'finder']) $('#' + id).hidden = true; closeHero(); closePort(); }
 function clearStage() {
   mode = null; G = null; V = null; $('#bossbar').hidden = true; $('#threat').hidden = true; $('#banner').classList.add('off');
-  delete $('#app').dataset.mode; talk.lines = null; talk.done = null; gateOpen = false; $('#talk').hidden = true; $('#gatebox').hidden = true; $('#act').hidden = true;
+  delete $('#app').dataset.mode; talk.lines = null; talk.done = null; $('#talk').hidden = true; $('#portbox').hidden = true; $('#act').hidden = true;
 }
 /* A small scene for the character screens: the shore, the tower with its empty bell arch, the camp fire, and the
  * character drawn the way the game draws it, only larger. */
@@ -1462,11 +1490,47 @@ function createChar() {
 }
 
 let chosen = 'dps', menuMsg = '';
-const NOTE_SOLO = '野外可以採集、打怪、找營地的人說話。進塔時另外三名隊友由 AI 補位。', NOTE_ONLINE = '填房號可以和朋友一起去野外或進塔；不填就是自己去野外、進塔找陌生人配對。';
-function onlineLabel() {
-  const b = $('#go-online'), code = cleanCode($('#room').value); b.disabled = !net.authed;
-  b.textContent = net.kicked ? '已離線' : !net.authed ? '連線中' : code ? `進塔 ${code}` : '線上配對';
-  $('#go-field').textContent = online && net.authed && code ? `和隊伍去野外 ${code}` : '進入野外';
+const NOTE_SOLO = `進入世界後，在鏽灘打怪、採集、做任務。Lv.${S.TOWER_LEVEL} 起可以用畫面上的「副本」進沉鐘塔，隊友由 AI 補位。`, NOTE_ONLINE = `進入世界後，在鏽灘打怪、採集、做任務。Lv.${S.TOWER_LEVEL} 起可以用畫面上的「副本」找隊伍進沉鐘塔。`;
+/* The group finder: opened from the world (the 副本 button, or by walking up to the tower gate), never from the home page.
+ * It opens at TOWER_LV; while you wait for a group you keep playing. */
+const TOWER_LV = qs.has('tower') ? Math.max(1, +qs.get('tower') || 1) : QUICK ? 1 : S.TOWER_LEVEL;
+const towerOpen = () => save.cl >= TOWER_LV;
+function openFinder() {
+  $('#finder-btn').classList.remove('fresh');
+  if (net.queueing) { $('#lobby').hidden = false; return; }      // already waiting: show the group instead
+  $('#room').value = net.roomHint || box.room || ''; net.roomHint = ''; $('#finder').hidden = false; renderFinder();
+}
+function renderFinder() {
+  $('#finder-btn').classList.toggle('locked', !towerOpen());
+  if ($('#finder').hidden) return;
+  const on = online && net.authed, open = towerOpen(), party = mode === 'online' && inField() && !!V.code, code = cleanCode($('#room').value);
+  $('#fd-info').textContent = !open ? `沉鐘塔要 Lv.${TOWER_LV} 才開放，你現在 Lv.${save.cl}。先在鏽灘打怪、採集、做任務，等級到了這裡就能找隊伍。`
+    : `你打到第 ${save.lvl} 層，建議等級 Lv.${S.recLevel(save.lvl)}，你現在 Lv.${save.cl}。${on ? '排隊的時候照常活動，隊伍湊齊會直接帶你進塔。' : '這個版本沒有伺服器，隊友由 AI 擔任。'}`;
+  $('#fd-acts').hidden = !open; $('#gate-party').hidden = !party; $('#gate-online').hidden = !on; $('#fields').hidden = !on; $('#fd-code').hidden = !on;
+  $('#gate-solo').className = on ? 'btn ghost' : 'btn';
+  $('#go-online').disabled = $('#go-party').disabled = !code; $('#go-online').textContent = code ? `用 ${code} 進塔` : '用房號進塔'; $('#go-party').textContent = code ? `去 ${code} 的野外` : '去他們的野外';
+}
+/* ---------- the way out of a cleared tower ---------- */
+let portOpen = false;
+const nearPortal = () => !!V && V.mode !== 'field' && V.state === 'won' && !!V.me && V.me.alive && Math.hypot(V.me.x - S.PORTAL.x, V.me.y - S.PORTAL.y) < S.PORTAL.r + 24;
+function closePort() { portOpen = false; $('#portbox').hidden = true; }
+function towerView() {
+  const near = nearPortal(); if (portOpen && !near) closePort();
+  const btn = $('#act'), label = near && !portOpen ? '走進傳送門' : ''; if (btn.textContent !== label) btn.textContent = label; btn.hidden = !label;
+}
+/* Leave the tower: back to where you stood when you were taken in, or to the gate. With your party's field if you came from one. */
+function exitTower(back) {
+  const o = net.origin, at = back && o ? [o.x, o.y] : [FD.gate.x, FD.gate.y + 64]; closePort();
+  if (o && o.party && net.authed) send({ t: 'join', field: true, room: o.party, x: at[0], y: at[1] });
+  else { if (net.authed && mode === 'online') send({ t: 'leave' }); chosen = save.cls; startField(null, at); }
+}
+function drawPortal() {
+  const c = ctx, { x, y, r } = S.PORTAL, t = clock;
+  c.save(); c.globalAlpha = .9;
+  for (let i = 0; i < 3; i++) { c.strokeStyle = i === 1 ? C.foam : C.brass; c.lineWidth = 3 - i * .7; c.beginPath(); c.ellipse(x, y, r - i * 6 + Math.sin(t * 3 + i) * 1.5, (r - i * 6) * .62, 0, t * (1.2 + i * .5), t * (1.2 + i * .5) + 4.6); c.stroke(); }
+  c.globalAlpha = .28 + .1 * Math.sin(t * 4); c.fillStyle = C.brass; c.beginPath(); c.ellipse(x, y, r * .7, r * .44, 0, 0, TAU); c.fill();
+  c.globalAlpha = 1; c.font = `700 11px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; c.strokeText('傳送門', x, y - r * .62 - 8); c.fillStyle = C.brass; c.fillText('傳送門', x, y - r * .62 - 8);
+  c.restore();
 }
 function renderMenu(msg) {
   if (msg !== undefined) menuMsg = msg;
@@ -1478,16 +1542,14 @@ function renderMenu(msg) {
   for (const s of S.loadoutOf(save, chosen).map(id => S.SKILLS[id])) { const li = el('li'); li.append(el('em', '', s.seal), el('b', '', s.name), el('span', '', s.desc + (s.ult ? '（集滿能量才能放）' : ''))); kit.appendChild(li); }
   const gear = $('#gear'); gear.textContent = '';
   for (const [k, v] of [['鐘幣', save.coin], ['裝等', avgIlvl()], ['武器', save.gear.w], ['護甲', save.gear.a], ['飾品', save.gear.t], ['通關次數', save.runs]]) { const sp = el('span', '', k + ' '); sp.append(el('b', '', v)); gear.appendChild(sp); }
-  $('#fields').hidden = !online; $('#go-online').hidden = !online; $('#friends-btn').hidden = !(online && net.authed); $('#mail-btn').hidden = !(online && net.authed); mailBadge();
-  onlineLabel();
+  $('#friends-btn').hidden = !(online && net.authed); $('#mail-btn').hidden = !(online && net.authed); mailBadge();
   const note = $('#note'); note.classList.toggle('warn', !!menuMsg);
   renderQuests(); $('#how').hidden = save.runs > 0;   // the how-to is for a first visit
-  note.textContent = menuMsg || (online && inviteRoom && cleanCode($('#room').value) === inviteRoom ? `朋友給了你房號 ${inviteRoom}。按「和隊伍去野外」或「進塔」就會跟他們碰面。` : online ? NOTE_ONLINE : NOTE_SOLO);
+  note.textContent = menuMsg || (online && inviteRoom && !net.linkDone ? `朋友給了你房號 ${inviteRoom}。進入世界後會問你要不要去找他們。` : online ? NOTE_ONLINE : NOTE_SOLO);
 }
 function showMenu(msg) {
   if (!box.chars[box.cur]) return showChars(msg);       // nobody to play yet
   clearStage(); hideScreens(); chosen = save.cls;
-  $('#room').value = net.roomHint || box.room; net.roomHint = '';
   renderMenu(msg || ''); $('#menu').hidden = false;
 }
 function toMenu(msg) { if (net.authed && (net.queueing || mode === 'online')) send({ t: 'leave' }); clearQueue(); showMenu(msg); }
@@ -1913,10 +1975,11 @@ function showResult(r, s, loot, lvl, more) {
   const mates = more.mates || [], team = mates.length > 0 && !!more.again;
   group(body, '這場的隊友', mates.map(f => row(CLASSES[f.cls].mark, C[CLASSES[f.cls].color], String(f.name), f.friend ? '已在名單' : '',
     f.friend ? [] : [['加好友', b => { send({ t: 'friend', id: f.id }); b.textContent = '已送出'; }, 'go']])));
-  const cta = el('div', 'pair'), again = el('button', 'btn', team ? '原隊再來一場' : r.win ? '再來一場' : '再試一次'), camp = el('button', 'btn ghost', '出塔');
-  again.type = camp.type = 'button'; again.id = 'again'; camp.id = 'camp';
-  again.addEventListener('click', () => { if (lastMode !== 'online') return startSolo(save.cls); chosen = save.cls; goOnline(team ? String(more.again) : undefined, { gate: true, party: net.party || (team ? String(more.again) : '') }); });
-  camp.addEventListener('click', leaveTower);
+  if (r.win) body.appendChild(el('p', 'note', '塔頂的傳送門開了。收起這塊面板，走過去就能離開。'));
+  const cta = el('div', 'pair'), again = el('button', 'btn', team ? '原隊再來一場' : r.win ? '再來一場' : '再試一次'), camp = el('button', 'btn ghost', r.win ? '收起' : '離開');
+  again.type = camp.type = 'button'; again.id = 'again'; camp.id = r.win ? 'end-hide' : 'camp';
+  again.addEventListener('click', () => { if (lastMode !== 'online') return startSolo(save.cls); chosen = save.cls; body.hidden = true; $('#endchip').hidden = !r.win; goOnline(team ? String(more.again) : ''); });
+  camp.addEventListener('click', () => { if (!r.win) return exitTower(false); body.hidden = true; $('#endchip').hidden = false; });
   cta.append(camp, again); body.appendChild(cta);
   body.hidden = false; body.scrollTop = 0;
 }
@@ -1961,7 +2024,6 @@ addEventListener('blur', () => keys.clear());
 addEventListener('contextmenu', ev => { if (!(ev.target && ev.target.tagName === 'INPUT')) ev.preventDefault(); });
 addEventListener('resize', resize);
 if (window.ResizeObserver) new ResizeObserver(resize).observe($('#stage'));
-$('#go').addEventListener('click', () => startSolo(save.cls));
 $('#chars-btn').addEventListener('click', () => showChars());
 $('#ch-enter').addEventListener('click', () => showMenu(''));
 $('#ch-new').addEventListener('click', showCreate);
@@ -1969,7 +2031,10 @@ $('#ch-del').addEventListener('click', deleteChar);
 $('#cr-back').addEventListener('click', () => showChars());
 $('#cr-go').addEventListener('click', createChar);
 $('#cr-name').addEventListener('input', () => renderCreate());
-$('#go-online').addEventListener('click', goOnline);
+$('#go-online').addEventListener('click', () => { $('#finder').hidden = true; goOnline(); });
+$('#go-party').addEventListener('click', () => { const code = cleanCode($('#room').value); $('#finder').hidden = true; if (code) goField(code); });
+$('#finder-btn').addEventListener('click', () => { if (inField() && !talk.lines) openFinder(); });
+$('#finder-close').addEventListener('click', () => { $('#finder').hidden = true; });
 $('#lb-ready').addEventListener('click', () => send({ t: 'ready' }));
 $('#lb-lootmode').addEventListener('click', () => { const m = net.lobby; if (m) send({ t: 'lootmode', mode: m.mode === 'leader' ? 'roll' : 'leader' }); });
 $('#lb-cancel').addEventListener('click', leaveQueue);
@@ -1996,18 +2061,21 @@ $('#lo-open').addEventListener('click', openLoadout);
 $('#ta-open').addEventListener('click', openTalents);
 $('#ta-reset').addEventListener('click', resetTalents);
 $('#shop-close').addEventListener('click', () => { $('#shop').hidden = true; });
-$('#go-field').addEventListener('click', () => { const code = cleanCode($('#room').value); if (online && net.authed && code) goField(code); else startField(); });
-$('#gate-party').addEventListener('click', () => { chosen = save.cls; goOnline(V.code); });
+$('#go-field').addEventListener('click', () => startField());
+$('#gate-party').addEventListener('click', () => { $('#finder').hidden = true; chosen = save.cls; goOnline(V.code); });
 $('#act').addEventListener('click', doAct);
 $('#talk').addEventListener('click', ev => { if (ev.target.closest('#talk-skip')) endSay(); else nextSay(); });   // tap the box, or the world, for the next line
-$('#gate-cancel').addEventListener('click', () => { gateOpen = false; $('#gatebox').hidden = true; });
-$('#gate-solo').addEventListener('click', () => startSolo(save.cls));
-$('#gate-online').addEventListener('click', () => { chosen = save.cls; goOnline(''); });
+$('#port-cancel').addEventListener('click', closePort);
+$('#port-back').addEventListener('click', () => exitTower(true));
+$('#port-gate').addEventListener('click', () => exitTower(false));
+$('#endchip').addEventListener('click', () => { $('#endchip').hidden = true; $('#endbox').hidden = false; });
+$('#gate-solo').addEventListener('click', () => { $('#finder').hidden = true; startSolo(save.cls); });
+$('#gate-online').addEventListener('click', () => { $('#finder').hidden = true; chosen = save.cls; goOnline(''); });
 $('#quests-btn').addEventListener('click', openQuests);
 $('#m-quest').addEventListener('click', openQuests);
 $('#quests-close').addEventListener('click', () => { $('#quests').hidden = true; });
 $('#pot').addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); act({ p: 1 }); });
-$('#room').addEventListener('input', () => renderMenu());
+$('#room').addEventListener('input', renderFinder);
 let quitArm = 0;
 $('#quit').addEventListener('click', () => {
   const q = $('#quit');
@@ -2024,10 +2092,11 @@ function frame(ts) {
     pushMove(ts);
     if (mode === 'field') fieldFrame(dt);
     else if (mode === 'solo') {
-      if (SPEED > 1) { for (let i = 0; i < SPEED && G.state !== 'over'; i++) S.step(G, 1 / 60); } else S.step(G, dt);
+      if (SPEED > 1 && !G.result) { for (let i = 0; i < SPEED && !G.result; i++) S.step(G, 1 / 60); } else S.step(G, dt);
       const evs = G.events; G.events = []; for (const o of evs) handleEvent(o);
-      if (G.state === 'over' && !G.result.shown) { G.result.shown = true; conclude(G.result, V.me.stats); }
-    } else { buildView(ts); predictMe(dt, ts); if (inField()) fieldView(dt); }
+      if (G.result && !G.result.shown) { G.result.shown = true; conclude(G.result, V.me.stats); }
+      towerView();
+    } else { buildView(ts); predictMe(dt, ts); if (inField()) fieldView(dt); else towerView(); }
     updFx(dt); hud();
   }
   render(dt);
@@ -2040,7 +2109,7 @@ function boot(data) {
   if (QUICK && box.chars.length) showMenu(''); else showChars('');     // the game opens on the character screen
   probe(); requestAnimationFrame(frame);
 }
-window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, get save() { return save; }, box, net, talk, cam, startSolo, startField, showMenu, send };
+window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, get save() { return save; }, box, net, talk, cam, startSolo, startField, showMenu, send, goOnline, goField, exitTower, openFinder };
 const hot = window.claude && window.claude.hot;
 if (hot && hot.snapshot) hot.snapshot(() => ({ box }));
 if (hot && hot.ready) hot.ready(boot); else boot(hot && hot.data || {});

@@ -33,7 +33,7 @@ function client(port, cred) {
 // sign in and create one character of the given class
 const named = async (port, name, cls) => { const c = client(port), first = await c.ready; c.send({ t: 'char-new', name, cls: cls || 'dps' }); await c.wait('me', m => m !== first); return c; };
 const get = (port, p) => new Promise((res, rej) => http.get({ host: '127.0.0.1', port, path: p }, r => { let b = ''; r.on('data', d => b += d); r.on('end', () => res({ status: r.statusCode, body: b })); }).on('error', rej));
-const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lobbyWait: 600, debug: true, soloMin: .2, eventPeriod: 1e13, eventDur: 0, backupEvery: 300, lootWait: 1500, auctionSweep: 150 }, o)); await new Promise(r => s.server.on('listening', r)); return s; };
+const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lobbyWait: 600, debug: true, soloMin: .2, eventPeriod: 1e13, eventDur: 0, backupEvery: 300, lootWait: 1500, auctionSweep: 150, towerLevel: 1 }, o)); await new Promise(r => s.server.on('listening', r)); return s; };
 
 (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'embertide-'));
@@ -122,6 +122,16 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.deepStrictEqual(endA.mates.map(m => m.name), ['b壞/b名字超級']); assert.strictEqual(endA.mates[0].friend, false); assert.strictEqual(endA.again, 'TEST');
   assert.ok(JSON.stringify(A.last.s).length < 4000);
   ok(`run finished: rewards and level are decided by the server (level ${endA.profile.lvl}), teammates are listed`);
+
+  // a cleared tower stays up: you can still walk, the clock has stopped, and the room's code is already free
+  { const w0 = await A.wait('s', m => m.st === 'won'), x1 = w0.a[2][0]; A.send({ t: 'm', x: x1 > 180 ? -1 : 1, y: 0 });
+    const w1 = await A.wait('s', m => m.st === 'won' && Math.abs(m.a[2][0] - x1) > 25, 4000); assert.strictEqual(w1.tm, w0.tm, 'the clock has stopped'); assert.ok(w1.a.every(a => a[4] === 1), 'everyone is back on their feet'); A.send({ t: 'm', x: 0, y: 0 });
+    assert.strictEqual(srv.rooms.get('p:TEST').state, 'lobby', 'the code is free for another group'); assert.ok(!srv.seats.has(A.me.id), 'nobody is held to a cleared tower');
+    const won = [...srv.rooms.values()].filter(r => r.won); assert.strictEqual(won.length, 1);
+    A.send({ t: 'leave' }); await sleep(120); assert.strictEqual([...srv.rooms.values()].filter(r => r.won).length, 1, 'it stays while someone is still inside');
+    B2.send({ t: 'leave' }); await sleep(150); assert.strictEqual([...srv.rooms.values()].filter(r => r.won).length, 0, 'and closes when the last one has left');
+  }
+  ok('after the win the tower stays up for walking out, the timer stops, and the room code is reusable at once');
 
   // the group's gear: a pile, divided by rolling
   { const pl = endA.pile; assert.ok(pl && pl.mode === 'roll' && pl.items.length >= 2 && pl.items.length <= 5, 'two people share at least the two pieces from the boss');
@@ -402,6 +412,15 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     const bk = srv.store.pack(srv.store.get(M1.me.id)); assert.ok(bk.length < 48000);
     M1.ws.close(); M2.ws.close();
     ok('auction house: listing takes the goods, buying pays the seller by mail less the cut, cancel and expiry return them');
+  }
+
+  // the tower opens at a level
+  { const s2 = await boot({ dataDir: null, towerLevel: 3 }), p2 = s2.server.address().port, N = await named(p2, '新手', 'dps');
+    N.join('dps', 'LOW'); assert.match((await N.wait('err')).msg, /Lv\.3/); assert.ok(!s2.rooms.has('p:LOW'));
+    N.send({ t: 'solo0', lvl: 1 }); await sleep(250); N.send({ t: 'solo1', win: true, time: .2 }); assert.strictEqual((await N.wait('solo')).ok, false, 'no solo claims below the level either');
+    s2.store.get(N.me.id).chars[0].cl = 3; N.join('dps', 'LOW'); assert.strictEqual((await N.wait('lobby', m => m.code === 'LOW')).you, 2);
+    N.ws.close(); await sleep(50); await s2.close();
+    ok('the tower is closed below its level, for groups and for solo claims, and opens at it');
   }
 
   // waiting for a tower group does not take you out of the field

@@ -75,6 +75,8 @@ function start(opts) {
   const speed = opts.speed || 1;                       // tests fast-forward the simulation
   const lobbyWait = opts.lobbyWait != null ? opts.lobbyWait : 8000;
   const soloMin = opts.soloMin != null ? opts.soloMin : 75;
+  const towerLevel = opts.towerLevel != null ? opts.towerLevel : Sim.TOWER_LEVEL;      // the tower opens at this level
+  const wonStay = opts.wonStay != null ? opts.wonStay : 120000;                       // how long a cleared tower stays up for people to walk out
   const lootWait = opts.lootWait != null ? opts.lootWait : 25000;      // how long a group has to decide who gets what
   // the tide surge: every evPeriod ms one starts and stays open for evDur ms, at a spot that rotates
   const evPeriod = opts.eventPeriod || 360000, evDur = opts.eventDur != null ? opts.eventDur : 240000;
@@ -86,7 +88,7 @@ function start(opts) {
   const wanted = new Map();                            // account id -> ids of accounts that added it as a friend
   const loots = new Map();                             // id -> gear a group is still dividing after a run
   const market = new Map();                            // listing id -> { sid, l }: everything on the auction house, kept in the sellers' accounts
-  let publicN = 0, lootN = 0;
+  let publicN = 0, lootN = 0, wonN = 0;
 
   const index = rec => {
     for (const id of Object.keys(rec.friends)) { if (!wanted.has(id)) wanted.set(id, new Set()); wanted.get(id).add(rec.id); }
@@ -144,7 +146,7 @@ function start(opts) {
   }
 
   /* ---------- friends ---------- */
-  function stateOf(id) { const ws = online.get(id); if (!ws) return 'off'; const r = ws.info && ws.info.room; return r && r.kind !== 'field' ? 'run' : ws.lobby ? 'lobby' : r ? 'field' : 'on'; }
+  function stateOf(id) { const ws = online.get(id); if (!ws) return 'off'; const r = ws.info && ws.info.room; return r && r.kind !== 'field' && !r.won ? 'run' : ws.lobby ? 'lobby' : r && r.kind === 'field' ? 'field' : 'on'; }      // lingering in a cleared tower counts as free
   function socialOf(rec) {
     const friends = Object.keys(rec.friends).map(id => {
       const o = store.get(id); if (o) rec.friends[id] = o.name;
@@ -304,6 +306,7 @@ function start(opts) {
     if (seats.has(rec.id)) return;                       // already seated in a run
     if (m.event) return onEventJoin(ws, m);
     if (m.field) return onFieldJoin(ws, m);
+    if (c.cl < towerLevel) return send(ws, { t: 'err', msg: `沉鐘塔要 Lv.${towerLevel} 才能進，你現在 Lv.${c.cl}。` });
     unqueue(ws);      // one group at a time; where you stand does not change
     const cls = c.cls, code = cleanCode(m.room); let room = null, idx = -1;      // the class is the character's, whatever the client says
     const freeSeat = r => r.slots.findIndex((s, k) => !s && SEATS[k] === cls);
@@ -322,6 +325,8 @@ function start(opts) {
     ws.lobby = { room, idx }; if (room.leader < 0 || !room.slots[room.leader]) room.leader = idx;      // whoever is first leads
     const fr = code ? rooms.get('f:' + code) : null;      // the rest of the party is still out in the field: tell them where to come
     if (fr) for (const o of fr.slots) if (o && o.ws && o.ws !== ws) send(o.ws, { t: 'invited', from: { id: rec.id, name: c.name }, code, gate: true });
+    const wr = ws.info && ws.info.room;      // still inside a tower they just cleared together: ask the others along
+    if (code && wr && wr.won) for (const o of wr.slots) if (o && o.ws && o.ws !== ws) send(o.ws, { t: 'invited', from: { id: rec.id, name: c.name }, code, again: true });
     const now = Date.now();
     room.deadline = room.deadline ? Math.max(room.deadline, now + Math.min(3000, lobbyWait)) : now + lobbyWait;
     lobbyInfo(room);
@@ -342,9 +347,9 @@ function start(opts) {
     sendStart(room);
   }
   function endRoom(room) {
-    for (const s of humans(room)) { seats.delete(s.id); if (s.ws && s.ws.info && s.ws.info.room === room) s.ws.info = null; }
+    for (const s of humans(room)) { const held = seats.get(s.id); if (held && held.room === room) seats.delete(s.id); if (s.ws && s.ws.info && s.ws.info.room === room) s.ws.info = null; }
     room.G = null;
-    if (room.pub) rooms.delete(room.key);
+    if (room.pub || room.won) rooms.delete(room.key);
     else { room.state = 'lobby'; room.slots = [null, null, null, null]; room.leader = -1; room.deadline = 0; room.emptySince = Date.now(); }
   }
   function broadcast(room) {
@@ -356,7 +361,7 @@ function start(opts) {
   }
   /* The run is over: the server rolls each player's loot, updates their account and tells them who they played with. */
   function finishRoom(room) {
-    const G = room.G, r = G.result, now = Date.now(); broadcast(room);
+    const G = room.G, r = G.result, now = Date.now(); broadcast(room); room.paid = true;
     const hs = humans(room);
     let again = room.code;                               // a room code the same group can use to go again together
     if (room.pub) do { again = 'R' + crypto.randomBytes(2).toString('hex').toUpperCase(); } while (rooms.has('p:' + again));
@@ -378,7 +383,12 @@ function start(opts) {
         pile: L ? { id: L.id, mode: L.mode, leader: L.leader, you: hs.indexOf(s), left: Math.ceil(lootWait / 1000), items: L.items.map(e => e.it), members: L.members.map(x => ({ name: x.name, cls: x.cls })) } : null,
         mates: hs.filter(o => o.id !== s.id).map(o => ({ id: o.id, name: o.name, cls: o.cls, friend: !!rec.friends[o.id] })) });
     });
-    endRoom(room);
+    if (!r.win) return endRoom(room);
+    /* A cleared tower stays up for a while: the people in it can still walk about, and leave through the portal when
+     * they like. Nobody is held to it any more, and its code is free at once for the next group. */
+    for (const s of hs) seats.delete(s.id);
+    rooms.delete(room.key); if (!room.pub) mkRoom(room.key, room.code, false).loot = room.loot;
+    room.key = 'w:' + (++wonN); room.won = true; room.wonAt = now; rooms.set(room.key, room);
   }
   /* ---------- dividing a group's gear ----------
    * Rolling: everyone answers need, greed or pass for each piece. Need beats greed, the highest number out of 100 wins,
@@ -422,7 +432,7 @@ function start(opts) {
    * passed as the run says it took. */
   function onSolo(ws, m) {
     const rec = ws.acc, c = pc(rec);
-    if (m.t === 'solo0') { ws.solo = { lvl: clampInt(m.lvl, 1, c.lvl), cls: c.cls, at: Date.now() }; return; }
+    if (m.t === 'solo0') { ws.solo = c.cl < towerLevel ? null : { lvl: clampInt(m.lvl, 1, c.lvl), cls: c.cls, at: Date.now() }; return; }
     const s = ws.solo; ws.solo = null; const time = Number(m.time), win = m.win === true;
     const ok = !!s && Number.isFinite(time) && time > 0 && time < 3600 && (Date.now() - s.at) / 1000 >= time * .9 && (!win || time >= soloMin);
     let rw = { loot: [], mats: null, xp: 0, coin: 0 };
@@ -559,6 +569,7 @@ function start(opts) {
         if (!room.done && now >= room.endsAt) endEvent(room, false);
         if (room.done && now >= room.closeAt) { for (const s of room.slots) if (s && s.ws && s.ws.info && s.ws.info.room === room) s.ws.info = null; rooms.delete(room.key); continue; }
       }
+      if (room.won && (now - room.wonAt > wonStay || !room.slots.some(s => s && s.ws))) { endRoom(room); continue; }      // everyone has walked out, or it has stood long enough
       if (room.slots.some(s => s && s.ws)) room.goneSince = 0;
       else { if (!room.goneSince) room.goneSince = now; if (now - room.goneSince > 20000) { endRoom(room); rooms.delete(room.key); continue; } }
       room.acc += Math.min(.25, (now - room.last) / 1000) * speed; room.last = now;
@@ -567,7 +578,7 @@ function start(opts) {
         room.acc -= TICK; Sim.step(G, TICK); room.n++; room.clock += TICK / speed;
         if (room.n % (SNAP_EVERY * speed) === 0 && !sent) { broadcast(room); sent = true; }
       }
-      if (G.state === 'over') finishRoom(room);
+      if (G.result && !room.paid) finishRoom(room);
     }
   }
 
