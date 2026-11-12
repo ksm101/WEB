@@ -172,9 +172,11 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     const [la, lb2] = await Promise.all([A.wait('loot', m => m.i === 0), B2.wait('loot', m => m.i === 0)]);
     assert.strictEqual(la.win, 1, 'need beats greed'); assert.strictEqual(la.rolls.length, 2); assert.ok(la.rolls.every(x => x[2] >= 1 && x[2] <= 100)); assert.strictEqual(lb2.give, undefined); assert.strictEqual(lb2.profile, undefined);
     assert.strictEqual(la.give.up, true); assert.strictEqual(la.profile.gear[pl.items[0].s], pl.items[0].il, 'the winner wears it'); assert.strictEqual(la.profile.eq[pl.items[0].s].n, pl.items[0].n);
+    // listen before rolling: the results for several pieces can arrive together, and only the latest message of a kind is kept
+    const w1 = A.wait('loot', m => m.i === 1), w2 = pl.items.length > 2 ? B2.wait('loot', m => m.i === 2) : null;
     for (let i = 1; i < pl.items.length; i++) { A.send({ t: 'roll', L: pl.id, i, k: 'pass' }); B2.send({ t: 'roll', L: pl.id, i, k: i === 1 ? 'pass' : 'greed' }); }
-    const l1 = await A.wait('loot', m => m.i === 1); assert.strictEqual(l1.win, -1, 'everyone passed: nobody takes it');
-    if (pl.items.length > 2) assert.strictEqual((await B2.wait('loot', m => m.i === 2)).win, 0);
+    const l1 = await w1; assert.strictEqual(l1.win, -1, 'everyone passed: nobody takes it');
+    if (w2) assert.strictEqual((await w2).win, 0);
     await sleep(100); assert.strictEqual(srv.loots.size, 0, 'the pile is gone once every piece is decided'); X2.ws.close();
   }
   ok('group loot: the drops form a pile, need beats greed, a pass takes nothing, outsiders cannot roll');
