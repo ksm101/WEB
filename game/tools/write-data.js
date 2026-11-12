@@ -6,7 +6,9 @@
 'use strict';
 const fs = require('fs'), path = require('path');
 const Sim = require('../sim.js');                    // sim.js alone: the defaults, without data.js on top
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+/* the same content, whatever order the fields come in: going through the editor and back can reorder them */
+const canon = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {}) : x);
+const same = (a, b) => canon(a) === canon(b);
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 /* fields of `now` that differ from `was`, keeping the shape; whole lists and anything that is not a plain object are kept as one piece */
 function changed(now, was) {
