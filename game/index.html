@@ -150,6 +150,14 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 .chip{position:relative;flex:none;height:40px;min-width:60px;padding:0 14px;border:1.5px solid var(--line);border-radius:20px;background:var(--deep);color:var(--foam);font-size:13px}
 .chip b{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;box-sizing:border-box;padding:0 4px;border-radius:9px;background:var(--ember);color:var(--ink);font-family:var(--f-num);font-size:11px;line-height:18px;text-align:center}
 .overlay.top{z-index:7}
+/* Out in the world a panel does not hide the world: it is a sheet on the lower part of the screen over a dim,
+   see-through layer, and the camera lifts your character into the part that stays visible. */
+#app[data-mode="field"] .overlay.top{background:rgba(4,9,12,.42);overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;touch-action:none}
+#app[data-mode="field"] .overlay.top>.wrap{min-height:0;height:58%;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;padding-block:0 18px;gap:12px;background:var(--deep);border-top:1.5px solid var(--brass);border-radius:16px 16px 0 0;box-shadow:0 -12px 32px rgba(0,0,0,.55)}
+#app[data-mode="field"] .overlay.top .head{position:sticky;top:0;z-index:2;align-items:center;background:var(--deep);padding-block:12px 8px}
+#app[data-mode="field"] .overlay.top h2{font-size:22px}
+#app[data-mode="field"] .overlay.top .head .eyebrow{font-size:10px}
+#hitwarn{position:absolute;z-index:8;left:50%;transform:translateX(-50%);bottom:calc(58% + 10px);height:34px;padding:0 16px;border:0;border-radius:17px;background:var(--danger);color:var(--ink);font-weight:700;font-size:13px;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.5)}
 #app[data-mode="field"] #pips,#app[data-mode="field"] #timer{display:none}
 #hero-btn{display:none;min-width:52px;height:32px;padding:0 10px;border:1px solid var(--brass);border-radius:6px;background:transparent;color:var(--brass);font-size:12px;font-weight:700}
 #app[data-mode="field"] #hero-btn{display:block}
@@ -477,6 +485,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div id="ah-body"></div>
     </div>
   </section>
+  <button id="hitwarn" type="button" hidden></button>
   <div id="toast" hidden role="status"><span id="toast-msg"></span><span id="toast-btns"></span></div>
 </div>
 
@@ -615,7 +624,7 @@ function handleEvent(o) {
     case 'cone': FX.fx.push({ type: 'cone', x: o.x, y: o.y, a: o.a, h: o.h, l: o.l, col: C[o.c], t: 0, dur: .32 }); break;
     case 'banner': banner(o.s, o.ms); break;
     case 'shake': FX.shake = Math.max(FX.shake, o.v); break;
-    case 'hurt': { const a = V.actors[o.i]; addText(a.x, a.y - 18, o.v, C.danger, a === me ? 14 : 10); if (a === me) FX.shake = Math.max(FX.shake, o.av ? .35 : .15); break; }
+    case 'hurt': { const a = V.actors[o.i]; addText(a.x, a.y - 18, o.v, C.danger, a === me ? 14 : 10); if (a === me) { FX.shake = Math.max(FX.shake, o.av ? .35 : .15); lastHurt = performance.now(); } break; }
     case 'down': { const a = V.actors[o.i]; if (a === me) banner('你倒下了，等隊友救援', 2600); else addText(a.x, a.y - 30, a.name + ' 倒地', C.danger, 12, 1.4); break; }
     case 'dmg': if (o.by === meIdx) addText(o.x, o.y, o.v, o.big ? C.ember : C.foam, o.big ? 16 : 12); break;
     case 'heal': { const a = V.actors[o.i]; addText(a.x, a.y - 18, '+' + o.v, C.heal, a === me || o.by === meIdx ? 12 : 10); break; }
@@ -667,11 +676,24 @@ const talk = { lines: null, i: 0, done: null, focus: null }, quest = { giver: ''
 const inField = () => !!V && V.mode === 'field';      // alone (run on this device) or with a party (run on the server)
 let nearNpc = null, nearGate = false, gateOpen = false, nearStall = null;
 
+/* The panel that is open over the world, if any, and how far the camera has to lift for your character to show above it. */
+const SHEETS = ['hero', 'shop', 'mail', 'ah', 'quests', 'social'];
+const openSheet = () => { for (const id of SHEETS) if (!$('#' + id).hidden) return id; return ''; };
+function closeSheet(id) { if (id === 'hero') closeHero(); else if (id === 'social') closeSocial(); else if (id) $('#' + id).hidden = true; }
+let sheetLift = 0, lastHurt = -1e9;
+function sheetView() {
+  const id = inField() ? openSheet() : '', w = $('#hitwarn'); sheetLift = 0;
+  if (!id) { if (!w.hidden) w.hidden = true; return; }
+  const st = $('#stage').getBoundingClientRect(), top = $('#' + id).firstElementChild.getBoundingClientRect().top;
+  const seen = clamp(top - st.top, 80, st.height); sheetLift = (st.height - seen) / 2 / fscale;      // centre of what is still visible, instead of centre of the stage
+  const me = V.me, hit = performance.now() - lastHurt < 2500, label = !me.alive ? '你倒下了　點這裡回到畫面' : hit ? `正在被攻擊　生命 ${Math.max(0, Math.round(me.hp / me.maxHp * 100))}%　點這裡關閉` : '';
+  if (w.textContent !== label) w.textContent = label; if (w.hidden !== !label) w.hidden = !label;
+}
 function camGoal() {
-  const me = V.me, vw = stageW / fscale, vh = stageH / fscale; let tx = me.x, ty = me.y;
+  const me = V.me, vw = stageW / fscale, vh = stageH / fscale; let tx = me.x, ty = me.y + sheetLift;
   if (talk.lines) { if (talk.focus) { tx = (tx + talk.focus.x) / 2; ty = (ty + talk.focus.y) / 2; } ty += 46; }   // keep the speakers clear of the dialogue box
   // while someone talks the view may run past the south edge, so whoever stands at the bottom is not under the box
-  return { x: clamp(tx - vw / 2, 0, Math.max(0, FD.w - vw)), y: clamp(ty - vh / 2, 0, Math.max(0, FD.h - vh) + (talk.lines ? 110 : 0)) };
+  return { x: clamp(tx - vw / 2, 0, Math.max(0, FD.w - vw)), y: clamp(ty - vh / 2, 0, Math.max(0, FD.h - vh) + (talk.lines ? 110 : 0) + sheetLift) };
 }
 function startField(then, pos) {
   mode = 'field'; save.cls = chosen in CLASSES ? chosen : 'dps'; writeSave();
@@ -715,7 +737,7 @@ function fieldView(dt) {
   if (gateOpen && !nearGate) { gateOpen = false; $('#gatebox').hidden = true; }
   const btn = $('#act'), label = talk.lines || gateOpen || !me.alive ? '' : nearStall ? STALL_ACT[nearStall.id] : nearNpc ? `和${Story.CAST[nearNpc.id] ? Story.CAST[nearNpc.id].name : '他們'}說話` : nearGate ? '進入沉鐘塔' : '';
   if (btn.textContent !== label) btn.textContent = label; btn.hidden = !label;
-  const g = camGoal(), k = 1 - Math.exp(-dt * 8); cam.x += (g.x - cam.x) * k; cam.y += (g.y - cam.y) * k;
+  sheetView(); const g = camGoal(), k = 1 - Math.exp(-dt * 8); cam.x += (g.x - cam.x) * k; cam.y += (g.y - cam.y) * k;
 }
 /* one sentence about a piece of gear that just arrived */
 function gotText(g) { return `${S.itemText(g.it)}，${g.up ? '比身上的好，已經換上' : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`; }
@@ -1937,6 +1959,8 @@ $('#so-close').addEventListener('click', closeSocial);
 $('#hero-open').addEventListener('click', () => openHero('equip'));
 $('#hero-btn').addEventListener('click', () => { if (inField() && !talk.lines) openHero(); });
 $('#hero-close').addEventListener('click', closeHero);
+for (const id of SHEETS) $('#' + id).addEventListener('click', ev => { if (ev.target === ev.currentTarget && inField()) closeSheet(id); });
+$('#hitwarn').addEventListener('click', () => closeSheet(openSheet()));
 for (const k of HERO_TABS) $('#tab-' + k).addEventListener('click', () => openHero(k));
 $('#lo-open').addEventListener('click', openLoadout);
 $('#ta-open').addEventListener('click', openTalents);
