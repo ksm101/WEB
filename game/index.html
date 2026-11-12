@@ -301,7 +301,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <button id="hero-btn" type="button">角色</button>
       <button id="finder-btn" type="button">副本</button>
       <div class="dungeon"><b id="place">沉鐘塔</b><span id="lvl">第 1 層</span></div>
-      <div id="pips" aria-hidden="true"><i></i><i></i><i></i><i class="boss"></i></div>
+      <div id="pips" aria-hidden="true"></div>
       <div id="timer">0:00 <small>/ 3:00</small></div>
     </div>
     <div id="timebar"><i></i></div>
@@ -408,9 +408,10 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
   <section id="finder" class="overlay top" hidden>
     <div class="wrap">
       <div class="head">
-        <div><p class="eyebrow">找隊伍</p><h2>沉鐘塔</h2></div>
+        <div><p class="eyebrow">找隊伍</p><h2 id="fd-title">沉鐘塔</h2></div>
         <button class="chip" id="finder-close" type="button">關閉</button>
       </div>
+      <div class="tabs" id="fd-list"></div>
       <p class="lore" id="fd-info"></p>
       <div class="cta" id="fd-acts">
         <button class="btn" id="gate-party" type="button" hidden>和隊伍一起進塔</button>
@@ -603,7 +604,7 @@ function levelCheck(quiet) {
   if (shownCl && !quiet && save.cl > shownCl) {
     banner(`升到 Lv.${save.cl}`, 2400); if (mode === 'field' && V && V.me) S.setLevel(V.me, save.cl, S.charPower(save));
     const d = CLASSES[save.cls], fresh = d ? d.pool.concat(d.ults).map(id => S.SKILLS[id]).filter(k => k.lv > shownCl && k.lv <= save.cl) : [];
-    const news = []; if (shownCl < towerLv() && save.cl >= towerLv()) { news.push('沉鐘塔開放了：點畫面上的「副本」找隊伍，等的時候照常活動。'); $('#finder-btn').classList.add('fresh'); }
+    const news = [], opened = Object.keys(S.DUNGEONS).filter(k => shownCl < dungeonLv(k) && save.cl >= dungeonLv(k)); if (opened.length) { news.push(`${opened.map(dname).join('、')}開放了：點畫面上的「副本」找隊伍，等的時候照常活動。`); $('#finder-btn').classList.add('fresh'); }
     if (fresh.length) news.push(`解鎖新技能：${fresh.map(k => k.name).join('、')}。打開「角色」的技能書換上。`);
     if (news.length) toast(news.join(''), [], 6500);
   }
@@ -690,14 +691,15 @@ function enterRun() {
   $('#talk').hidden = true; $('#portbox').hidden = true; $('#act').hidden = true;
   resize(); buildHud();
 }
-function startSolo(cls) {
-  if (!towerOpen()) return toast(`沉鐘塔要 Lv.${towerLv()} 才開放，你現在 Lv.${save.cl}。`, [], 4000);
+function startSolo(cls, d) {
+  if (d && S.DUNGEONS[d]) did = d; if (!S.DUNGEONS[did]) did = 'tower';
+  if (!dungeonOpen(did)) return toast(`${dname(did)}要 Lv.${dungeonLv(did)} 才開放，你現在 Lv.${save.cl}。`, [], 4000);
   markOrigin(); if (net.authed && mode === 'online') send({ t: 'leave' }); else leaveQueue();
   clearQueue(); closePort(); $('#endchip').hidden = true;
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
-  G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsFor(save, cls) }] });
+  G = S.createRun({ dungeon: did, lvl: floorNow(did), auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsFor(save, cls) }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
-  if (net.authed) send({ t: 'solo0', lvl: save.lvl, cls });
+  if (net.authed) send({ t: 'solo0', lvl: floorNow(did), cls, d: did });
   enterRun(); banner('三名 AI 隊友已就位', 2200);
 }
 /* A finished run. Online, the server has already decided the rewards (extra). Solo with a server, the result is
@@ -711,7 +713,7 @@ function conclude(r, stats, extra) {
     return send({ t: 'solo1', win: r.win, time: r.t, pots: stats.pots, kicks: stats.kicks, hits: stats.hits, drops: view.drops || 0 });
   }
   let rw; const cl0 = save.cl, done = newlyDone(() => {
-    rw = S.applyResult(save, lvl, r, { trash: view.drops || 0 }); save.inv.potion = Math.max(0, save.inv.potion - stats.pots);
+    rw = S.applyResult(save, lvl, r, { trash: view.drops || 0, dungeon: view.did }); save.inv.potion = Math.max(0, save.inv.potion - stats.pots);
     S.questEvent(save, { type: 'run', win: r.win, onTime: r.onTime, cls: view.me.cls, kicks: stats.kicks, hits: stats.hits, mates: 0 }, Date.now());
   });
   writeSave(); show(rw.loot, { mats: rw.mats, xp: rw.xp, coin: rw.coin, up: save.cl > cl0, quests: done });
@@ -720,10 +722,15 @@ function conclude(r, stats, extra) {
 /* ================= Field =================
  * 鏽灘 is simulated on this device. With a server, every gather and kill is reported and the server answers with
  * what it was worth; without one the same rules are rolled here. */
-const FD = S.FIELD, cam = { x: 0, y: 0 }, NPC_CLS = { kol: 'tank', mira: 'heal', jin: 'dps', wu: 'dps' };
+let FD = S.FIELD;      // the map you are standing on
+let did = 'tower';     // the dungeon the finder points at, or the one you are in
+const dgn = id => S.DUNGEONS[id] || S.DUNGEONS.tower, dname = id => dgn(id).name, floorNow = id => S.floorOf(save, S.DUNGEONS[id] ? id : 'tower');
+const dungeonLv = id => qs.has('tower') ? Math.max(1, +qs.get('tower') || 1) : QUICK ? 1 : dgn(id).min;      // read each time: the editor can change it
+const dungeonOpen = id => save.cl >= dungeonLv(id);
+const cam = { x: 0, y: 0 }, NPC_CLS = { kol: 'tank', mira: 'heal', jin: 'dps', wu: 'dps' };
 const talk = { lines: null, i: 0, done: null, focus: null }, quest = { giver: '' };
 const inField = () => !!V && V.mode === 'field';      // alone (run on this device) or with a party (run on the server)
-let nearNpc = null, nearGate = false, nearStall = null;
+let nearNpc = null, nearGate = false, nearStall = null, nearExit = null;
 
 /* The panel that is open over the world, if any, and how far the camera has to lift for your character to show above it. */
 const SHEETS = ['social', 'hero', 'shop', 'mail', 'ah', 'quests', 'lobby', 'finder'];
@@ -744,13 +751,13 @@ function camGoal() {
   // while someone talks the view may run past the south edge, so whoever stands at the bottom is not under the box
   return { x: clamp(tx - vw / 2, 0, Math.max(0, FD.w - vw)), y: clamp(ty - vh / 2, 0, Math.max(0, FD.h - vh) + (talk.lines ? 110 : 0) + sheetLift) };
 }
-function startField(then, pos) {
-  mode = 'field'; save.cls = chosen in CLASSES ? chosen : 'dps'; writeSave();
-  G = S.createField({ lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', skills: S.loadoutOf(save, save.cls), mods: S.modsFor(save, save.cls) } });
+function startField(then, pos, map) {
+  FD = S.MAPS[map] || S.FIELD; mode = 'field'; save.cls = chosen in CLASSES ? chosen : 'dps'; writeSave();
+  G = S.createField({ map: FD.id, lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', skills: S.loadoutOf(save, save.cls), mods: S.modsFor(save, save.cls) } });
   V = G; V.me = G.actors[0]; meIdx = 0;
-  if (online && net.authed) send({ t: 'field0' });
+  if (online && net.authed) send({ t: 'field0', map: FD.id });
   if (pos) { V.me.x = pos[0]; V.me.y = pos[1]; }      // stepping back out of a surge: same place, no fanfare
-  enterRun(); Object.assign(cam, camGoal()); renderQuests(); if (pos) return; banner('鏽灘', 1500);
+  enterRun(); Object.assign(cam, camGoal()); renderQuests(); if (pos) return; banner(FD.name, 1500);
   const pro = Story.SCENES.prologue, go = () => { if (then) then(); else linkOffer(); };
   if (pro && !box.intro && !AUTO && !qs.has('nostory')) say(pro.lines, () => { box.intro = true; writeSave(); go(); }); else go();
 }
@@ -769,7 +776,7 @@ function fieldFrame(dt) {
 function eventNow() {
   const e = net.ev; if (!e || !e.dur || !online || !net.authed) return null;
   const now = Date.now() + e.off, cycle = Math.floor(now / e.period), into = now % e.period, active = into < e.dur;
-  return { cycle, active, left: active ? e.dur - into : e.period - into, spot: FD.events[(active ? cycle : cycle + 1) % FD.events.length] };
+  return { cycle, active, left: active ? e.dur - into : e.period - into, spot: S.FIELD.events[(active ? cycle : cycle + 1) % S.FIELD.events.length] };
 }
 /* Back to where you came from, a party's field or your own, standing where you stand now. */
 function goHome(msg) {
@@ -779,7 +786,7 @@ function goHome(msg) {
 }
 /* what is within reach, and where the camera should be */
 function fieldView(dt) {
-  const me = V.me, en = eventNow(); V.evInfo = en;
+  const me = V.me, en = FD.id === 'shore' ? eventNow() : null; V.evInfo = en;      // the surge only comes ashore on the home map
   if (en && en.active && me.alive && !talk.lines) {      // walk into an open surge and you are in it, with whoever else is there
     const d = Math.hypot(me.x - en.spot.x, me.y - en.spot.y), t = performance.now();
     if (!V.event && d < en.spot.r && net.evSkip !== en.cycle && (!net.evJoin || t - net.evJoin > 3000)) { net.evJoin = t; net.home = { code: mode === 'online' ? V.code : '' }; send({ t: 'join', event: true, x: me.x, y: me.y }); }
@@ -787,8 +794,9 @@ function fieldView(dt) {
   }
   nearNpc = null; for (const n of FD.npcs) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearNpc = n;
   nearStall = null; for (const n of FD.stalls) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearStall = n;
-  nearGate = Math.hypot(FD.gate.x - me.x, FD.gate.y - me.y) < FD.gate.r + 34;
-  const btn = $('#act'), label = talk.lines || !me.alive ? '' : nearStall ? STALL_ACT[nearStall.id] : nearNpc ? `和${Story.CAST[nearNpc.id] ? Story.CAST[nearNpc.id].name : '他們'}說話` : nearGate ? '進入沉鐘塔' : '';
+  nearGate = !!FD.gate && Math.hypot(FD.gate.x - me.x, FD.gate.y - me.y) < FD.gate.r + 34;
+  nearExit = null; for (const e of FD.exits) if (S.MAPS[e.to] && Math.hypot(e.x - me.x, e.y - me.y) < 46) nearExit = e;
+  const btn = $('#act'), label = talk.lines || !me.alive ? '' : nearStall ? STALL_ACT[nearStall.id] : nearNpc ? `和${Story.CAST[nearNpc.id] ? Story.CAST[nearNpc.id].name : '他們'}說話` : nearExit ? `前往${S.MAPS[nearExit.to].name}` : nearGate ? (FD.id === 'shore' ? '進入沉鐘塔' : '進入副本') : '';
   if (btn.textContent !== label) btn.textContent = label; btn.hidden = !label;
   sheetView(); const g = camGoal(), k = 1 - Math.exp(-dt * 8); cam.x += (g.x - cam.x) * k; cam.y += (g.y - cam.y) * k;
 }
@@ -805,7 +813,7 @@ function showYield(mats, done, xp, coin, item) {
 }
 function fieldReport(t, body, what, key, pk) {
   if (online) { if (net.authed) send(Object.assign({ t }, body)); else banner('連線中斷，這段時間的收穫不會記錄', 2500); return; }
-  let g = null; const done = newlyDone(() => { g = S.fieldGain(save, what, key, pk); if (g) S.questEvent(save, { type: what }, Date.now()); });
+  let g = null; const done = newlyDone(() => { g = S.fieldGain(save, what, key, pk, FD.id); if (g) S.questEvent(save, { type: what }, Date.now()); });
   writeSave(); if (g) { showYield(g.mats, done, g.xp, g.coin, g.item); if (g.item && g.item.up) refitMe(); }
 }
 
@@ -834,11 +842,19 @@ function claimMain(id) {
 }
 function toCamp(msg) { $('#quests').hidden = true; if (!inField()) { chosen = save.cls; startField(); } if (msg) banner(msg, 2800); }
 function replayScene(id) { const sc = Story.SCENES[id]; if (!sc) return; $('#quests').hidden = true; if (inField()) say(sc.lines); else { chosen = save.cls; startField(() => say(sc.lines)); } }
+/* Walk through an exit to another map. With a party you go to the party's field on that map; alone, to your own. */
+function travel(e) {
+  const T = S.MAPS[e.to]; if (!T) return; const at = [e.tx, e.ty];
+  if (mode === 'online' && V.code && !V.event && net.authed) { net.travel = at; send({ t: 'join', field: true, room: V.code, map: e.to, x: at[0], y: at[1] }); }
+  else { if (mode === 'online' && net.authed) send({ t: 'leave' }); chosen = save.cls; startField(null, at, e.to); }
+  banner(T.name, 1500);
+}
 function doAct() {
   if (!inField()) { if (nearPortal()) { portOpen = true; $('#port-back').hidden = !net.origin; $('#portbox').hidden = false; } return; }
   if (talk.lines) return;
   if (nearStall) return nearStall.id === 'shop' ? openShop() : nearStall.id === 'ah' ? openAh() : openMail();
   if (nearNpc) return talkTo(nearNpc.id);
+  if (nearExit) return travel(nearExit);
   if (nearGate) openFinder();
 }
 
@@ -868,25 +884,26 @@ function connect() {
     if (!net.kicked) { net.backoff = Math.min(15000, (net.backoff || 500) * 2); setTimeout(connect, net.backoff); }
   };
 }
-function goOnline(roomOverride) {
+function goOnline(roomOverride, d) {
+  if (d && S.DUNGEONS[d]) did = d; if (!S.DUNGEONS[did]) did = 'tower';
   if (!net.authed) return;
   const fixed = typeof roomOverride === 'string', room = fixed ? cleanCode(roomOverride) : cleanCode($('#room').value);
   if (fixed) net.roomHint = room; else box.room = room; writeSave();
-  if (!towerOpen()) return toast(`沉鐘塔要 Lv.${towerLv()} 才開放，你現在 Lv.${save.cl}。`, [], 4000);
+  if (!dungeonOpen(did)) return toast(`${dname(did)}要 Lv.${dungeonLv(did)} 才開放，你現在 Lv.${save.cl}。`, [], 4000);
   lastMode = 'online'; net.queueing = true;
-  const join = () => { showLobby(null); send({ t: 'join', cls: save.cls, room }); };
+  const join = () => { showLobby(null); send({ t: 'join', cls: save.cls, room, d: did }); };
   if (inField() || (V && V.result)) return join();    // out in the world, or still inside a finished tower: keep doing what you were doing while the group forms
   chosen = save.cls; startField(join);
 }
 /* Remember where you stood when the tower took you in, so the portal can put you back. Kept when you go again from inside. */
-function markOrigin() { if (inField() && V.me) net.origin = { party: mode === 'online' && V.code && !V.event ? V.code : '', x: V.me.x, y: V.me.y }; else if (!V || !V.result) net.origin = null; }
+function markOrigin() { if (inField() && V.me) net.origin = { party: mode === 'online' && V.code && !V.event ? V.code : '', map: FD.id, x: V.me.x, y: V.me.y }; else if (!V || !V.result) net.origin = null; }
 function clearQueue() { net.lobby = null; net.queueing = false; $('#queue').hidden = true; $('#lobby').hidden = true; }
 function leaveQueue() { if (net.queueing && net.authed) send({ t: 'unqueue' }); clearQueue(); }
 /* Go to the field with a party. A code names the party; without one the server makes a new party of one. */
-function goField(code) {
+function goField(code, map) {
   if (!net.authed) return;
   if (code) { box.room = code; writeSave(); }
-  send({ t: 'join', field: true, room: code || '' });
+  send({ t: 'join', field: true, room: code || '', map: S.MAPS[map] ? map : undefined });
 }
 function applyProfile(m, quiet) {   // the server's word on this account
   if (m.bk) box.key.bk = m.bk;
@@ -895,7 +912,7 @@ function applyProfile(m, quiet) {   // the server's word on this account
     box.cur = box.chars[m.cur] ? m.cur : -1; quiet = true;
   }
   const p = m.profile, c = box.chars[box.cur];
-  if (p && c) { Object.assign(c, { nick: p.name, cls: p.cls, lvl: p.lvl, cl: p.cl, xp: p.xp || 0, gear: p.gear, eq: p.eq, bag: p.bag || [], best: p.best, runs: p.runs, inv: p.inv, q: p.q, loadout: p.loadout, coin: p.coin || 0, talents: p.talents || {} }); S.fixProfile(c); c.ilvl = S.ilvlOf(c.gear); }
+  if (p && c) { Object.assign(c, { nick: p.name, cls: p.cls, lvl: p.lvl, cl: p.cl, xp: p.xp || 0, gear: p.gear, eq: p.eq, bag: p.bag || [], dl: p.dl || {}, best: p.best, runs: p.runs, inv: p.inv, q: p.q, loadout: p.loadout, coin: p.coin || 0, talents: p.talents || {} }); S.fixProfile(c); c.ilvl = S.ilvlOf(c.gear); }
   save = c || blankChar(); chosen = save.cls;
   writeSave(); levelCheck(quiet);
 }
@@ -912,7 +929,7 @@ function onMsg(m) {
       else if (!$('#create').hidden) { if (box.chars.length > had) (QUICK ? showMenu : showChars)(''); else renderCreate(); }
       else if (!$('#chars').hidden) { if (QUICK && box.chars.length) showMenu(''); else showChars(); } }
       if (m.resume !== undefined) send({ t: 'social' });
-      if (mode === 'field') send({ t: 'field0' });      // a new connection starts a new set of books
+      if (mode === 'field') send({ t: 'field0', map: FD.id });      // a new connection starts a new set of books
       break;
     case 'kicked': net.kicked = true; showMenu('這個帳號在別的分頁或裝置上開著，這裡先離線了。重新整理頁面可以換回這裡。'); break;
     case 'lobby':
@@ -950,7 +967,7 @@ function onMsg(m) {
     case 'note': toast(String(m.msg || ''), [], 3500); break;
     case 'invited':
       if (mode === 'online' && V && !inField() && !V.result) break;        // in the middle of a dungeon run: not now
-      if (m.field) toast(`${m.from.name} 邀請你去野外`, [['加入', () => { closeSocial(); goField(String(m.code)); }], ['略過', null]], 15000);
+      if (m.field) toast(`${m.from.name} 邀請你去野外`, [['加入', () => { closeSocial(); goField(String(m.code), m.map); }], ['略過', null]], 15000);
       else toast(m.again ? `${m.from.name} 想原隊再打一場` : m.gate ? `${m.from.name} 在塔門等你，一起進塔` : `${m.from.name} 邀請你一起打`, [['加入', () => { closeSocial(); chosen = save.cls; goOnline(String(m.code)); }], ['略過', null]], 15000);
       break;
     case 'event-no': net.evJoin = 0; net.evSkip = m.cycle; net.home = null; toast(String(m.msg || ''), [], 3000); break;
@@ -983,9 +1000,10 @@ function seatView(r, i, lvl, at) {
     r: 12, hp: r ? r.maxHp : 1, maxHp: r ? r.maxHp : 1, alive: !!r, potions: r ? r.potions || 0 : 0, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null, gather: null };
 }
 function beginOnline(m) {
-  const back = net.back, field = !!m.field, here = field && inField() && V.me ? [V.me.x, V.me.y] : null; net.back = false; net.evJoin = 0;      // here: already standing in the field, so nobody jumps to the camp
+  const back = net.back, field = !!m.field, here = net.travel || (field && inField() && V.me && V.map === (S.MAPS[m.map] ? m.map : 'shore') ? [V.me.x, V.me.y] : null); net.travel = null; net.back = false; net.evJoin = 0;      // here: already standing in the field, so nobody jumps to the camp
   mode = 'online'; if (!field) lastMode = 'online'; meIdx = m.you; net.buf = []; net.offset = null; net.fresh = true; net.emap = new Map(); net.sx = net.sy = NaN;
-  V = { mode: field ? 'field' : 'dungeon', code: field ? String(m.code || '') : '', t: 0, state: field ? 'run' : 'countdown', cd: field ? 0 : 3, wave: -1, lvl: m.lvl, elvl: m.elvl || 1, enemies: [], zones: [], shots: [], boss: null, result: null,
+  if (field) FD = S.MAPS[m.map] || S.FIELD; else did = S.DUNGEONS[m.d] ? m.d : 'tower';
+  V = { mode: field ? 'field' : 'dungeon', did, map: FD.id, code: field ? String(m.code || '') : '', t: 0, state: field ? 'run' : 'countdown', cd: field ? 0 : 3, wave: -1, lvl: m.lvl, elvl: m.elvl || 1, enemies: [], zones: [], shots: [], boss: null, result: null,
     nodes: field ? FD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, ready: true })) : [],
     event: !!m.event, cycle: m.cycle, evs: null, evInfo: null,
     actors: m.roster.map((r, i) => seatView(r, i, m.lvl, field ? here || FD.spawn : SPOTS[i])) };
@@ -1016,7 +1034,7 @@ function buildView(now) {
   const em = net.emap, seen = new Set(); V.boss = null;
   for (const d of s1.e) {
     let e = em.get(d[0]);
-    if (!e) { const def = ENEMY[d[1]]; e = { id: d[0], kind: d[1], def, name: def.name, lvl: V.elvl, r: def.r, boss: d[1] === 'boss', tm: { enraged: false }, alive: true }; em.set(d[0], e); }
+    if (!e) { const def = ENEMY[d[1]] || ENEMY.grunt; e = { id: d[0], kind: d[1], def, name: def.name, lvl: V.elvl, r: def.r, boss: !!def.boss, tm: { enraged: false }, alive: true }; em.set(d[0], e); }
     e.lvl = d[11] || V.elvl; e.engaged = !!d[12]; e.ret = !!d[13]; e.tgt = d[14] >= 0 ? d[14] : -1; e.th = Array.isArray(d[15]) ? d[15] : null;
     const p = s0.e.find(q => q[0] === d[0]) || d;
     e.x = L(p[2], d[2]); e.y = L(p[3], d[3]); e.hp = d[4]; e.maxHp = d[5]; e.face = d[6]; e.spawnT = L(p[7], d[7]); e.stun = d[8]; e.tm.enraged = !!d[9];
@@ -1049,7 +1067,7 @@ function predictMe(dt, now) {
   if (moving) {
     let mx = input.mx, my = input.my; if (m > 1) { mx /= m; my /= m; }
     const f = inField(), bw = f ? FD.w : W, bh = f ? FD.h : H;
-    a.x = clamp(a.x + mx * speed * dt, a.r + 6, bw - a.r - 6); a.y = clamp(a.y + my * speed * dt, a.r + (f ? 6 : 36), bh - a.r - 8); if (f) S.pushOut(a); net.lastMove = now;
+    a.x = clamp(a.x + mx * speed * dt, a.r + 6, bw - a.r - 6); a.y = clamp(a.y + my * speed * dt, a.r + (f ? 6 : 36), bh - a.r - 8); if (f) S.pushOut(a, FD); net.lastMove = now;
   }
   const ex = a.sx - a.x, ey = a.sy - a.y, d = Math.hypot(ex, ey);
   if (d > 90) { a.x = a.sx; a.y = a.sy; return; }
@@ -1146,7 +1164,7 @@ function drawEnemy(e, dt) {
     const ax = x + Math.cos(e.face) * (r + 6), ay = y + Math.sin(e.face) * (r + 6);   // the anchor it swings
     c.strokeStyle = C.rust; c.lineWidth = 3; c.beginPath(); c.moveTo(x + Math.cos(e.face) * 12, y + Math.sin(e.face) * 12); c.lineTo(ax, ay); c.stroke();
     c.beginPath(); c.arc(ax, ay, 9, e.face - 1.4, e.face + 1.4); c.stroke();
-  } else if (e.kind === 'crab' || e.kind === 'brute') {
+  } else if (S.baseOf(e.kind) === 'crab' || S.baseOf(e.kind) === 'brute') {
     c.fillStyle = fl ? C.foam : C.rust; c.strokeStyle = C.ink; c.beginPath(); c.ellipse(x, y, r + 2, r - 2, e.face + Math.PI / 2, 0, TAU); c.fill(); c.stroke();
     c.strokeStyle = C.rust; c.lineWidth = 3; for (const k of [-.75, .75]) { c.beginPath(); c.arc(x + Math.cos(e.face + k) * (r + 5), y + Math.sin(e.face + k) * (r + 5), 4, e.face + k - 1.9, e.face + k + 1.9); c.stroke(); }
     c.fillStyle = C.ink; for (const k of [-.35, .35]) { c.beginPath(); c.arc(x + Math.cos(e.face + k) * 5, y + Math.sin(e.face + k) * 5, 1.6, 0, TAU); c.fill(); }
@@ -1181,10 +1199,20 @@ function drawField() {
   c.beginPath(); for (const [x, y] of FD.path) c.lineTo(x, y); c.stroke();
   c.globalAlpha = 1; c.lineWidth = 2;
   for (const r of FD.rocks) { c.fillStyle = C.ink; c.strokeStyle = C.line; poly(r.x, r.y, r.r, r.r * .8, 5, r.x * .01); c.fill(); c.stroke(); }
-  c.strokeStyle = C.brass; c.globalAlpha = .2; c.setLineDash([4, 9]); c.lineWidth = 1.5; c.beginPath(); c.arc(FD.safe.x, FD.safe.y, FD.safe.r, 0, TAU); c.stroke(); c.setLineDash([]);
+  for (const b of FD.walls) {      // boxes: roads are only paint, walls and water stop you
+    c.globalAlpha = b.type === 'road' ? .55 : b.type === 'water' ? .8 : 1; c.fillStyle = b.type === 'road' ? C.slate : b.type === 'water' ? C.glow : C.ink; c.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
+    if (b.type !== 'road') { c.globalAlpha = 1; c.strokeStyle = b.type === 'water' ? C.foam : C.line; c.lineWidth = b.type === 'water' ? 1 : 2.5; c.strokeRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
+  }
+  c.globalAlpha = 1;
+  for (const e of FD.exits) { const T = S.MAPS[e.to]; if (!T) continue;      // a way to another map
+    c.strokeStyle = C.hex; c.lineWidth = 3; c.globalAlpha = .9; c.beginPath(); c.arc(e.x, e.y, 30 + (reduced ? 0 : Math.sin(clock * 3) * 2), 0, TAU); c.stroke(); c.globalAlpha = .18; c.fillStyle = C.hex; c.fill();
+    c.globalAlpha = 1; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText('往 ' + T.name, e.x, e.y - 40); c.fillStyle = C.foam; c.fillText('往 ' + T.name, e.x, e.y - 40); }
+  if (FD.safe) { c.strokeStyle = C.brass; c.globalAlpha = .2; c.setLineDash([4, 9]); c.lineWidth = 1.5; c.beginPath(); c.arc(FD.safe.x, FD.safe.y, FD.safe.r, 0, TAU); c.stroke(); c.setLineDash([]); }
+  if (FD.fire) {
   const fx = FD.fire[0], fy = FD.fire[1], fg = c.createRadialGradient(fx, fy, 4, fx, fy, 96); fg.addColorStop(0, C.ember); fg.addColorStop(1, 'transparent');
   c.globalAlpha = reduced ? .3 : .28 + .05 * Math.sin(clock * 6); c.fillStyle = fg; c.fillRect(fx - 96, fy - 96, 192, 192);
   c.globalAlpha = 1; c.fillStyle = C.ember; poly(fx, fy, 9, 5, 4, reduced ? 0 : clock * 2); c.fill();
+  }
   const en = V.evInfo;                                                               // the tide surge: open now, or coming soon
   if (en && (en.active || en.left < 90000)) {
     const sp = en.spot; c.strokeStyle = C.brass; c.lineWidth = en.active ? 3 : 1.5; c.globalAlpha = en.active ? .8 : .35; c.setLineDash(en.active ? [] : [6, 8]);
@@ -1193,10 +1221,10 @@ function drawField() {
     const label = V.event ? (V.evs && V.evs[0] >= 0 ? `漲潮　第 ${V.evs[0] + 1} 波` : '漲潮　快來了') : en.active ? `漲潮　剩 ${fmt(en.left / 1000)}　走進來就加入` : `漲潮　${fmt(en.left / 1000)} 後`;
     c.globalAlpha = 1; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText(label, sp.x, sp.y - sp.r - 10); c.fillStyle = C.brass; c.fillText(label, sp.x, sp.y - sp.r - 10);
   }
-  const g = FD.gate;                                                                 // the tower gate
+  const g = FD.gate; if (!g) return;                                                 // the way into the dungeons
   c.fillStyle = C.ink; c.strokeStyle = C.rust; c.lineWidth = 4; c.beginPath(); c.arc(g.x, g.y, g.r, Math.PI, 0); c.lineTo(g.x + g.r, g.y + 22); c.lineTo(g.x - g.r, g.y + 22); c.closePath(); c.fill(); c.stroke();
   c.strokeStyle = C.brass; c.lineWidth = 2; c.globalAlpha = .75; c.beginPath(); c.arc(g.x, g.y - 8, 15, 0, TAU); c.stroke(); c.beginPath(); c.arc(g.x, g.y - 8, 5, 0, TAU); c.stroke();
-  c.globalAlpha = 1; c.fillStyle = C.brass; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.fillText('沉鐘塔', g.x, g.y + 42);
+  c.globalAlpha = 1; c.fillStyle = C.brass; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.fillText(FD.id === 'shore' ? '沉鐘塔' : '副本入口', g.x, g.y + 42);
 }
 function drawNode(n) {
   const c = ctx, { x, y } = n, ready = n.cd ? n.cd[V.me.idx] <= 0 : n.ready; c.globalAlpha = ready ? 1 : .22; c.lineCap = 'round';
@@ -1235,7 +1263,7 @@ function drawMinimap() {
   const c = ctx, w = 46, h = w * FD.h / FD.w, x = stageW - w - 10, y = 10, k = w / FD.w;
   c.setTransform(dpr, 0, 0, dpr, 0, 0); c.globalAlpha = .82; c.fillStyle = C.ink; c.fillRect(x, y, w, h); c.globalAlpha = 1; c.strokeStyle = C.line; c.lineWidth = 1; c.strokeRect(x + .5, y + .5, w, h);
   const dot = (px, py, col, r) => { c.fillStyle = col; c.beginPath(); c.arc(x + px * k, y + py * k, r, 0, TAU); c.fill(); };
-  dot(FD.gate.x, FD.gate.y, C.brass, 3); dot(FD.fire[0], FD.fire[1], C.ember, 3);
+  if (FD.gate) dot(FD.gate.x, FD.gate.y, C.brass, 3); if (FD.fire) dot(FD.fire[0], FD.fire[1], C.ember, 3); for (const e of FD.exits) dot(e.x, e.y, C.hex, 2.5);
   for (const a of V.actors) if (a !== V.me && !a.out && !a.ghost) dot(a.x, a.y, C.heal, 2);      // the rest of the party
   dot(V.me.x, V.me.y, C.foam, 2.5);
   const en = V.evInfo;
@@ -1342,7 +1370,8 @@ function updFx(dt) {
 /* ================= HUD ================= */
 let frames = [], skBtns = [];
 function buildHud() {
-  const field = V.mode === 'field'; $('#place').textContent = field ? (V.event ? '鏽灘　漲潮' : V.code ? `鏽灘　隊伍 ${V.code}` : '鏽灘') : '沉鐘塔'; $('#lvl').textContent = field ? '燼港外緣' : `第 ${V.lvl} 層`;
+  const field = V.mode === 'field'; $('#place').textContent = field ? (V.event ? `${FD.name}　漲潮` : V.code ? `${FD.name}　隊伍 ${V.code}` : FD.name) : dname(V.did); $('#lvl').textContent = field ? (FD.id === 'shore' ? '燼港外緣' : '') : `第 ${V.lvl} 層`;
+  { const pp = $('#pips'), n = field ? 0 : dgn(V.did).waves.length; pp.textContent = ''; for (let i = 0; i < n; i++) pp.appendChild(el('i', i === n - 1 ? 'boss' : '')); }      // one mark for each wave of this dungeon
   const party = $('#party'); party.textContent = ''; frames = [];
   V.actors.forEach((a, i) => {
     if (a.out || a.ghost) return;      // an empty seat in the party
@@ -1503,19 +1532,20 @@ let chosen = 'dps', menuMsg = '';
 const NOTE_SOLO = `進入世界後，在鏽灘打怪、採集、做任務。Lv.${S.TOWER_LEVEL} 起可以用畫面上的「副本」進沉鐘塔，隊友由 AI 補位。`, NOTE_ONLINE = `進入世界後，在鏽灘打怪、採集、做任務。Lv.${S.TOWER_LEVEL} 起可以用畫面上的「副本」找隊伍進沉鐘塔。`;
 /* The group finder: opened from the world (the 副本 button, or by walking up to the tower gate), never from the home page.
  * It opens at towerLv(); while you wait for a group you keep playing. */
-const towerLv = () => qs.has('tower') ? Math.max(1, +qs.get('tower') || 1) : QUICK ? 1 : S.TOWER_LEVEL;      // read each time: the editor can change it
-const towerOpen = () => save.cl >= towerLv();
 function openFinder() {
   $('#finder-btn').classList.remove('fresh');
   if (net.queueing) { $('#lobby').hidden = false; return; }      // already waiting: show the group instead
   $('#room').value = net.roomHint || box.room || ''; net.roomHint = ''; $('#finder').hidden = false; renderFinder();
 }
 function renderFinder() {
-  $('#finder-btn').classList.toggle('locked', !towerOpen());
+  if (!S.DUNGEONS[did]) did = 'tower';
+  $('#finder-btn').classList.toggle('locked', !Object.keys(S.DUNGEONS).some(dungeonOpen));
   if ($('#finder').hidden) return;
-  const on = online && net.authed, open = towerOpen(), party = mode === 'online' && inField() && !!V.code, code = cleanCode($('#room').value);
-  $('#fd-info').textContent = !open ? `沉鐘塔要 Lv.${towerLv()} 才開放，你現在 Lv.${save.cl}。先在鏽灘打怪、採集、做任務，等級到了這裡就能找隊伍。`
-    : `你打到第 ${save.lvl} 層，建議等級 Lv.${S.recLevel(save.lvl)}，你現在 Lv.${save.cl}。${on ? '排隊的時候照常活動，隊伍湊齊會直接帶你進塔。' : '這個版本沒有伺服器，隊友由 AI 擔任。'}`;
+  const on = online && net.authed, open = dungeonOpen(did), party = mode === 'online' && inField() && !!V.code, code = cleanCode($('#room').value), ids = Object.keys(S.DUNGEONS), lst = $('#fd-list');
+  $('#fd-title').textContent = dname(did); lst.textContent = ''; lst.hidden = ids.length < 2;
+  for (const k of ids) { const b = el('button', 'mini' + (k === did ? ' on' : ''), `${dname(k)}${dungeonOpen(k) ? '' : `　Lv.${dungeonLv(k)}`}`); b.type = 'button'; b.id = 'fd-pick-' + k; b.addEventListener('click', () => { did = k; renderFinder(); }); lst.appendChild(b); }
+  $('#fd-info').textContent = !open ? `${dname(did)}要 Lv.${dungeonLv(did)} 才開放，你現在 Lv.${save.cl}。先在野外打怪、採集、做任務，等級到了這裡就能找隊伍。`
+    : `${dgn(did).waves.length} 波。你打到第 ${floorNow(did)} 層，建議等級 Lv.${S.recLevel(floorNow(did))}，你現在 Lv.${save.cl}。${on ? '排隊的時候照常活動，隊伍湊齊會直接帶你進塔。' : '這個版本沒有伺服器，隊友由 AI 擔任。'}`;
   $('#fd-acts').hidden = !open; $('#gate-party').hidden = !party; $('#gate-online').hidden = !on; $('#fields').hidden = !on; $('#fd-code').hidden = !on;
   $('#gate-solo').className = on ? 'btn ghost' : 'btn';
   $('#go-online').disabled = $('#go-party').disabled = !code; $('#go-online').textContent = code ? `用 ${code} 進塔` : '用房號進塔'; $('#go-party').textContent = code ? `去 ${code} 的野外` : '去他們的野外';
@@ -1530,9 +1560,10 @@ function towerView() {
 }
 /* Leave the tower: back to where you stood when you were taken in, or to the gate. With your party's field if you came from one. */
 function exitTower(back) {
-  const o = net.origin, at = back && o ? [o.x, o.y] : [FD.gate.x, FD.gate.y + 64]; closePort();
-  if (o && o.party && net.authed) send({ t: 'join', field: true, room: o.party, x: at[0], y: at[1] });
-  else { if (net.authed && mode === 'online') send({ t: 'leave' }); chosen = save.cls; startField(null, at); }
+  const o = net.origin, home = o && S.MAPS[o.map] ? o.map : 'shore', map = back && o ? home : (S.MAPS[home].gate ? home : 'shore'), F = S.MAPS[map];      // the gate of the map you came from, if it has one
+  const at = back && o ? [o.x, o.y] : [F.gate.x, F.gate.y + 64]; closePort();
+  if (o && o.party && net.authed) { net.travel = at; send({ t: 'join', field: true, room: o.party, map, x: at[0], y: at[1] }); }
+  else { if (net.authed && mode === 'online') send({ t: 'leave' }); chosen = save.cls; startField(null, at, map); }
 }
 function drawPortal() {
   const c = ctx, { x, y, r } = S.PORTAL, t = clock;
@@ -1574,7 +1605,7 @@ function showLobby(m) {
     $('#lb-loot').textContent = m.mode === 'leader' ? `掉落的裝備：隊長分配${lead ? `（隊長 ${lead.name}）` : ''}` : '掉落的裝備：擲骰（需求優先於貪婪）';
     sw.hidden = !priv || !mine; sw.textContent = m.mode === 'leader' ? '改成擲骰' : '改成隊長分配'; }
   if (priv) $('#lb-url').value = inviteUrl(m.code);
-  $('#lb-title').textContent = priv ? '房間 ' + m.code : '找隊友中';
+  $('#lb-title').textContent = (m.d && m.d !== 'tower' && m.dname ? m.dname + '　' : '') + (priv ? '房間 ' + m.code : '找隊友中');
   $('#q-open').textContent = priv ? `房間 ${m.code}　${m.slots.filter(x => x.name).length}/4 人` : `找隊友中　${Math.max(0, m.left)} 秒`;
   $('#lb-info').textContent = priv ? '等的時候可以照常在野外活動。四個人到齊，或在場的人都按了開始，就會一起進塔。空位由 AI 補上。' : `等的時候可以照常在野外活動。${Math.max(0, m.left)} 秒後出發。沒等到人的位置由 AI 補上。`;
   m.slots.forEach((s, i) => {
@@ -1960,10 +1991,10 @@ function onLoot(m) {
 setInterval(() => { const n = pile && $('#pile-note'); if (n) n.textContent = pileNote(); }, 1000);      // only the countdown: the buttons stay put
 function showResult(r, s, loot, lvl, more) {
   const body = $('#endbox'); body.textContent = '';
-  const head = el('div', 'endhead'); head.append(el('h2', '', r.win ? '通關' : '滅團'), el('div', 'clock', fmt(r.t)), el('p', 'eyebrow', `沉鐘塔 · 第 ${lvl} 層`));
+  const head = el('div', 'endhead'); head.append(el('h2', '', r.win ? '通關' : '滅團'), el('div', 'clock', fmt(r.t)), el('p', 'eyebrow', `${dname(V.did)} · 第 ${lvl} 層`));
   const time = el('div'); time.append(
     !r.win ? el('p', 'verdict bad', '隊伍全滅，這一層還沒過。')
-      : r.onTime ? el('p', 'verdict good', save.lvl > lvl ? `三分鐘內通關，你的層數升到第 ${save.lvl} 層。` : '三分鐘內通關。')
+      : r.onTime ? el('p', 'verdict good', floorNow(V.did) > lvl ? `三分鐘內通關，你的層數升到第 ${floorNow(V.did)} 層。` : '三分鐘內通關。')
       : el('p', 'verdict', '通關了，但超過三分鐘，層數不變。'));
   const dl = el('p', 'statline');
   for (const [k, v] of [['傷害', Math.round(s.dmg).toLocaleString()], ['治療', Math.round(s.heal).toLocaleString()], ['打斷', s.kicks], ['踩到紅圈', s.hits]]) { const d = el('span', '', k + ' '); d.append(el('b', '', v)); dl.appendChild(d); }
@@ -2122,7 +2153,7 @@ function boot(data) {
   if (QUICK && box.chars.length) showMenu(''); else showChars('');     // the game opens on the character screen
   probe(); requestAnimationFrame(frame);
 }
-window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, get save() { return save; }, box, net, talk, cam, startSolo, startField, showMenu, send, goOnline, goField, exitTower, openFinder };
+window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, get save() { return save; }, box, net, talk, cam, startSolo, startField, showMenu, send, goOnline, goField, exitTower, openFinder, travel, get FD() { return FD; }, get did() { return did; } };
 const hot = window.claude && window.claude.hot;
 if (hot && hot.snapshot) hot.snapshot(() => ({ box }));
 if (hot && hot.ready) hot.ready(boot); else boot(hot && hot.data || {});

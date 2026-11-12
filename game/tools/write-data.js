@@ -17,10 +17,9 @@ function changed(now, was) {
 function minimal(doc, def) {
   const out = {};
   for (const k of ['tune', 'classes', 'skills', 'enemies', 'drop']) { const v = changed(doc[k], def[k]); if (v) out[k] = v; }
-  for (const k of ['shop', 'talents', 'sets', 'plain', 'waves', 'evWaves']) if (!same(doc[k], def[k])) out[k] = doc[k];
+  for (const k of ['shop', 'talents', 'sets', 'plain', 'evWaves', 'dungeons', 'maps']) if (!same(doc[k], def[k])) out[k] = doc[k];      // lists and whole worlds are kept in one piece
   const recipes = doc.recipes.filter((r, i) => !same(r.cost, def.recipes[i].cost)).map(r => ({ id: r.id, cost: r.cost })); if (recipes.length) out.recipes = recipes;
   const quests = {}; for (const g of ['main', 'week', 'side']) { const list = doc.quests[g].filter((q, i) => !same(q, def.quests[g][i])); if (list.length) quests[g] = list; } if (Object.keys(quests).length) out.quests = quests;
-  const field = {}; for (const k of ['gate', 'packs', 'nodes', 'rocks', 'events', 'npcs', 'stalls']) if (!same(doc.field[k], def.field[k])) field[k] = doc.field[k]; if (Object.keys(field).length) out.field = field;
   return out;
 }
 function main(arg) {
