@@ -157,6 +157,17 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 #app[data-mode="field"] .overlay.top .head{position:sticky;top:0;z-index:2;align-items:center;background:var(--deep);padding-block:12px 8px}
 #app[data-mode="field"] .overlay.top h2{font-size:22px}
 #app[data-mode="field"] .overlay.top .head .eyebrow{font-size:10px}
+/* waiting for a tower group: a small strip over the world, never a screen of its own */
+#queue{position:absolute;left:var(--gl);top:8px;z-index:3;display:flex;align-items:center;gap:6px;max-width:calc(100% - 128px)}
+#q-open{min-width:0;height:36px;padding:0 12px;border:1.5px solid var(--brass);border-radius:18px;background:rgba(10,22,27,.92);color:var(--foam);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#q-go{flex:none;height:36px;border-radius:18px}
+/* the end of a run: what you got, on the lower part of the screen, with the tower still in view above it */
+#endbox{position:absolute;left:0;right:0;bottom:0;z-index:6;box-sizing:border-box;max-height:60%;min-height:clamp(196px,34%,280px);overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;display:flex;flex-direction:column;gap:10px;
+  padding:14px var(--gr) 16px var(--gl);background:var(--deep);border-top:1.5px solid var(--brass);border-radius:16px 16px 0 0;box-shadow:0 -12px 32px rgba(0,0,0,.55)}
+#endbox h2{font-size:24px} #endbox .clock{font-size:24px}
+#endbox .endhead{display:flex;align-items:baseline;gap:12px} #endbox .endhead .eyebrow{margin-left:auto}
+#endbox .pair{margin-top:auto} #endbox .pair .btn{height:48px}
+#endbox .statline{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0;font-size:12px;color:var(--mute)} #endbox .statline b{font-family:var(--f-num);color:var(--foam)}
 #hitwarn{position:absolute;z-index:8;left:50%;transform:translateX(-50%);bottom:calc(58% + 10px);height:34px;padding:0 16px;border:0;border-radius:17px;background:var(--danger);color:var(--ink);font-weight:700;font-size:13px;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.5)}
 #app[data-mode="field"] #pips,#app[data-mode="field"] #timer{display:none}
 #hero-btn{display:none;min-width:52px;height:32px;padding:0 10px;border:1px solid var(--brass);border-radius:6px;background:transparent;color:var(--brass);font-size:12px;font-weight:700}
@@ -299,6 +310,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     </div>
     <div id="threat" hidden></div>
     <div id="banner" class="off" aria-live="polite"></div>
+    <div id="queue" hidden><button id="q-open" type="button"></button><button class="mini go" id="q-go" type="button" hidden></button></div>
     <button id="act" type="button" hidden></button>
     <div id="talk" hidden>
       <b id="talk-who"></b><p id="talk-text" aria-live="polite"></p>
@@ -391,9 +403,12 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     </div>
   </section>
 
-  <section id="lobby" class="overlay" hidden>
+  <section id="lobby" class="overlay top" hidden>
     <div class="wrap">
-      <div><p class="eyebrow">線上配對</p><h2 id="lb-title">連線中</h2></div>
+      <div class="head">
+        <div><p class="eyebrow">進塔的隊伍</p><h2 id="lb-title">連線中</h2></div>
+        <button class="chip" id="lb-close" type="button">關閉</button>
+      </div>
       <p class="lore" id="lb-info"></p>
       <ul class="slots" id="lb-slots"></ul>
       <div class="coinline" id="lb-lootbox" hidden><span id="lb-loot"></span><button class="mini" id="lb-lootmode" type="button" hidden>換</button></div>
@@ -402,14 +417,11 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
         <button class="btn" id="lb-ready" type="button" hidden>開始</button>
         <button class="btn ghost" id="lb-link" type="button" hidden>複製邀請連結</button>
         <button class="btn ghost" id="lb-friends" type="button" hidden>邀請好友</button>
-        <button class="btn ghost" id="lb-cancel" type="button">取消</button>
+        <button class="btn ghost" id="lb-cancel" type="button">不排了</button>
       </div>
     </div>
   </section>
 
-  <section id="result" class="overlay" hidden>
-    <div class="wrap" id="result-body"></div>
-  </section>
 
   <section id="social" class="overlay top" hidden>
     <div class="wrap">
@@ -485,6 +497,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div id="ah-body"></div>
     </div>
   </section>
+  <div id="endbox" hidden></div>
   <button id="hitwarn" type="button" hidden></button>
   <div id="toast" hidden role="status"><span id="toast-msg"></span><span id="toast-btns"></span></div>
 </div>
@@ -605,7 +618,7 @@ function paintFloor() {
 
 /* ================= What is on screen =================
  * V is the view: in solo it is the local simulation itself, online it is rebuilt from server snapshots. */
-let mode = null;      // 'solo' | 'lobby' | 'online'
+let mode = null;      // 'solo' | 'field' | 'online'. Waiting for a tower group is not a mode: it happens while you stand in the field (net.queueing)
 let lastMode = 'solo';
 let G = null, V = null, meIdx = -1, clock = 0, online = false;
 const FX = { fx: [], texts: [], shake: 0 };
@@ -645,6 +658,8 @@ function enterRun() {
   resize(); buildHud();
 }
 function startSolo(cls) {
+  if (net.authed && mode === 'online') send({ t: 'leave' }); else leaveQueue();
+  clearQueue();
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
   G = S.createRun({ lvl: save.lvl, auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsFor(save, cls) }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
@@ -677,7 +692,7 @@ const inField = () => !!V && V.mode === 'field';      // alone (run on this devi
 let nearNpc = null, nearGate = false, gateOpen = false, nearStall = null;
 
 /* The panel that is open over the world, if any, and how far the camera has to lift for your character to show above it. */
-const SHEETS = ['hero', 'shop', 'mail', 'ah', 'quests', 'social'];
+const SHEETS = ['social', 'hero', 'shop', 'mail', 'ah', 'quests', 'lobby'];
 const openSheet = () => { for (const id of SHEETS) if (!$('#' + id).hidden) return id; return ''; };
 function closeSheet(id) { if (id === 'hero') closeHero(); else if (id === 'social') closeSocial(); else if (id) $('#' + id).hidden = true; }
 let sheetLift = 0, lastHurt = -1e9;
@@ -809,18 +824,27 @@ function connect() {
   ws.onclose = () => {
     if (net.ws !== ws) return; net.ws = null; net.authed = false;
     if (mode === 'online' && V && !V.result) { net.back = true; banner('連線中斷，重新連線中…', 6000); }   // a bot holds the seat meanwhile
-    else if (mode === 'lobby') showMenu('連線中斷了，連上之後再配對一次。');
+    else if (net.queueing) { clearQueue(); toast('連線中斷了，排隊取消了。連上之後再排一次。', [], 4000); }
     else if (!$('#menu').hidden) renderMenu();
     if (!net.kicked) { net.backoff = Math.min(15000, (net.backoff || 500) * 2); setTimeout(connect, net.backoff); }
   };
 }
-function goOnline(roomOverride) {
+function goOnline(roomOverride, o) {
   if (!net.authed) return;
   const fixed = typeof roomOverride === 'string', room = fixed ? cleanCode(roomOverride) : cleanCode($('#room').value);
   if (fixed) net.roomHint = room; else box.room = room; writeSave();
-  mode = 'lobby'; lastMode = 'online'; V = null; G = null; showLobby(null);
-  send({ t: 'join', cls: save.cls, room });
+  lastMode = 'online'; net.queueing = true; gateOpen = false; $('#gatebox').hidden = true;
+  const join = () => { showLobby(null); send({ t: 'join', cls: save.cls, room }); }, at = [FD.gate.x, FD.gate.y + 64];
+  if (inField()) return join();                       // already out in the world: keep playing while the group forms
+  chosen = save.cls;
+  if (o && o.party) { send({ t: 'join', field: true, room: o.party, x: at[0], y: at[1] }); join(); }      // back outside the gate with the party
+  else if (o && o.gate) { startField(null, at); join(); }
+  else startField(join);
 }
+/* Where you stand after a run: outside the tower gate, with your party if you came with one. */
+function leaveTower() { const at = [FD.gate.x, FD.gate.y + 64]; if (net.party && net.authed) send({ t: 'join', field: true, room: net.party, x: at[0], y: at[1] }); else { chosen = save.cls; startField(null, at); } }
+function clearQueue() { net.lobby = null; net.queueing = false; $('#queue').hidden = true; $('#lobby').hidden = true; }
+function leaveQueue() { if (net.queueing && net.authed) send({ t: 'unqueue' }); clearQueue(); }
 /* Go to the field with a party. A code names the party; without one the server makes a new party of one. */
 function goField(code) {
   if (!net.authed) return;
@@ -855,10 +879,12 @@ function onMsg(m) {
       break;
     case 'kicked': net.kicked = true; showMenu('這個帳號在別的分頁或裝置上開著，這裡先離線了。重新整理頁面可以換回這裡。'); break;
     case 'lobby':
-      mode = 'lobby'; V = null; net.roomHint = ''; showLobby(m);
+      if (!net.queueing) break;                       // stopped waiting while this was on its way
+      net.roomHint = ''; if (!inField() && !(mode === 'online' && V && V.result)) { chosen = save.cls; startField(); }
+      { const first = !net.lobby; showLobby(m); if (first && m.code && !net.pendingInvite && m.slots.filter(x => x.name).length === 1) toast(`房間 ${m.code} 開好了。點左上的提示可以邀請朋友、改分配方式。`, [], 4500); }
       if (net.pendingInvite && m.code) { send({ t: 'invite', id: net.pendingInvite }); net.pendingInvite = ''; }
       break;
-    case 'start': beginOnline(m); break;
+    case 'start': if (!m.field) { net.party = mode === 'online' && inField() && V.code ? V.code : ''; clearQueue(); } beginOnline(m); break;
     case 's': if (mode === 'online' && V && !V.result) onSnap(m); break;
     case 'end': {
       const cl0 = save.cl, done = newlyDone(() => applyProfile(m));
@@ -1351,7 +1377,7 @@ const CLASS_BLURB = {
   dps: '帶著餘燼的弓手。站得遠、打得痛，靠走位活命。三個職業裡最容易上手。'
 };
 let selDel = 0, crCls = 'dps';
-function hideScreens() { for (const id of ['menu', 'lobby', 'result', 'chars', 'create']) $('#' + id).hidden = true; closeHero(); }
+function hideScreens() { for (const id of ['menu', 'endbox', 'chars', 'create']) $('#' + id).hidden = true; closeHero(); }
 function clearStage() {
   mode = null; G = null; V = null; $('#bossbar').hidden = true; $('#threat').hidden = true; $('#banner').classList.add('off');
   delete $('#app').dataset.mode; talk.lines = null; talk.done = null; gateOpen = false; $('#talk').hidden = true; $('#gatebox').hidden = true; $('#act').hidden = true;
@@ -1464,20 +1490,21 @@ function showMenu(msg) {
   $('#room').value = net.roomHint || box.room; net.roomHint = '';
   renderMenu(msg || ''); $('#menu').hidden = false;
 }
-function toMenu(msg) { if (mode === 'lobby' || mode === 'online') send({ t: 'leave' }); showMenu(msg); }
+function toMenu(msg) { if (net.authed && (net.queueing || mode === 'online')) send({ t: 'leave' }); clearQueue(); showMenu(msg); }
 function inviteUrl(code) { const u = new URL(location.href); u.search = ''; u.hash = ''; if (qs.get('server')) u.searchParams.set('server', qs.get('server')); u.searchParams.set('room', code); return u.toString(); }
 function showLobby(m) {
-  net.lobby = m; hideScreens(); $('#lobby').hidden = false;
-  const ul = $('#lb-slots'), btn = $('#lb-ready'), priv = !!(m && m.code); ul.textContent = '';
+  net.lobby = m; $('#queue').hidden = false;
+  const ul = $('#lb-slots'), btn = $('#lb-ready'), priv = !!(m && m.code), go = $('#q-go'); ul.textContent = '';
   $('#lb-linkbox').hidden = !priv; $('#lb-link').hidden = !priv; $('#lb-friends').hidden = !priv;
   $('#lb-lootbox').hidden = !m;
-  if (!m) { $('#lb-title').textContent = '連線中'; $('#lb-info').textContent = '正在進入房間。'; btn.hidden = true; return; }
+  if (!m) { $('#lb-title').textContent = '連線中'; $('#lb-info').textContent = '正在找隊伍。'; $('#q-open').textContent = '連線中…'; btn.hidden = go.hidden = true; return; }
   { const lead = m.leader >= 0 ? m.slots[m.leader] : null, mine = m.leader === m.you, sw = $('#lb-lootmode');
     $('#lb-loot').textContent = m.mode === 'leader' ? `掉落的裝備：隊長分配${lead ? `（隊長 ${lead.name}）` : ''}` : '掉落的裝備：擲骰（需求優先於貪婪）';
     sw.hidden = !priv || !mine; sw.textContent = m.mode === 'leader' ? '改成擲骰' : '改成隊長分配'; }
   if (priv) $('#lb-url').value = inviteUrl(m.code);
   $('#lb-title').textContent = priv ? '房間 ' + m.code : '找隊友中';
-  $('#lb-info').textContent = priv ? '四個人到齊，或在場的人都按了開始，就會出發。空位由 AI 補上。' : `${Math.max(0, m.left)} 秒後出發。沒等到人的位置由 AI 補上。`;
+  $('#q-open').textContent = priv ? `房間 ${m.code}　${m.slots.filter(x => x.name).length}/4 人` : `找隊友中　${Math.max(0, m.left)} 秒`;
+  $('#lb-info').textContent = priv ? '等的時候可以照常在野外活動。四個人到齊，或在場的人都按了開始，就會一起進塔。空位由 AI 補上。' : `等的時候可以照常在野外活動。${Math.max(0, m.left)} 秒後出發。沒等到人的位置由 AI 補上。`;
   m.slots.forEach((s, i) => {
     const d = CLASSES[s.cls], li = el('li', (s.name ? '' : 'open') + (i === m.you ? ' me' : '') + (s.ready ? ' ok' : ''));
     const mark = el('em', '', d.mark); mark.style.color = C[d.color];
@@ -1486,6 +1513,7 @@ function showLobby(m) {
   });
   const mine = m.slots[m.you]; btn.hidden = false; btn.disabled = !!mine.ready;
   btn.textContent = mine.ready ? '等其他人' : priv ? '開始' : '不等了';
+  go.hidden = false; go.disabled = btn.disabled; go.textContent = btn.textContent;
 }
 
 /* ---------- small shared pieces: list rows, toast ---------- */
@@ -1519,8 +1547,8 @@ function openSocial() {
 }
 function closeSocial() { $('#social').hidden = true; clearInterval(net.socialT); }
 function invite(id) {
-  if (mode === 'lobby' && net.lobby && net.lobby.code) return send({ t: 'invite', id });
-  if (mode === 'lobby') return toast('隨機配對的房間不能邀請。先取消，再從好友名單邀請。', [], 4500);
+  if (net.lobby && net.lobby.code) return send({ t: 'invite', id });
+  if (net.lobby) return toast('隨機配對的隊伍不能邀請。先不排了，再從好友名單邀請。', [], 4500);
   let code = ''; for (let i = 0; i < 4; i++) code += pick('ABCDEFGHJKLMNPQRSTUVWXYZ23456789'.split(''));
   net.pendingInvite = id; closeSocial(); chosen = save.cls; goOnline(code);   // open a room first, the invite goes out once it exists
 }
@@ -1859,14 +1887,14 @@ function onLoot(m) {
 }
 setInterval(() => { const n = pile && $('#pile-note'); if (n) n.textContent = pileNote(); }, 1000);      // only the countdown: the buttons stay put
 function showResult(r, s, loot, lvl, more) {
-  const body = $('#result-body'); body.textContent = '';
-  const head = el('div'); head.append(el('p', 'eyebrow', `沉鐘塔 · 第 ${lvl} 層`), el('h2', '', r.win ? '通關' : '滅團'));
-  const time = el('div'); time.append(el('div', 'clock', fmt(r.t)),
+  const body = $('#endbox'); body.textContent = '';
+  const head = el('div', 'endhead'); head.append(el('h2', '', r.win ? '通關' : '滅團'), el('div', 'clock', fmt(r.t)), el('p', 'eyebrow', `沉鐘塔 · 第 ${lvl} 層`));
+  const time = el('div'); time.append(
     !r.win ? el('p', 'verdict bad', '隊伍全滅，這一層還沒過。')
       : r.onTime ? el('p', 'verdict good', save.lvl > lvl ? `三分鐘內通關，你的層數升到第 ${save.lvl} 層。` : '三分鐘內通關。')
       : el('p', 'verdict', '通關了，但超過三分鐘，層數不變。'));
-  const dl = el('dl', 'stats');
-  for (const [k, v] of [['你造成的傷害', Math.round(s.dmg).toLocaleString()], ['你的治療量', Math.round(s.heal).toLocaleString()], ['成功打斷', s.kicks], ['踩到紅圈', s.hits]]) { const d = el('div'); d.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(d); }
+  const dl = el('p', 'statline');
+  for (const [k, v] of [['傷害', Math.round(s.dmg).toLocaleString()], ['治療', Math.round(s.heal).toLocaleString()], ['打斷', s.kicks], ['踩到紅圈', s.hits]]) { const d = el('span', '', k + ' '); d.append(el('b', '', v)); dl.appendChild(d); }
   body.append(head, time, dl);
   if (more.note) body.appendChild(el('p', 'note warn', more.note));
   if (loot && loot.length) { const ul = el('ul', 'items'); ul.id = 'my-loot';
@@ -1881,17 +1909,16 @@ function showResult(r, s, loot, lvl, more) {
     body.appendChild(line);
   }
   if (more.up) body.appendChild(el('p', 'verdict good', `升到 Lv.${save.cl}。`));
-  if (more.quests && more.quests.length) body.appendChild(el('p', 'verdict good', `任務完成：${more.quests.join('、')}。回主選單的「任務」領獎。`));
+  if (more.quests && more.quests.length) body.appendChild(el('p', 'verdict good', `任務完成：${more.quests.join('、')}。回營地找人領獎。`));
   const mates = more.mates || [], team = mates.length > 0 && !!more.again;
   group(body, '這場的隊友', mates.map(f => row(CLASSES[f.cls].mark, C[CLASSES[f.cls].color], String(f.name), f.friend ? '已在名單' : '',
     f.friend ? [] : [['加好友', b => { send({ t: 'friend', id: f.id }); b.textContent = '已送出'; }, 'go']])));
-  const cta = el('div', 'cta'), again = el('button', 'btn', team ? '原隊再來一場' : r.win ? '再來一場' : '再試一次'), camp = el('button', 'btn ghost', '回營地'), swap = el('button', 'btn ghost', '回主選單');
-  again.type = camp.type = swap.type = 'button'; again.id = 'again'; camp.id = 'camp'; swap.id = 'swap';
-  again.addEventListener('click', () => { if (lastMode !== 'online') return startSolo(save.cls); chosen = save.cls; goOnline(team ? String(more.again) : undefined); });
-  camp.addEventListener('click', () => { chosen = save.cls; startField(); });
-  swap.addEventListener('click', () => showMenu());
-  cta.append(again, camp, swap); body.appendChild(cta);
-  $('#result').hidden = false;
+  const cta = el('div', 'pair'), again = el('button', 'btn', team ? '原隊再來一場' : r.win ? '再來一場' : '再試一次'), camp = el('button', 'btn ghost', '出塔');
+  again.type = camp.type = 'button'; again.id = 'again'; camp.id = 'camp';
+  again.addEventListener('click', () => { if (lastMode !== 'online') return startSolo(save.cls); chosen = save.cls; goOnline(team ? String(more.again) : undefined, { gate: true, party: net.party || (team ? String(more.again) : '') }); });
+  camp.addEventListener('click', leaveTower);
+  cta.append(camp, again); body.appendChild(cta);
+  body.hidden = false; body.scrollTop = 0;
 }
 
 /* ================= Input ================= */
@@ -1945,7 +1972,10 @@ $('#cr-name').addEventListener('input', () => renderCreate());
 $('#go-online').addEventListener('click', goOnline);
 $('#lb-ready').addEventListener('click', () => send({ t: 'ready' }));
 $('#lb-lootmode').addEventListener('click', () => { const m = net.lobby; if (m) send({ t: 'lootmode', mode: m.mode === 'leader' ? 'roll' : 'leader' }); });
-$('#lb-cancel').addEventListener('click', () => toMenu());
+$('#lb-cancel').addEventListener('click', leaveQueue);
+$('#lb-close').addEventListener('click', () => { $('#lobby').hidden = true; });
+$('#q-open').addEventListener('click', () => { $('#lobby').hidden = false; });
+$('#q-go').addEventListener('click', () => send({ t: 'ready' }));
 $('#lb-link').addEventListener('click', () => {
   const inp = $('#lb-url'), manual = () => { inp.focus(); inp.select(); toast('自動複製沒成功，長按上面的連結來複製。', [], 4000); };
   try { navigator.clipboard.writeText(inp.value).then(() => toast('已複製邀請連結，貼給朋友就能進來。', [], 3000), manual); } catch (e) { manual(); }

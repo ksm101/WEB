@@ -404,6 +404,21 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     ok('auction house: listing takes the goods, buying pays the seller by mail less the cut, cancel and expiry return them');
   }
 
+  // waiting for a tower group does not take you out of the field
+  { const W1 = await named(port, '等塔甲', 'tank'), W2 = await named(port, '等塔乙', 'dps');
+    W1.send({ t: 'join', field: true, room: 'WAIT' }); await W1.wait('start', m => m.field); W2.send({ t: 'join', field: true, room: 'WAIT' }); await W2.wait('start', m => m.field);
+    const fr = srv.rooms.get('f:WAIT'); assert.strictEqual(Sim.present(fr.G).length, 2);
+    W1.join('tank', 'WAIT'); const lb1 = await W1.wait('lobby', m => m.code === 'WAIT'); assert.strictEqual(lb1.slots[0].name, '等塔甲');
+    assert.strictEqual(Sim.present(fr.G).length, 2, 'still standing in the field while waiting'); const n0 = W1.snaps; await sleep(200); assert.ok(W1.snaps > n0, 'and the field keeps coming');
+    assert.strictEqual((await W2.wait('invited', m => m.gate)).code, 'WAIT', 'the party is told someone is waiting at the gate');
+    W1.send({ t: 'unqueue' }); await sleep(100); assert.ok(!srv.rooms.get('p:WAIT').slots[0], 'unqueue leaves the group'); assert.strictEqual(Sim.present(fr.G).length, 2, 'and not the field');
+    W1.send({ t: 'ready' }); await sleep(80); W1.join('tank', 'WAIT'); await W1.wait('lobby', m => m.code === 'WAIT' && m.slots[0].name); W2.join('dps', 'WAIT'); await W2.wait('lobby', m => m.code === 'WAIT');
+    W1.send({ t: 'ready' }); W2.send({ t: 'ready' }); const [g1, g2] = await Promise.all([W1.wait('start', m => !m.field), W2.wait('start', m => !m.field)]);
+    assert.deepStrictEqual(g1.roster.map(r => r.human), [true, false, true, false]); assert.strictEqual(g2.you, 2); assert.strictEqual(Sim.present(fr.G).length, 0, 'entering the tower takes the group out of the field');
+    W1.ws.close(); W2.ws.close();
+    ok('group finder: you wait in the field, can stop waiting without leaving it, and the start takes everyone into the tower');
+  }
+
   // public matchmaking
   const D = await named(port, 'D', 'tank'), E = await named(port, 'E', 'dps'), F = await named(port, 'F', 'tank');
   D.join('tank'); await D.wait('lobby'); E.join('dps'); F.join('tank');

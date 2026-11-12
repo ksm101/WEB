@@ -144,7 +144,7 @@ function start(opts) {
   }
 
   /* ---------- friends ---------- */
-  function stateOf(id) { const ws = online.get(id); if (!ws) return 'off'; const r = ws.info && ws.info.room; return r ? (r.kind === 'field' ? 'field' : r.state === 'run' ? 'run' : 'lobby') : 'on'; }
+  function stateOf(id) { const ws = online.get(id); if (!ws) return 'off'; const r = ws.info && ws.info.room; return r && r.kind !== 'field' ? 'run' : ws.lobby ? 'lobby' : r ? 'field' : 'on'; }
   function socialOf(rec) {
     const friends = Object.keys(rec.friends).map(id => {
       const o = store.get(id); if (o) rec.friends[id] = o.name;
@@ -171,7 +171,7 @@ function start(opts) {
     store.put(rec); sendMe(ws); send(ws, socialOf(rec));
   }
   function onInvite(ws, m) {
-    const rec = ws.acc, id = cleanId(m.id), room = ws.info && ws.info.room, now = Date.now();
+    const rec = ws.acc, id = cleanId(m.id), room = ws.lobby && !ws.lobby.room.pub ? ws.lobby.room : ws.info && ws.info.room, now = Date.now();      // a tower group with a code first, else the party in the field
     if (!id || now - (ws.lastInvite || 0) < 1500) return; ws.lastInvite = now;
     const afield = !!room && room.kind === 'field';      // a party in the field can invite too
     if (!room || (!afield && (room.state !== 'lobby' || room.pub))) return send(ws, { t: 'note', msg: '要先開一個有房號的房間才能邀請。' });
@@ -280,16 +280,23 @@ function start(opts) {
         slots: room.slots.map((s, k) => ({ cls: SEATS[k], name: s ? s.name : '', ready: !!(s && s.ready) })) });
     }
   }
-  function unseat(ws) {
+  /* A player can be in two places at once, as in any game with a group finder: standing in a world (ws.info: a field,
+   * or a tower run) and waiting for a tower group (ws.lobby). Waiting does not take you out of the field. */
+  function unqueue(ws) {      // stop waiting for a tower group
+    const q = ws.lobby; if (!q) return; ws.lobby = null;
+    const room = q.room, slot = room.slots[q.idx]; if (room.state !== 'lobby' || !slot || slot.ws !== ws) return;
+    room.slots[q.idx] = null; if (room.leader === q.idx) room.leader = room.slots.findIndex(Boolean); if (!humans(room).length) room.emptySince = Date.now(); lobbyInfo(room);
+  }
+  function leaveWorld(ws) {   // step out of the field or the run you are standing in
     const info = ws.info; if (!info || !info.room) return;
     const room = info.room, slot = room.slots[info.idx]; ws.info = null;
     if (!slot || slot.ws !== ws) return;
     if (room.kind === 'field') { Sim.removeFieldActor(room.G, info.idx); room.slots[info.idx] = null; return fieldRoster(room); }   // walked out of the party's field
-    if (room.state === 'lobby') { room.slots[info.idx] = null; if (room.leader === info.idx) room.leader = room.slots.findIndex(Boolean); if (!humans(room).length) room.emptySince = Date.now(); lobbyInfo(room); }
-    else { slot.ws = null; if (room.G) room.G.actors[info.idx].human = false; }   // a bot plays this seat until they come back
+    slot.ws = null; if (room.G) room.G.actors[info.idx].human = false;   // a bot plays this seat until they come back
   }
+  function unseat(ws) { unqueue(ws); leaveWorld(ws); }
   function leave(ws) {      // leaving on purpose: no seat is held for a return
-    const info = ws.info; if (info && info.room && info.room.state === 'run' && ws.acc) seats.delete(ws.acc.id);
+    const info = ws.info; if (info && info.room && info.room.kind !== 'field' && ws.acc) seats.delete(ws.acc.id);
     unseat(ws);
   }
   function onJoin(ws, m) {
@@ -297,7 +304,7 @@ function start(opts) {
     if (seats.has(rec.id)) return;                       // already seated in a run
     if (m.event) return onEventJoin(ws, m);
     if (m.field) return onFieldJoin(ws, m);
-    leave(ws);
+    unqueue(ws);      // one group at a time; where you stand does not change
     const cls = c.cls, code = cleanCode(m.room); let room = null, idx = -1;      // the class is the character's, whatever the client says
     const freeSeat = r => r.slots.findIndex((s, k) => !s && SEATS[k] === cls);
     if (code) {
@@ -312,7 +319,7 @@ function start(opts) {
       idx = freeSeat(room);
     }
     room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: c.lvl, cl: c.cl, pow: Sim.charPower(c), mods: Sim.modsFor(c, cls), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), ws, ready: false };   // level and power come from the account, never from the client
-    ws.info = { room, idx }; if (room.leader < 0 || !room.slots[room.leader]) room.leader = idx;      // whoever is first leads
+    ws.lobby = { room, idx }; if (room.leader < 0 || !room.slots[room.leader]) room.leader = idx;      // whoever is first leads
     const fr = code ? rooms.get('f:' + code) : null;      // the rest of the party is still out in the field: tell them where to come
     if (fr) for (const o of fr.slots) if (o && o.ws && o.ws !== ws) send(o.ws, { t: 'invited', from: { id: rec.id, name: c.name }, code, gate: true });
     const now = Date.now();
@@ -330,7 +337,7 @@ function start(opts) {
     const lvl = Math.min.apply(null, humans(room).map(s => s.lvl));
     room.G = Sim.createRun({ lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.cl, pow: s.pow, mods: s.mods, id: s.id, potions: s.potions, skills: s.skills })) });
     // seats and actors share the same order, so slot i drives actor i
-    room.slots.forEach((s, i) => { if (s) { if (room.G.actors[i].pid !== s.id) throw new Error('seat mismatch'); seats.set(s.id, { room, idx: i }); } });
+    room.slots.forEach((s, i) => { if (s) { if (room.G.actors[i].pid !== s.id) throw new Error('seat mismatch'); seats.set(s.id, { room, idx: i }); if (s.ws) { leaveWorld(s.ws); s.ws.lobby = null; s.ws.info = { room, idx: i }; } } });      // the group is taken out of wherever each of them stood
     room.state = 'run'; room.acc = 0; room.n = 0; room.clock = 0; room.goneSince = 0; room.last = Date.now();
     sendStart(room);
   }
@@ -433,7 +440,7 @@ function start(opts) {
   const fieldRosterOf = room => room.G.actors.map(a => a.out ? null : { cls: a.cls, name: a.name, lvl: a.lvl, human: true, maxHp: a.maxHp, potions: 0, spd: a.mods.speed, skills: a.skills.map(k => k.id) });
   function fieldRoster(room) { const roster = fieldRosterOf(room); for (const s of room.slots) if (s) send(s.ws, { t: 'roster', roster }); }
   function onFieldJoin(ws, m) {
-    const rec = ws.acc, c = pc(rec); leave(ws);
+    const rec = ws.acc, c = pc(rec); leaveWorld(ws);
     let code = cleanCode(m.room); if (!code) do { code = crypto.randomBytes(2).toString('hex').toUpperCase(); } while (rooms.has('f:' + code));
     const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsFor(c, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
     const at = Number.isFinite(m.x) && Number.isFinite(m.y) ? [m.x, m.y] : null;      // coming back from a surge: stand where you were
@@ -460,7 +467,7 @@ function start(opts) {
     const at = [Math.max(sp.x - far, Math.min(sp.x + far, Number.isFinite(m.x) ? m.x : sp.x)), Math.max(sp.y - far, Math.min(sp.y + far, Number.isFinite(m.y) ? m.y : sp.y + sp.r))];   // where they walked in, kept near the surge
     const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsFor(c, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
     if (!room) { room = { key, code: '', kind: 'field', event: true, cycle: en.cycle, endsAt: en.endsAt, done: false, closeAt: 0, pub: true, state: 'run', slots: [], G: Sim.createField({ lvl: 1, grace: 12, cap: 8, event: sp, players: [] }), acc: 0, n: 0, clock: 0, last: now, goneSince: 0 }; rooms.set(key, room); }
-    leave(ws);
+    leaveWorld(ws);
     const idx = Sim.addFieldActor(room.G, p, at); if (idx < 0) return refuse('這場漲潮人滿了。');
     room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls: c.cls, ws }; ws.info = { room, idx }; ws.field = null;
     send(ws, { t: 'start', field: true, event: true, code: '', you: idx, lvl: 1, elvl: 1, cycle: en.cycle, roster: fieldRosterOf(room) });
@@ -520,7 +527,7 @@ function start(opts) {
   /* Creating, choosing and deleting characters. Not while seated in a room: the seat belongs to one character. */
   function onChar(ws, m) {
     const rec = ws.acc, note = msg => send(ws, { t: 'note', msg });
-    if ((ws.info && ws.info.room) || seats.has(rec.id)) return note('先離開房間或副本，才能換角色。');
+    if ((ws.info && ws.info.room) || ws.lobby || seats.has(rec.id)) return note('先離開房間或副本，才能換角色。');
     if (m.t === 'char-new') {
       const name = charName(m.name);
       if (rec.chars.length >= MAX_CHARS) return note(`最多只能有 ${MAX_CHARS} 個角色。`);
@@ -565,7 +572,7 @@ function start(opts) {
   }
 
   wss.on('connection', ws => {
-    ws.acc = null; ws.info = null; ws.isAlive = true;
+    ws.acc = null; ws.info = null; ws.lobby = null; ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
     ws.on('message', raw => {
       let m; try { m = JSON.parse(raw.toString()); } catch (e) { return; }
@@ -578,6 +585,7 @@ function start(opts) {
       switch (m.t) {
         case 'join': return onJoin(ws, m);
         case 'leave': return leave(ws);
+        case 'unqueue': return unqueue(ws);
         case 'name': { const n = charName(m.name), c = pc(ws.acc); if (n && n !== c.name) { c.name = n; ws.acc.name = n; store.put(ws.acc); } return sendMe(ws); }
         case 'social': return send(ws, socialOf(ws.acc));
         case 'friend': return onFriend(ws, m);
@@ -596,10 +604,13 @@ function start(opts) {
         case 'claim': { const r = Sim.questClaim(pc(ws.acc), String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'craft': { const r = Sim.craft(pc(ws.acc), String(m.id)); if (r.ok) { Sim.questEvent(pc(ws.acc), { type: 'craft', kind: r.kind }, Date.now()); store.put(ws.acc); } return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
       }
+      if (m.t === 'lootmode' || m.t === 'ready') {      // about the group you are waiting for
+        const q = ws.lobby, lr = q && q.room; if (!lr || lr.state !== 'lobby' || !lr.slots[q.idx] || lr.slots[q.idx].ws !== ws) return;
+        if (m.t === 'ready') lr.slots[q.idx].ready = true; else if (!lr.pub && q.idx === lr.leader && (m.mode === 'roll' || m.mode === 'leader')) lr.loot = m.mode; else return;
+        return lobbyInfo(lr);
+      }
       const info = ws.info; if (!info || !info.room) return;
       const room = info.room;
-      if (m.t === 'lootmode') { if (room.state === 'lobby' && !room.pub && info.idx === room.leader && (m.mode === 'roll' || m.mode === 'leader')) { room.loot = m.mode; lobbyInfo(room); } return; }
-      if (m.t === 'ready') { if (room.state === 'lobby') { room.slots[info.idx].ready = true; lobbyInfo(room); } return; }
       if (room.state !== 'run' || !room.G) return;
       const a = room.G.actors[info.idx], inp = a.input;
       if (m.t === 'm') { const x = Number(m.x), y = Number(m.y); inp.mx = Number.isFinite(x) ? Math.max(-1, Math.min(1, x)) : 0; inp.my = Number.isFinite(y) ? Math.max(-1, Math.min(1, y)) : 0; }
