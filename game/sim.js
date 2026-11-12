@@ -269,7 +269,7 @@ function populate(G) {
     if (!ENEMY[m.kind] || Math.random() >= m.chance) return;
     for (let i = 0; i < m.n; i++) {
       const e = mkEnemy(G, m.kind, m.x + (i - (m.n - 1) / 2) * 30, m.y + (i % 2) * 20); e.grp = gi; e.home = { x: e.x, y: e.y }; e.engaged = false; e.spawnT = 0;
-      e.roam = m.roam || 0; e.wp = Number.isFinite(m.px) && Number.isFinite(m.py) ? [e.home, { x: m.px + (e.x - m.x), y: m.py + (e.y - m.y) }] : null; e.wi = 1; e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3);
+      e.roam = m.roam || 0; e.wp = m.path && m.path.length ? [e.home].concat(m.path.map(q => ({ x: q.x + (e.x - m.x), y: q.y + (e.y - m.y) }))) : null; e.wi = 1; e.wd = 1; e.loop = !!m.loop;      // a patrol: from where it stands through each point of its route e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3);
       if (m.rare) { e.rare = true; e.maxHp = R(e.maxHp * 2.5); e.hp = e.maxHp; e.dmg *= 1.3; e.name = '稀有・' + e.name; }
     }
   });
@@ -285,7 +285,11 @@ function delveMob(G, e, dt) {
     return true;
   }
   let tx = e.x, ty = e.y;
-  if (e.wp) { const p = e.wp[e.wi]; if (Math.hypot(p.x - e.x, p.y - e.y) < 6) e.wi = 1 - e.wi; tx = e.wp[e.wi].x; ty = e.wp[e.wi].y; }
+  if (e.wp) {      // at a point of the route: on to the next one, round in a ring or there and back
+    const p = e.wp[e.wi], n = e.wp.length;
+    if (Math.hypot(p.x - e.x, p.y - e.y) < 6) { if (e.loop) e.wi = (e.wi + 1) % n; else { if (e.wi + e.wd < 0 || e.wi + e.wd >= n) e.wd = -e.wd; e.wi += e.wd; } }
+    tx = e.wp[e.wi].x; ty = e.wp[e.wi].y;
+  }
   else if (e.roam > 0) { e.wt -= dt; if (e.wt <= 0) { e.wt = rand(2, 5); const an = rand(0, TAU), rr = rand(0, e.roam); e.wx = e.home.x + Math.cos(an) * rr; e.wy = e.home.y + Math.sin(an) * rr; } tx = e.wx; ty = e.wy; }
   const d = Math.hypot(tx - e.x, ty - e.y); if (d > 3) { const sp = e.def.speed * .45 * dt; e.x += (tx - e.x) / d * Math.min(sp, d); e.y += (ty - e.y) / d * Math.min(sp, d); e.face = Math.atan2(ty - e.y, tx - e.x); }
   return false;
@@ -1271,8 +1275,10 @@ function applyData(d) {
       { const sp = pos(f.spawn); if (sp) M.spawn = sp; else { M.spawn.x = clamp(M.spawn.x, 20, M.w - 20); M.spawn.y = clamp(M.spawn.y, 20, M.h - 20); } }
       { const v = lst('rocks', 30, o => { const p = pos(o), r = p && numIn(o.r, 10, 80, true); return r ? Object.assign(p, { r }) : null; }); if (v) M.rocks = v; }
       { const v = lst('walls', 40, o => { const p = pos(o), w = p && numIn(o.w, 20, 1200, true), h = p && numIn(o.h, 20, 1200, true); return w && h && WALL_TYPES.includes(o.type) ? Object.assign(p, { w, h, type: o.type }) : null; }); if (v) M.walls = v; }
+      // a route is up to six points; an older save had one far end as px, py
       { const v = lst('mobs', 40, o => { const p = typeof o.kind === 'string' ? pos(o, { kind: o.kind }) : null; if (!p) return null; const n = numIn(o.n, 1, 4, true), ch = numIn(o.chance, .05, 1, false), roam = numIn(o.roam, 0, 300, true);
-          Object.assign(p, { n: n || 1, chance: ch === null ? 1 : ch, rare: !!o.rare, roam: roam || 0 }); const q = pos({ x: o.px, y: o.py }); if (q) { p.px = q.x; p.py = q.y; } return p; }); if (v) M.mobs = v; }
+          Object.assign(p, { n: n || 1, chance: ch === null ? 1 : ch, rare: !!o.rare, roam: roam || 0, loop: !!o.loop, path: [] });
+          for (const w of (Array.isArray(o.path) ? o.path : [{ x: o.px, y: o.py }]).slice(0, 20)) { const q = p.path.length < 6 ? pos(w) : null; if (q) p.path.push(q); } return p; }); if (v) M.mobs = v; }
       { const v = lst('chests', 10, o => { const p = pos(o), ch = numIn(o.chance, .05, 1, false); return p ? Object.assign(p, { chance: ch === null ? 1 : ch }) : null; }); if (v) M.chests = v; }
       { const v = lst('events', 16, o => { const p = EVENT_TYPES.includes(o.type) ? pos(o, { type: o.type }) : null; if (!p) return null; p.r = numIn(o.r, 30, 250, true) || 70; p.text = cleanStr(o.text, 20);
           if (o.type === 'ambush') { p.kind = typeof o.kind === 'string' ? o.kind : 'grunt'; p.n = numIn(o.n, 1, 4, true) || 2; } return p; }); if (v) M.events = v; }

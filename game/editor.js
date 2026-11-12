@@ -251,7 +251,8 @@ function mapView(body) {
     L('packs').forEach(o => { c.fillStyle = css('rust'); c.beginPath(); c.arc(o.x, o.y, S1(26), 0, 7); c.fill(); label(o.n, o.x, o.y + S1(9), css('ink')); label(`${kindName(o.kind).slice(0, 3)} ${o.min}-${o.max}`, o.x, o.y - S1(34), css('foam')); });
     L('mobs').forEach(o => { const boss = baseOf(o.kind) === 'boss', r = S1(boss ? 36 : 26);
       if (o.roam > 0) { c.strokeStyle = css('rust'); c.lineWidth = S1(2); c.setLineDash([8, 8]); c.beginPath(); c.arc(o.x, o.y, o.roam, 0, 7); c.stroke(); c.setLineDash([]); }
-      if (o.px != null) { c.strokeStyle = css('rust'); c.lineWidth = S1(3); c.beginPath(); c.moveTo(o.x, o.y); c.lineTo(o.px, o.py); c.stroke(); c.fillStyle = css('rust'); c.beginPath(); c.arc(o.px, o.py, S1(12), 0, 7); c.fill(); }
+      if (o.path.length) { c.strokeStyle = css('rust'); c.lineWidth = S1(3); c.beginPath(); c.moveTo(o.x, o.y); for (const q of o.path) c.lineTo(q.x, q.y); if (o.loop) c.closePath(); c.stroke();
+        o.path.forEach((q, j) => { c.fillStyle = css('rust'); c.beginPath(); c.arc(q.x, q.y, S1(14), 0, 7); c.fill(); label(j + 1, q.x, q.y + S1(9), css('ink')); }); }
       c.fillStyle = boss ? css('danger') : css('rust'); c.beginPath(); c.arc(o.x, o.y, r, 0, 7); c.fill(); if (o.rare || boss) { c.strokeStyle = css('brass'); c.lineWidth = S1(5); c.stroke(); }
       label(boss ? '王' : o.n, o.x, o.y + S1(9), css('ink')); label(`${o.rare ? '稀有 ' : ''}${kindName(o.kind).slice(0, 4)}${o.chance < 1 ? ` ${Math.round(o.chance * 100)}%` : ''}`, o.x, o.y - r - S1(8), css('foam')); });
     L('chests').forEach(o => { c.fillStyle = css('brass'); c.fillRect(o.x - S1(18), o.y - S1(13), S1(36), S1(26)); label(`寶箱 ${Math.round(o.chance * 100)}%`, o.x, o.y - S1(22), css('brass')); });
@@ -260,11 +261,11 @@ function mapView(body) {
     L('stalls').forEach(o => { const d = S.FIELD.stalls.find(x => x.id === o.id); c.fillStyle = css('brass'); c.fillRect(o.x - S1(16), o.y - S1(16), S1(32), S1(32)); label(d ? d.name : o.id, o.x, o.y - S1(24), css('brass')); });
     c.fillStyle = css('heal'); c.beginPath(); c.arc(f.spawn.x, f.spawn.y, S1(12), 0, 7); c.fill(); label(isD ? '入口' : '出生點', f.spawn.x, f.spawn.y + S1(40), css('heal'));
     if (f.gate) { const g = f.gate; c.fillStyle = css('brass'); c.beginPath(); c.moveTo(g.x, g.y - S1(34)); c.lineTo(g.x + S1(30), g.y + S1(22)); c.lineTo(g.x - S1(30), g.y + S1(22)); c.closePath(); c.fill(); label(home ? '塔門' : '副本入口', g.x, g.y + S1(56), css('brass')); }
-    if (sel) { const o = at(sel); if (o) { c.strokeStyle = css('foam'); c.lineWidth = S1(5); if (sel.list === 'walls') c.strokeRect(o.x - o.w / 2 - S1(6), o.y - o.h / 2 - S1(6), o.w + S1(12), o.h + S1(12)); else { c.beginPath(); c.arc(sel.handle ? o.px : o.x, sel.handle ? o.py : o.y, (sel.handle || sel.list === 'events' ? 0 : o.r || 0) + S1(sel.list === 'events' ? 30 : 38), 0, 7); c.stroke(); } } }
+    if (sel) { const o = at(sel); if (o) { c.strokeStyle = css('foam'); c.lineWidth = S1(5); if (sel.list === 'walls') c.strokeRect(o.x - o.w / 2 - S1(6), o.y - o.h / 2 - S1(6), o.w + S1(12), o.h + S1(12)); else { c.beginPath(); const q = sel.h != null ? o.path[sel.h] || o : o; c.arc(q.x, q.y, (sel.h != null || sel.list === 'events' ? 0 : o.r || 0) + S1(sel.h != null ? 24 : sel.list === 'events' ? 30 : 38), 0, 7); c.stroke(); } } }
   }
   const hit = p => { let best = null, bd = S1(52); const tryOne = (s0, o, r) => { const d = Math.hypot(o.x - p.x, o.y - p.y) - (r || 0) * .6; if (d < bd) { bd = d; best = s0; } };
     if (f.gate) tryOne({ single: 'gate' }, f.gate); tryOne({ single: 'spawn' }, f.spawn);
-    L('mobs').forEach((o, i) => { if (o.px != null) tryOne({ list: 'mobs', i, handle: true }, { x: o.px, y: o.py }); });      // the far end of a patrol can be dragged too
+    L('mobs').forEach((o, i) => o.path.forEach((q, j) => tryOne({ list: 'mobs', i, h: j }, q)));      // every point of a patrol route can be dragged too
     for (const [l, , r] of LAYERS) if (l !== 'walls') L(l).forEach((o, i) => tryOne({ list: l, i }, o, l === 'rocks' ? o.r : l === 'events' ? 0 : S1(r)));
     if (!best) L('walls').forEach((o, i) => { if (Math.abs(p.x - o.x) <= o.w / 2 + S1(8) && Math.abs(p.y - o.y) <= o.h / 2 + S1(8)) best = { list: 'walls', i }; });      // a box only when nothing smaller is under the finger
     return best; };
@@ -285,7 +286,7 @@ function mapView(body) {
     sel = hit(p); if (sel) { drag = { id: ev.pointerId, moved: false }; try { cv.setPointerCapture(ev.pointerId); } catch (e) {} } draw(); showPanel();
   });
   cv.addEventListener('pointermove', ev => { if (!drag || ev.pointerId !== drag.id || !sel) return; const p = pos(ev), o = at(sel), x = Math.max(20, Math.min(f.w - 20, p.x)), y = Math.max(20, Math.min(f.h - 20, p.y));
-    if (sel.handle) { o.px = x; o.py = y; } else { if (o.px != null) { o.px += x - o.x; o.py += y - o.y; } o.x = x; o.y = y; } drag.moved = true; draw(); });
+    if (sel.h != null) { o.path[sel.h].x = x; o.path[sel.h].y = y; } else { for (const q of o.path || []) { q.x = Math.max(20, Math.min(f.w - 20, q.x + x - o.x)); q.y = Math.max(20, Math.min(f.h - 20, q.y + y - o.y)); } o.x = x; o.y = y; } drag.moved = true; draw(); });      // moving a creature takes its route along
   const up = ev => { if (!drag || ev.pointerId !== drag.id) return; const moved = drag.moved; drag = null; if (moved) commit(); };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   /* a choice that is not stored as one field: it writes the object back whole */
@@ -295,13 +296,14 @@ function mapView(body) {
     const o = at(sel); if (!o) { sel = null; return; }
     const title = sel.single ? (sel.single === 'spawn' ? (isD ? '入口（隊伍進副本時出現的位置）' : '出生點（進這張地圖、或倒下後站起來的位置）') : home ? '塔門' : '副本入口') : isD && sel.list === 'events' ? '事件' : home && sel.list === 'events' ? '漲潮點' : LAYERS.find(l => l[0] === sel.list)[1];
     const p = sel.single ? P.concat(sel.single) : P.concat(sel.list, sel.i), box = el('div', 'fields');
-    panel.appendChild(el('h3', '', `選到：${title}${sel.handle ? '的巡邏終點' : ''}　位置 ${sel.handle ? o.px : o.x}, ${sel.handle ? o.py : o.y}`));
+    { const q = sel.h != null && o.path[sel.h] ? o.path[sel.h] : o; panel.appendChild(el('h3', '', `選到：${title}${sel.h != null ? `的巡邏點 ${sel.h + 1}` : ''}　位置 ${q.x}, ${q.y}`)); }
     if (sel.list === 'packs') box.append(pickField('怪物', p.concat('kind'), kindsOf(false).map(x => [x, kindName(x)])), numField('數量', p.concat('n'), S.LIM.n), numField('最低等級', p.concat('min'), S.LIM.min), numField('最高等級', p.concat('max'), S.LIM.max));
-    if (sel.list === 'mobs') { const mode = o.px != null ? 'path' : o.roam > 0 ? 'roam' : 'none';
+    if (sel.list === 'mobs') { const mode = o.path.length ? 'path' : o.roam > 0 ? 'roam' : 'none';
       box.append(pickField('怪物（選王型的就是王）', p.concat('kind'), kindsOf(true).map(x => [x, kindName(x) + (baseOf(x) === 'boss' ? '（王）' : '')])), numField('這一組幾隻', p.concat('n'), ['', 1, 4, 1]), numField(S.LIM.chance[0], p.concat('chance'), S.LIM.chance),
         choice('稀有精英（更硬、更痛、必掉裝備）', o.rare ? '1' : '0', [['0', '不是'], ['1', '是']], v => { o.rare = v === '1'; }),
-        choice('平常做什麼', mode, [['none', '站著不動'], ['roam', '在範圍內遊走'], ['path', '兩點之間來回巡邏']], v => { delete o.px; delete o.py; o.roam = v === 'roam' ? 80 : 0; if (v === 'path') { o.px = Math.min(f.w - 20, o.x + 140); o.py = o.y; } }));
-      if (mode === 'roam') box.appendChild(numField('遊走半徑', p.concat('roam'), ['', 10, 300, 5])); }
+        choice('平常做什麼', mode, [['none', '站著不動'], ['roam', '在範圍內遊走'], ['path', '照路線巡邏']], v => { o.path = v === 'path' ? [{ x: Math.min(f.w - 20, o.x + 140), y: o.y }] : []; o.roam = v === 'roam' ? 80 : 0; }));
+      if (mode === 'roam') box.appendChild(numField('遊走半徑', p.concat('roam'), ['', 10, 300, 5]));
+      if (mode === 'path') box.appendChild(choice('走到最後一點之後', o.loop ? '1' : '0', [['0', '原路走回來'], ['1', '直接走回起點（繞圈）']], v => { o.loop = v === '1'; })); }
     if (sel.list === 'chests') box.append(numField(S.LIM.chance[0], p.concat('chance'), S.LIM.chance));
     if (sel.list === 'nodes') box.append(pickField('種類', p.concat('type'), S.NODE_TYPES.map(x => [x, NODEL[x]])));
     if (sel.list === 'rocks') box.append(numField('大小', p.concat('r'), ['', 10, 80, 1]));
@@ -313,7 +315,11 @@ function mapView(body) {
     if (sel.list === 'exits') box.append(pickField('通到哪張地圖', p.concat('to'), Object.keys(doc.maps).filter(id => id !== mapId).map(id => [id, doc.maps[id].name])), numField('到了那邊站在 X', p.concat('tx'), ['', 20, 2400, 10]), numField('到了那邊站在 Y', p.concat('ty'), ['', 20, 3000, 10]));
     panel.appendChild(box);
     if (sel.list === 'packs') panel.appendChild(note('野怪的等級會跟著玩家，但不會低於最低等級、不會高於最高等級。'));
-    if (sel.list === 'mobs') panel.appendChild(note(o.px != null ? '巡邏的另一端是地圖上連著線的小圓點，可以直接拖。' : '同一組的怪會一起開戰。出現機率小於 1 的，每次進副本重新決定在不在。'));
+    if (sel.list === 'mobs' && o.path.length) { const row = el('div', 'ed-btns'), last = o.path[o.path.length - 1];
+      if (o.path.length < 6) row.appendChild(btn('加一個巡邏點', 'mini go', () => { o.path.push({ x: Math.max(20, Math.min(f.w - 20, last.x + 80)), y: Math.max(20, Math.min(f.h - 20, last.y + 80)) }); sel = { list: 'mobs', i: sel.i, h: o.path.length - 1 }; commit(); }));
+      if (o.path.length > 1) row.appendChild(btn(sel.h != null ? '刪掉這個巡邏點' : '刪掉最後一個巡邏點', 'mini', () => { o.path.splice(sel.h != null ? sel.h : o.path.length - 1, 1); sel = { list: 'mobs', i: sel.i }; commit(); }));
+      panel.append(row, note(`路線有 ${o.path.length} 個點（最多 6 個），照編號順序走。點是地圖上連著線的小圓點，可以直接拖。`)); }
+    else if (sel.list === 'mobs') panel.appendChild(note('同一組的怪會一起開戰。出現機率小於 1 的，每次進副本重新決定在不在。'));
     if (sel.list === 'events' && isD) panel.appendChild(note('每個事件一場只會觸發一次，要有玩家（不是 AI 隊友）走進範圍。'));
     if (sel.list === 'exits') panel.appendChild(note('出入口是單向的：要能走回來，那張地圖也要放一個通回這裡的。'));
     if (sel.single === 'gate' && !home) panel.appendChild(btn('拿掉這個副本入口', 'mini', () => { f.gate = null; sel = null; commit(); }));
