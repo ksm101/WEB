@@ -298,7 +298,8 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   P1.send({ t: 'm', x: 1, y: 0 }); await sleep(300); P1.send({ t: 'm', x: 0, y: 0 }); const seen = await P2.wait('s', m => m.a[0][0] > alone.a[0][0] + 15); assert.ok(seen, 'each sees the other move');
   // both stand on the same gathering spot: each gets their own
   const node = Sim.FIELD.nodes[11]; for (const c of [P1, P2]) c.send({ t: 'dbg', k: 'tp', x: node.x + 6, y: node.y + (c === P1 ? 4 : 14) });
-  const [g1, g2] = await Promise.all([P1.wait('fy', m => m.ok && m.mats.salt === 1, 8000), P2.wait('fy', m => m.ok && m.mats.salt === 1, 8000)]);      // the reward for this spot, not an earlier one that is still the latest message assert.strictEqual(g1.mats.salt, 1); assert.strictEqual(g2.mats.salt, 1); assert.strictEqual(g1.xp, 5);
+  const clr = setInterval(() => P1.send({ t: 'dbg', k: 'weak' }), 300);      // a crab from the pack next to this spot sometimes wanders over, and nobody gathers while being chased
+  const [g1, g2] = await Promise.all([P1.wait('fy', m => m.ok && m.mats.salt === 1, 20000), P2.wait('fy', m => m.ok && m.mats.salt === 1, 20000)]); clearInterval(clr);      // the reward for this spot, not an earlier one that is still the latest message assert.strictEqual(g1.mats.salt, 1); assert.strictEqual(g2.mats.salt, 1); assert.strictEqual(g1.xp, 5);
   const used = await P1.wait('s', m => (m.nd[11] & 3) === 3); assert.strictEqual(used.nd[11] & 12, 0, 'the spot is only used up for the two who took it');
   // one of them kills a creature while the other stands near: both are paid
   const pk0 = Sim.FIELD.packs[0]; P1.send({ t: 'dbg', k: 'weak' }); const x1 = g1.profile.xp + g1.profile.cl * 1e6, x2 = g2.profile.xp + g2.profile.cl * 1e6;
