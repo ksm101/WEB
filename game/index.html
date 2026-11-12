@@ -172,7 +172,11 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 #app[data-mode="field"] #pips,#app[data-mode="field"] #timer{display:none}
 #hero-btn{display:none;min-width:52px;height:32px;padding:0 10px;border:1px solid var(--brass);border-radius:6px;background:transparent;color:var(--brass);font-size:12px;font-weight:700}
 #app[data-mode="field"] #hero-btn{display:block}
-#finder-btn{display:none;min-width:52px;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--foam);font-size:12px;font-weight:700}
+#hudq-btn{display:none;position:relative;min-width:46px;height:32px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--foam);font-size:12px;font-weight:700}
+#app[data-mode="field"] #hudq-btn{display:block}
+#hudq-btn b{position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;box-sizing:border-box;padding:0 3px;border-radius:8px;background:var(--ember);color:var(--ink);font-family:var(--f-num);font-size:10px;line-height:16px;text-align:center}
+#app[data-mode="field"] .hud-top{gap:6px}
+#finder-btn{display:none;min-width:46px;height:32px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--foam);font-size:12px;font-weight:700}
 #app[data-mode="field"] #finder-btn{display:block}
 #finder-btn.locked{color:var(--mute);font-weight:400}
 #finder-btn.fresh{border-color:var(--ember);color:var(--ember)}
@@ -300,6 +304,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <button id="quit" type="button">離開</button>
       <button id="hero-btn" type="button">角色</button>
       <button id="finder-btn" type="button">副本</button>
+      <button id="hudq-btn" type="button">任務<b id="q-badge2" hidden></b></button>
       <div class="dungeon"><b id="place">沉鐘塔</b><span id="lvl">第 1 層</span></div>
       <div id="pips" aria-hidden="true"></div>
       <div id="timer">0:00 <small id="timer-of">/ 3:00</small></div>
@@ -814,7 +819,7 @@ function showYield(mats, done, xp, coin, item) {
 }
 function fieldReport(t, body, what, key, pk) {
   if (online) { if (net.authed) send(Object.assign({ t }, body)); else banner('連線中斷，這段時間的收穫不會記錄', 2500); return; }
-  let g = null; const done = newlyDone(() => { g = S.fieldGain(save, what, key, pk, FD.id); if (g) S.questEvent(save, { type: what }, Date.now()); });
+  let g = null; const done = newlyDone(() => { g = S.fieldGain(save, what, key, pk, FD.id); if (g) S.questEvent(save, { type: what, tag: what === 'kill' ? S.packTag(FD.id, pk) : '' }, Date.now()); });
   writeSave(); if (g) { showYield(g.mats, done, g.xp, g.coin, g.item); if (g.item && g.item.up) refitMe(); }
 }
 
@@ -1037,7 +1042,7 @@ function buildView(now) {
   const em = net.emap, seen = new Set(); V.boss = null;
   for (const d of s1.e) {
     let e = em.get(d[0]);
-    if (!e) { const def = ENEMY[d[1]] || ENEMY.grunt; e = { id: d[0], kind: d[1], def, rare: !!d[16], name: (d[16] ? '稀有・' : '') + def.name, lvl: V.elvl, r: def.r, boss: !!def.boss, tm: { enraged: false }, alive: true }; em.set(d[0], e); }
+    if (!e) { const def = ENEMY[d[1]] || ENEMY.grunt; const pkd = V.mode === 'field' && d[17] >= 0 ? FD.packs[d[17]] : null; e = { id: d[0], kind: d[1], def, rare: !!d[16], named: !!(pkd && pkd.name), name: pkd && pkd.name ? pkd.name : (d[16] ? '稀有・' : '') + def.name, lvl: V.elvl, r: def.r, boss: !!def.boss, tm: { enraged: false }, alive: true }; em.set(d[0], e); }
     e.lvl = d[11] || V.elvl; e.engaged = !!d[12]; e.ret = !!d[13]; e.tgt = d[14] >= 0 ? d[14] : -1; e.th = Array.isArray(d[15]) ? d[15] : null;
     const p = s0.e.find(q => q[0] === d[0]) || d;
     e.x = L(p[2], d[2]); e.y = L(p[3], d[3]); e.hp = d[4]; e.maxHp = d[5]; e.face = d[6]; e.spawnT = L(p[7], d[7]); e.stun = d[8]; e.tm.enraged = !!d[9];
@@ -1184,7 +1189,7 @@ function drawEnemy(e, dt) {
     const mine = !!V.me && V.me.target === e, hot = mine || e.engaged || !!e.target;
     if (onWhom(e) === meIdx && V.me.alive) { c.strokeStyle = C.danger; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r + 3, 0, TAU); c.stroke(); }      // this one is on you
     bar(x - 16, y - r - 9, 32, 4, e.hp / e.maxHp, C.rust);
-    plate(x, y - r - 13, e.lvl, e.name, hot ? C.foam : C.mute, mine ? 4 : e.cast ? 3 : hot ? 1 : 0);
+    plate(x, y - r - 13, e.lvl, e.name, e.named || e.rare ? C.brass : hot ? C.foam : C.mute, mine ? 4 : e.cast ? 3 : hot || e.named ? 1 : 0);      // a creature with a name of its own stands out
     if (e.cast) { bar(x - 20, y - r - 30, 40, 5, e.cast.t / e.cast.dur, e.cast.kickable ? C.brass : C.mute); c.fillStyle = C.brass; c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.fillText(e.cast.name, x, y - r - 34); }
   }
   c.globalAlpha = 1;
@@ -1934,7 +1939,7 @@ function doCraft(id) {
 function openQuests() { $('#quests').hidden = false; renderQuests(); }
 function renderQuests() {
   const ql = S.questList(save, Date.now(), online), ready = ql.items.filter(x => x.ready).length, badge = $('#q-badge');
-  badge.hidden = !ready; badge.textContent = ready;
+  badge.hidden = !ready; badge.textContent = ready; { const b2 = $('#q-badge2'); b2.hidden = !ready; b2.textContent = ready; }
   const main = ql.items.find(x => x.group === 'main'), line = $('#m-quest'); line.textContent = ''; line.classList.toggle('ready', !!(main && main.ready));
   quest.giver = main && main.ready && Story.SCENES[main.id] ? Story.SCENES[main.id].at : '';      // who at the camp is waiting for you
   line.append(el('span', '', '主線'), el('b', '', main ? `${main.title}　${main.goal}` : '主線暫時到這裡，之後會再加'), el('i', '', main ? (main.ready ? '回營地領獎' : `${main.have} / ${main.need}`) : ''));
@@ -2090,6 +2095,7 @@ $('#cr-name').addEventListener('input', () => renderCreate());
 $('#go-online').addEventListener('click', () => { $('#finder').hidden = true; goOnline(); });
 $('#go-party').addEventListener('click', () => { const code = cleanCode($('#room').value); $('#finder').hidden = true; if (code) goField(code); });
 $('#finder-btn').addEventListener('click', () => { if (inField() && !talk.lines) openFinder(); });
+$('#hudq-btn').addEventListener('click', () => { if (inField() && !talk.lines) openQuests(); });
 $('#finder-close').addEventListener('click', () => { $('#finder').hidden = true; });
 $('#lb-ready').addEventListener('click', () => send({ t: 'ready' }));
 $('#lb-lootmode').addEventListener('click', () => { const m = net.lobby; if (m) send({ t: 'lootmode', mode: m.mode === 'leader' ? 'roll' : 'leader' }); });

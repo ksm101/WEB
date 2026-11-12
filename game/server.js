@@ -508,7 +508,7 @@ function start(opts) {
     const pay = (idx, what, key, pk) => {
       const s = room.slots[idx], rec = s && store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) return;
       const gain = Sim.fieldGain(c, what, key, pk, G.map); if (!gain) return;
-      Sim.questEvent(c, { type: what }, now); store.put(rec);
+      Sim.questEvent(c, { type: what, tag: what === 'kill' ? Sim.packTag(G.map, pk) : '' }, now); store.put(rec);
       if (gain.ups) { Sim.setLevel(G.actors[idx], c.cl, Sim.charPower(c)); grew = true; }
       else if (gain.item && gain.item.up) { Sim.refit(G.actors[idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls)); grew = true; }
       send(s.ws, { t: 'fy', ok: true, mats: gain.mats, xp: gain.xp, coin: gain.coin, item: gain.item, profile: charProfile(c) }); later(s.ws);
@@ -534,7 +534,7 @@ function start(opts) {
     } else if (f && m.t === 'fk') {
       f.tokens = Math.min(6, f.tokens + (now - f.at) / 2500); f.at = now;
       // the creature's level, and so its experience, is worked out here from the account's level and the pack it names
-      if (f.tokens >= 1 && typeof m.kind === 'string') { gain = Sim.fieldGain(c, 'kill', m.kind, m.pk, f.map); if (gain) { f.tokens -= 1; Sim.questEvent(c, { type: 'kill' }, now); } }
+      if (f.tokens >= 1 && typeof m.kind === 'string') { gain = Sim.fieldGain(c, 'kill', m.kind, m.pk, f.map); if (gain) { f.tokens -= 1; Sim.questEvent(c, { type: 'kill', tag: Sim.packTag(f.map, m.pk) }, now); } }
     }
     if (gain) store.put(rec);
     send(ws, { t: 'fy', ok: !!gain, mats: gain ? gain.mats : {}, xp: gain ? gain.xp : 0, coin: gain ? gain.coin : 0, item: gain ? gain.item : null, profile: profileOf(rec) }); if (gain) later(ws);

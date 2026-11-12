@@ -287,7 +287,8 @@ function delveMob(G, e, dt) {
   let tx = e.x, ty = e.y;
   if (e.wp) {      // at a point of the route: on to the next one, round in a ring or there and back
     const p = e.wp[e.wi], n = e.wp.length;
-    if (Math.hypot(p.x - e.x, p.y - e.y) < 6) { if (e.loop) e.wi = (e.wi + 1) % n; else { if (e.wi + e.wd < 0 || e.wi + e.wd >= n) e.wd = -e.wd; e.wi += e.wd; } }
+    e.wst = (e.wst || 0) + dt;      // a point that cannot be reached, behind a rock say, is given up on after a while
+        if (Math.hypot(p.x - e.x, p.y - e.y) < 6 || e.wst > 14) { e.wst = 0; if (e.loop) e.wi = (e.wi + 1) % n; else { if (e.wi + e.wd < 0 || e.wi + e.wd >= n) e.wd = -e.wd; e.wi += e.wd; } }
     tx = e.wp[e.wi].x; ty = e.wp[e.wi].y;
   }
   else if (e.roam > 0) { e.wt -= dt; if (e.wt <= 0) { e.wt = rand(2, 5); const an = rand(0, TAU), rr = rand(0, e.roam); e.wx = e.home.x + Math.cos(an) * rr; e.wy = e.home.y + Math.sin(an) * rr; } tx = e.wx; ty = e.wy; }
@@ -325,7 +326,11 @@ function mkEnemy(G, kind, x, y) {
 function spawnMob(G, pk, home) {
   const def = G.F.packs[pk]; if (!def || !ENEMY[def.kind]) return null;      // the map was edited while this field was running
   const e = mkEnemy(G, def.kind, home.x + rand(-14, 14), home.y + rand(-14, 14));
-  e.pk = pk; e.home = home; e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3); e.engaged = false; e.ret = false; scaleMob(e, mobLevel(def, partyLevel(G)), G.ev ? 1 : Math.max(1, present(G).length)); return e;
+  e.pk = pk; e.home = home; e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3); e.engaged = false; e.ret = false;
+  if (def.name) { e.name = def.name; e.named = true; }      // a creature with a name of its own: someone a quest can ask for
+  // with a route it walks that instead of idling about its spot
+  if (def.path && def.path.length) { e.spot = home; e.wp = [{ x: e.x, y: e.y }].concat(def.path.map(q => ({ x: q.x + (e.x - def.x), y: q.y + (e.y - def.y) }))); e.wi = 1; e.wd = 1; e.loop = !!def.loop; }
+  scaleMob(e, mobLevel(def, partyLevel(G)), G.ev ? 1 : Math.max(1, present(G).length)); return e;
 }
 function fieldSeat(F, p, idx, at) {
   const a = mkActor(p.cls, p.name, at ? [clamp(at[0], 20, F.w - 20), clamp(at[1], 20, F.h - 20)] : [clamp(F.spawn[0] + (idx % 4 - 1.5) * 26, 20, F.w - 20), clamp(F.spawn[1] + (idx % 2) * 18, 20, F.h - 20)], p.pow, p.mods);
@@ -385,7 +390,7 @@ function hurtEnemy(G, e, dmg, src, big, noUlt) {
   ev(G, { k: 'dmg', x: R(e.x), y: R(e.y - e.r - 6), v: R(dmg), big: big ? 1 : 0, by: src.idx });
   if (e.hp <= 0) {
     e.hp = 0; e.alive = false; ring(G, e.x, e.y, e.r * .5, e.r * 2.2, e.boss ? 'brass' : 'rust', .45);
-    if (G.mode === 'field') { if (!e.evm) G.respawns.push({ pk: e.pk, home: e.home, at: G.t + TUNE.mobRespawn }); ev(G, { k: 'kill', kind: e.kind, pk: e.pk, by: src.idx, who: present(G).filter(a => a === src || (a.alive && dist(a, e) < 420)).map(a => a.idx) }); }   // everyone nearby gets credit
+    if (G.mode === 'field') { if (!e.evm) G.respawns.push({ pk: e.pk, home: e.spot || e.home, at: G.t + ((G.F.packs[e.pk] || {}).respawn || TUNE.mobRespawn) }); ev(G, { k: 'kill', kind: e.kind, pk: e.pk, by: src.idx, who: present(G).filter(a => a === src || (a.alive && dist(a, e) < 420)).map(a => a.idx) }); }   // everyone nearby gets credit
     if (e.rare) { G.drops++; text(G, e.x, e.y - e.r - 20, '稀有精英掉了東西', 'brass', 13, 1.6); }
     else if (G.mode !== 'field' && !e.boss && Math.random() < TUNE.trashDrop) { G.drops++; text(G, e.x, e.y - e.r - 20, '掉了東西', 'brass', 12, 1.3); }
     if (e.boss && G.layout) G.portal = { x: e.x, y: e.y };      // the way out opens where the last boss fell
@@ -765,6 +770,13 @@ function fieldMob(G, e, dt) {
     if (near && !inCamp(G, near) && dist(e, near) < e.def.aggro + near.r) { e.engaged = true; e.threat.set(near, (e.threat.get(near) || 0) + 1); }
     else if (e.threat.size) e.engaged = true;          // somebody hit it from a distance
     else {
+      if (e.wp) {      // on patrol: wherever it is pulled from becomes the place it comes back to
+        const p = e.wp[e.wi], n = e.wp.length;
+        e.wst = (e.wst || 0) + dt;      // a point that cannot be reached, behind a rock say, is given up on after a while
+        if (Math.hypot(p.x - e.x, p.y - e.y) < 6 || e.wst > 14) { e.wst = 0; if (e.loop) e.wi = (e.wi + 1) % n; else { if (e.wi + e.wd < 0 || e.wi + e.wd >= n) e.wd = -e.wd; e.wi += e.wd; } }
+        const q = e.wp[e.wi], dq = Math.hypot(q.x - e.x, q.y - e.y) || 1, sp = Math.min(e.def.speed * .5 * dt, dq); e.x += (q.x - e.x) / dq * sp; e.y += (q.y - e.y) / dq * sp; e.face = Math.atan2(q.y - e.y, q.x - e.x);
+        e.home = { x: e.x, y: e.y }; return false;
+      }
       e.wt -= dt; if (e.wt <= 0) { e.wt = rand(2, 5); const an = rand(0, TAU), rr = rand(0, 40); e.wx = home.x + Math.cos(an) * rr; e.wy = home.y + Math.sin(an) * rr; }
       const d = Math.hypot(e.wx - e.x, e.wy - e.y); if (d > 3) { e.x += (e.wx - e.x) / d * e.def.speed * .35 * dt; e.y += (e.wy - e.y) / d * e.def.speed * .35 * dt; e.face = Math.atan2(e.wy - e.y, e.wx - e.x); }
       return false;
@@ -840,6 +852,8 @@ function fieldYield(what, key) {
   else if (baseOf(key) === 'acolyte') { if (Math.random() < .5) m.salt = 1; }
   return m;
 }
+/* the name of the pack a field creature came from, when the pack has one: what a kill quest looks for */
+const packTag = (map, pk) => { const d = Number.isInteger(pk) ? (MAPS[map] || FIELD).packs[pk] : null; return (d && d.name) || ''; };
 function grant(p, mats) { fixProfile(p); for (const k of Object.keys(mats)) if (k in MATS) p.inv[k] = Math.min(MAT_CAP, p.inv[k] + mats[k]); }
 /* Everything one gather or one kill gives this profile: materials and experience. For a kill, pk says which pack the
  * creature belonged to; null when the claim does not name a real pack of that creature. */
@@ -1151,7 +1165,7 @@ function snapshot(G) {
       (a.wallT > 0 ? 1 : 0) | (a.shield > 0 ? 2 : 0) | (a.iframe > 0 ? 4 : 0) | (a.rollT > 0 ? 8 : 0) | (a.human ? 16 : 0),
       a.target ? a.target.id : 0, a.cds.map(r1), R(a.ult), a.potions, a.gather ? [a.gather.id, r2(a.gather.t)] : 0, a.out ? 1 : 0]),
     e: G.enemies.map(e => [e.id, e.kind, r1(e.x), r1(e.y), R(e.hp), e.maxHp, r2(e.face), r2(Math.max(0, e.spawnT)), e.stun > 0 ? 1 : 0, e.tm.enraged ? 1 : 0,
-      e.cast ? [e.cast.name, r2(e.cast.t), e.cast.dur, e.cast.kickable ? 1 : 0, e.cast.victim ? e.cast.victim.idx : -1] : 0, e.lvl, e.engaged ? 1 : 0, e.ret ? 1 : 0, e.target ? e.target.idx : -1, threatList(G, e), e.rare ? 1 : 0]),
+      e.cast ? [e.cast.name, r2(e.cast.t), e.cast.dur, e.cast.kickable ? 1 : 0, e.cast.victim ? e.cast.victim.idx : -1] : 0, e.lvl, e.engaged ? 1 : 0, e.ret ? 1 : 0, e.target ? e.target.idx : -1, threatList(G, e), e.rare ? 1 : 0, e.pk != null ? e.pk : -1]),
     z: G.zones.map(z => [z.id, z.friendly ? (z.heal ? 2 : 1) : 0, z.type === 'circle' ? 0 : 1, r1(z.x), r1(z.y), z.r || 0, r2(z.ang || 0), z.half || 0, z.len || 0, r2(z.t), z.dur, z.done ? 1 : 0]),
     s: G.shots.map(s => [s.id, r1(s.x), r1(s.y), s.big ? 1 : 0, s.src.idx]),
     nd: G.nodes ? G.nodes.map(n => n.cd.reduce((m, v, i) => m | (v > 0 ? 1 << i : 0), 0)) : undefined,   // per seat: is this spot used up
@@ -1191,7 +1205,7 @@ function patch(tgt, src) {
 }
 const editable = o => { const r = {}; for (const k of Object.keys(o)) if ((LIM[k] && typeof o[k] === 'number') || (TEXT[k] && typeof o[k] === 'string')) r[k] = o[k]; return r; };
 function exportData() {
-  const map = t => { const r = {}; for (const k of Object.keys(t)) r[k] = editable(t[k]); return r; }, quests = list => list.map(x => Object.assign({ id: x.id }, editable(x), { reward: x.reward }));
+  const map = t => { const r = {}; for (const k of Object.keys(t)) r[k] = editable(t[k]); return r; }, quests = list => list.map(x => Object.assign({ id: x.id }, editable(x), { reward: x.reward }, x.custom ? { kill: x.kill } : null));
   const enemies = map(ENEMY), maps = {}, dungeons = {};
   for (const k of Object.keys(ENEMY)) { if (ENEMY[k].base) enemies[k].base = ENEMY[k].base; if (ENEMY[k].moves) enemies[k].moves = ENEMY[k].moves; }
   for (const k of Object.keys(DUNGEONS)) { const D = DUNGEONS[k]; dungeons[k] = D.type === 'layout' ? { name: D.name, min: D.min, time: D.time, type: 'layout', map: D.map } : { name: D.name, min: D.min, time: D.time, type: 'waves', waves: D.waves }; }
@@ -1254,8 +1268,18 @@ function applyData(d) {
     for (const id of Object.keys(SETS)) delete SETS[id]; Object.assign(SETS, out);
   }
   indexNames();
+  /* A quest made in the editor: knock down a creature that has a name (a pack's own name), so many times. It sits with
+   * the side quests. Listing the side quests without it removes it. */
+  if (isObj(d.quests) && Array.isArray(d.quests.side)) {
+    for (let i = SIDE.length - 1; i >= 0; i--) if (SIDE[i].custom && !d.quests.side.some(q => isObj(q) && q.id === SIDE[i].id)) SIDE.splice(i, 1);
+    for (const q of d.quests.side) {
+      if (!isObj(q) || typeof q.kill !== 'string' || !/^k[a-z0-9]{1,8}$/.test(q.id) || SIDE.some(x => x.id === q.id) || SIDE.filter(x => x.custom).length >= 20) continue;
+      const t = { id: q.id, title: '新任務', goal: '擊倒指定的怪', need: 1, reward: { xp: 100 }, kill: '', custom: true }; t.upd = (v, ev) => ev.type === 'kill' && !!ev.tag && ev.tag === t.kill ? Math.min(t.need, v + 1) : v; SIDE.push(t);
+    }
+  }
   if (isObj(d.quests)) for (const [key, list] of [['main', MAIN], ['week', WEEK], ['side', SIDE]]) if (Array.isArray(d.quests[key])) for (const q of d.quests[key]) {
     const t = isObj(q) && list.find(x => x.id === q.id); if (!t) continue; patch(t, q);
+    if (t.custom) { if (typeof q.kill === 'string') t.kill = cleanStr(q.kill, 8); t.need = Math.min(99, t.need); }
     if (isObj(q.reward)) { const r = prices(q.reward, 1, 99999, ['coin', 'xp', 'potion'].concat(matKeys)); if (Object.keys(r).length) t.reward = r; }
   }
   const wavesOf = (src, max) => { const out = []; if (Array.isArray(src)) for (const w of src.slice(0, max)) { const row = []; if (Array.isArray(w)) for (const e of w.slice(0, 4)) { const n = Array.isArray(e) ? numIn(e[1], 1, 8, true) : null; if (n && typeof e[0] === 'string') row.push([e[0], n]); } if (row.length) out.push(row); } return out; };
@@ -1296,7 +1320,10 @@ function applyData(d) {
       const lst = (key, max, one) => { if (!Array.isArray(f[key])) return null; const out = []; for (const o of f[key].slice(0, max)) { const v = isObj(o) ? one(o) : null; if (v) out.push(v); } return out; };
       { const sp = pos(f.spawn); if (sp) F.spawn = [sp.x, sp.y]; else { F.spawn[0] = clamp(F.spawn[0], 20, F.w - 20); F.spawn[1] = clamp(F.spawn[1], 20, F.h - 20); } }
       if (f.gate === null && k !== 'shore') F.gate = null; else if (pos(f.gate)) F.gate = Object.assign({ r: 46 }, pos(f.gate));
-      { const v = lst('packs', 30, o => { const p = typeof o.kind === 'string' ? pos(o, { kind: o.kind }) : null, n = p && numIn(o.n, 1, 6, true), lo = p && numIn(o.min, 1, 60, true), hi = p && numIn(o.max, 1, 60, true); return p && n && lo && hi ? Object.assign(p, { n, min: Math.min(lo, hi), max: Math.max(lo, hi) }) : null; }); if (v && (v.length || k !== 'shore')) F.packs = v; }
+      // a pack may have a name of its own, a patrol route and its own time to come back; each is stored only when set
+      { const v = lst('packs', 30, o => { const p = typeof o.kind === 'string' ? pos(o, { kind: o.kind }) : null, n = p && numIn(o.n, 1, 6, true), lo = p && numIn(o.min, 1, 60, true), hi = p && numIn(o.max, 1, 60, true); if (!(p && n && lo && hi)) return null; Object.assign(p, { n, min: Math.min(lo, hi), max: Math.max(lo, hi) });
+          const nm = cleanStr(o.name, 8), rs = numIn(o.respawn, 5, 900, true), path = []; if (nm) p.name = nm; if (rs) p.respawn = rs;
+          if (Array.isArray(o.path)) for (const w of o.path.slice(0, 20)) { const q = path.length < 6 ? pos(w) : null; if (q) path.push(q); } if (path.length) { p.path = path; p.loop = !!o.loop; } return p; }); if (v && (v.length || k !== 'shore')) F.packs = v; }
       { const ids = new Set(), v = lst('nodes', 40, o => { const id = numIn(o.id, 1, 999, true), p = id && !ids.has(id) && NODE_TYPES.includes(o.type) ? pos(o, { id, type: o.type }) : null; if (p) ids.add(id); return p; }); if (v && (v.length || k !== 'shore')) F.nodes = v; }
       { const v = lst('rocks', 30, o => { const p = pos(o), r = p && numIn(o.r, 10, 80, true); return r ? Object.assign(p, { r }) : null; }); if (v) F.rocks = v; }
       { const v = lst('walls', 40, o => { const p = pos(o), w = p && numIn(o.w, 20, 1200, true), h = p && numIn(o.h, 20, 1200, true); return w && h && WALL_TYPES.includes(o.type) ? Object.assign(p, { w, h, type: o.type }) : null; }); if (v) F.walls = v; }
@@ -1319,7 +1346,7 @@ function applyData(d) {
 }
 { const pre = typeof self !== 'undefined' && self ? self.EmbertideData : null; if (pre) applyData(pre); }      // the committed data file, when the page loaded one before this script
 
-return { exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_TYPES, WALL_TYPES, MOVES, MAPS, DUNGEONS, floorOf, baseOf, EV_WAVES, PLAIN, TUNE,
+return { packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_TYPES, WALL_TYPES, MOVES, MAPS, DUNGEONS, floorOf, baseOf, EV_WAVES, PLAIN, TUNE,
   EVENT_TYPES, get TOWER_KINDS() { return kindsOf(TOWER_BASE); }, get FIELD_KINDS() { return kindsOf(FIELD_BASE); },
   W, H, TIME_LIMIT, CLASSES, SKILLS, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
   cleanAim, defaultLoadout, validLoadout, loadoutOf, setLoadout,
