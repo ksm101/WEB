@@ -10,7 +10,7 @@
 const W = 360, H = 440, TIME_LIMIT = 180;
 const TAU = Math.PI * 2, R = Math.round;
 /* Rules that are a single number. Like every table in this file they can be changed by applyData() (see the end). */
-const TUNE = { towerLevel: 3, maxLevel: 30, lvStep: .06, xpBase: 80, xpGrow: 45, xpPow: 1.6, towerStep: 1.13, trashDrop: .1,
+const TUNE = { maxLevel: 30, lvStep: .06, xpBase: 80, xpGrow: 45, xpPow: 1.6, towerStep: 1.13, trashDrop: .1,
   gatherTime: 1.4, nodeRespawn: 45, mobRespawn: 25, potionCap: 5, potionHeal: .35, bagCap: 16, respecCost: 30 };
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -121,10 +121,33 @@ const ENEMY = {
   crab: { name: '鏽灘蟹', xp: 12, hp: 300, dmg: 20, aspd: 1.4, range: 6, speed: 64, r: 11, aggro: 95, leash: 300 },
   acolyte: { name: '鹽咒學徒', xp: 16, hp: 240, dmg: 85, aspd: 0, range: 150, speed: 58, r: 11, aggro: 130, leash: 320, caster: true },
   brute: { name: '鏽錨巨蟹', hp: 2200, dmg: 34, aspd: 1.6, range: 10, speed: 54, r: 20, aggro: 200, leash: 9999, elite: true },     // only comes ashore with the surge
-  boss: { name: '鏽潮看守者 莫葛', hp: 27000, dmg: 80, aspd: 1.5, range: 10, speed: 58, r: 28 }
+  boss: { name: '鏽潮看守者 莫葛', hp: 27000, dmg: 80, aspd: 1.5, range: 10, speed: 58, r: 28, boss: true, intro: '莫葛從潮門爬了出來',
+    moves: [{ t: 'adds', at: .5, kind: 'grunt', n: 2, say: '水鬼湧入！' }, { t: 'enrage', at: .3, mul: 1.3, say: '看守者狂怒！' },
+      { t: 'roar', name: '潮嘯', first: 12, every: 16, cast: 2.8, dmg: 250 }, { t: 'cone', name: '錨擊', first: 5, every: 7, cast: 1.4, dmg: 300, half: .62, len: 125 },
+      { t: 'circles', name: '落鐘', first: 8, every: 9, cast: 1.7, dmg: 290, r: 44, n: 2 }] }
+};
+/* A creature kind made in the editor is a copy of one of the six above (its `base`), which decides how it behaves and
+ * where it can appear; its numbers, and for a boss its moves, are its own. */
+const TOWER_BASE = ['grunt', 'caster', 'boss'], FIELD_BASE = ['crab', 'acolyte', 'brute'];
+const baseOf = kind => (ENEMY[kind] && ENEMY[kind].base) || kind;
+const kindsOf = bases => Object.keys(ENEMY).filter(k => bases.includes(baseOf(k)));
+/* What a boss can do, as blocks: [label, { field: [label, min, max, step] }]. Timed moves wait `first` seconds, then
+ * come every `every` seconds; the first one in the list that is ready goes. */
+const TIMED = { first: ['第一次在幾秒後', 0, 120, .5], every: ['之後每幾秒一次', 2, 120, .5], cast: ['預警秒數', .5, 10, .1], dmg: ['傷害（再乘上層數）', 0, 1e5, 5] };
+const MOVES = {
+  cone: ['扇形斬：朝目標砍出扇形', Object.assign({}, TIMED, { half: ['扇形半角（弧度）', .2, 1.5, .02], len: ['扇形長度', 40, 300, 5] })],
+  circles: ['落點圈：在幾個人腳下放圈', Object.assign({}, TIMED, { r: ['圈的半徑', 20, 150, 1], n: ['一次幾個圈', 1, 4, 1] })],
+  nova: ['震盪：以自己為中心的大圈', Object.assign({}, TIMED, { r: ['圈的半徑', 40, 260, 5] })],
+  roar: ['全場吼叫：金色讀條，沒打斷就全隊受傷', TIMED],
+  adds: ['召喚小怪：血量低於某個比例時', { at: ['血量比例（0 到 1）', .05, .95, .05], n: ['幾隻', 1, 4, 1] }],
+  enrage: ['狂暴：血量低於某個比例後變快', { at: ['血量比例（0 到 1）', .05, .95, .05], mul: ['變快幾倍', 1.05, 3, .05] }]
 };
 const PORTAL = { x: W / 2, y: 104, r: 26 };      // where the way out appears once 莫葛 is down
 const WAVES = [ [['grunt', 3]], [['grunt', 2], ['caster', 1]], [['grunt', 2], ['caster', 2]], [['boss', 1]] ];
+/* Every dungeon: a name, the level it opens at, and its waves. Clearing the last wave wins. Each character has their
+ * own floor in each dungeon; the tower's floor is p.lvl, the others are in p.dl. */
+const DUNGEONS = { tower: { name: '沉鐘塔', min: 3, waves: WAVES } };
+const floorOf = (p, did) => did && did !== 'tower' && DUNGEONS[did] ? ((p.dl && p.dl[did]) || 1) : p.lvl;
 const ROSTER = ['tank', 'heal', 'dps', 'dps'];
 const SPOTS = [[180, H - 150], [128, H - 84], [236, H - 96], [184, H - 58]];
 const BOT_NAMES = { tank: '柯爾', heal: '蜜拉', dps: ['阿燼', '小霧'] };
@@ -132,7 +155,7 @@ const BOT_NAMES = { tank: '柯爾', heal: '蜜拉', dps: ['阿燼', '小霧'] };
 /* ---------- the field: 鏽灘, the shore between the camp (south) and the tower gate (north) ---------- */
 const SOLO_BOOST = { tank: 1.8, heal: 3.2, dps: 1 };   // alone in the field, tanks and healers hit harder so every class can hunt
 const FIELD = {
-  w: 900, h: 1500,
+  id: 'shore', name: '鏽灘', w: 900, h: 1500, exits: [], walls: [],
   spawn: [450, 1398], fire: [450, 1330], safe: { x: 450, y: 1325, r: 150 },   // monsters neither enter nor attack into the camp
   gate: { x: 450, y: 120, r: 46 },
   events: [{ x: 450, y: 790, r: 115 }, { x: 620, y: 430, r: 115 }],             // where the tide surge can come ashore
@@ -174,8 +197,23 @@ function partyLevel(G) { const ps = present(G); return ps.length ? Math.max(1, M
 function refit(a, lvl, pow, mods, skills) { const k = a.maxHp ? a.hp / a.maxHp : 1; a.lvl = lvl; a.pow = pow; if (mods) a.mods = mods; if (skills) a.skills = skillSet(a.cls, skills); a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.alive ? Math.max(1, R(a.maxHp * k)) : 0; }
 function setLevel(a, lvl, pow) { a.lvl = lvl; a.pow = pow; a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.maxHp; }   // levelling up refills your health
 
-const inCamp = p => Math.hypot(p.x - FIELD.safe.x, p.y - FIELD.safe.y) < FIELD.safe.r;
-function pushOut(p) { for (const r of FIELD.rocks) { const dx = p.x - r.x, dy = p.y - r.y, d = Math.hypot(dx, dy) || .01, m = r.r + p.r; if (d < m) { p.x = r.x + dx / d * m; p.y = r.y + dy / d * m; } } }
+/* Every map of the world. The shore is the one with the camp, the people and the tide surge; maps made in the editor
+ * are joined to it by exits. A field (G) is one map: G.F. */
+const MAPS = { shore: FIELD };
+const blankMap = (id, name) => ({ id, name, w: 900, h: 900, spawn: [450, 800], fire: null, safe: null, gate: null, events: [], npcs: [], stalls: [], path: [], rocks: [], nodes: [], packs: [], exits: [], walls: [] });
+const inCamp = (G, p) => { const c = G.F.safe; return !!c && Math.hypot(p.x - c.x, p.y - c.y) < c.r; };
+/* Keep a body out of what cannot be walked through: rocks (round) and walls or water (boxes, x and y at the centre). */
+function pushOut(p, F) {
+  F = F || FIELD;
+  for (const r of F.rocks) { const dx = p.x - r.x, dy = p.y - r.y, d = Math.hypot(dx, dy) || .01, m = r.r + p.r; if (d < m) { p.x = r.x + dx / d * m; p.y = r.y + dy / d * m; } }
+  for (const b of F.walls) {
+    if (b.type === 'road') continue; const hw = b.w / 2, hh = b.h / 2, dx = p.x - b.x, dy = p.y - b.y;
+    if (Math.abs(dx) >= hw + p.r || Math.abs(dy) >= hh + p.r) continue;
+    const cx = clamp(dx, -hw, hw), cy = clamp(dy, -hh, hh), ox = dx - cx, oy = dy - cy, d = Math.hypot(ox, oy);
+    if (d > 0) { if (d < p.r) { p.x = b.x + cx + ox / d * p.r; p.y = b.y + cy + oy / d * p.r; } }
+    else if (hw - Math.abs(dx) < hh - Math.abs(dy)) p.x = b.x + (dx < 0 ? -1 : 1) * (hw + p.r); else p.y = b.y + (dy < 0 ? -1 : 1) * (hh + p.r);      // inside the box: out through the nearer side
+  }
+}
 
 /* ---------- events ---------- */
 function ev(G, o) { G.events.push(o); }
@@ -201,7 +239,8 @@ function mkActor(cls, name, spot, pow, mods) {
  * Each player takes the first free seat of their class; every other seat is a bot. */
 function createRun(opts) {
   const lvl = opts.lvl || 1, botPow = 1 + .1 * (lvl - 1);
-  const G = { mode: 'dungeon', bw: W, bh: H, t: 0, lvl, elvl: recLevel(lvl), es: Math.pow(TUNE.towerStep, lvl - 1), state: 'countdown', cd: 3, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
+  const did = DUNGEONS[opts.dungeon] ? opts.dungeon : 'tower';
+  const G = { mode: 'dungeon', did, D: DUNGEONS[did], bw: W, bh: H, t: 0, lvl, elvl: recLevel(lvl), es: Math.pow(TUNE.towerStep, lvl - 1), state: 'countdown', cd: 3, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
     boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: !!opts.auto, drops: 0 };
   const pending = (opts.players || []).slice(); let dpsN = 0;
   ROSTER.forEach((c, i) => {
@@ -215,46 +254,48 @@ function createRun(opts) {
 function mkEnemy(G, kind, x, y) {
   const d = ENEMY[kind], s = G.es;
   const e = { id: G.nextId++, kind, def: d, name: d.name, lvl: G.elvl || 1, x, y, r: d.r, maxHp: R(d.hp * s), hp: R(d.hp * s), dmg: d.dmg * s, atkT: rand(.4, 1), threat: new Map(),
-    fix: null, fixT: 0, target: null, cast: null, stun: 0, boss: kind === 'boss', tm: {}, alive: true, spawnT: .6, face: Math.PI / 2 };
+    fix: null, fixT: 0, target: null, cast: null, stun: 0, boss: !!d.boss, tm: { enraged: false, rage: 1 }, alive: true, spawnT: .6, face: Math.PI / 2 };
   if (d.caster) e.tm.cast = rand(1.5, 3.5);
-  if (e.boss) { e.tm = { cleave: 5, bells: 8, roar: 12, adds: false, enraged: false }; G.boss = e; }
+  if (d.moves) e.mv = d.moves.map(m => ({ t: m.first || 0, used: false }));
+  if (e.boss) G.boss = e;
   const tank = G.mode !== 'field' && G.actors.find(a => a.cls === 'tank'); if (tank) e.threat.set(tank, 40);
   G.enemies.push(e); return e;
 }
 function spawnMob(G, pk, home) {
-  const def = FIELD.packs[pk], e = mkEnemy(G, def.kind, home.x + rand(-14, 14), home.y + rand(-14, 14));
+  const def = G.F.packs[pk]; if (!def || !ENEMY[def.kind]) return null;      // the map was edited while this field was running
+  const e = mkEnemy(G, def.kind, home.x + rand(-14, 14), home.y + rand(-14, 14));
   e.pk = pk; e.home = home; e.wx = e.x; e.wy = e.y; e.wt = rand(0, 3); e.engaged = false; e.ret = false; scaleMob(e, mobLevel(def, partyLevel(G)), G.ev ? 1 : Math.max(1, present(G).length)); return e;
 }
-function fieldSeat(p, idx, at) {
-  const a = mkActor(p.cls, p.name, at ? [clamp(at[0], 20, FIELD.w - 20), clamp(at[1], 20, FIELD.h - 20)] : [FIELD.spawn[0] + (idx % 4 - 1.5) * 26, FIELD.spawn[1] + (idx % 2) * 18], p.pow, p.mods);
+function fieldSeat(F, p, idx, at) {
+  const a = mkActor(p.cls, p.name, at ? [clamp(at[0], 20, F.w - 20), clamp(at[1], 20, F.h - 20)] : [clamp(F.spawn[0] + (idx % 4 - 1.5) * 26, 20, F.w - 20), clamp(F.spawn[1] + (idx % 2) * 18, 20, F.h - 20)], p.pow, p.mods);
   a.lvl = p.lvl > 0 ? p.lvl : 1; if (p.skills) a.skills = skillSet(p.cls, p.skills);
   a.idx = idx; a.human = true; a.out = false; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; return a;
 }
 /* opts: { lvl, players: [{ cls, name, pow, id, lvl, skills }] } (or a single `player`), cap (seats, 4 unless said), event ({ x, y, r }
  * for a field that holds a tide surge). No bots and no timer. Each gathering spot regrows separately for each person. */
 function createField(opts) {
-  const ps = opts.players || (opts.player ? [opts.player] : []), cap = opts.cap || 4;
-  const G = { mode: 'field', bw: FIELD.w, bh: FIELD.h, t: 0, lvl: opts.lvl || 1, elvl: 1, es: 1, state: 'run', cd: 0, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
-    boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: false, respawns: [], cap, nodes: FIELD.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, cd: new Array(cap).fill(0) })),
+  const ps = opts.players || (opts.player ? [opts.player] : []), cap = opts.cap || 4, F = MAPS[opts.map] || FIELD;
+  const G = { mode: 'field', F, map: F.id, bw: F.w, bh: F.h, t: 0, lvl: opts.lvl || 1, elvl: 1, es: 1, state: 'run', cd: 0, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
+    boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: false, respawns: [], cap, nodes: F.nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, cd: new Array(cap).fill(0) })),
     ev: opts.event ? { x: opts.event.x, y: opts.event.y, r: opts.event.r, wave: -1, t: 0, gap: 2, done: false } : null };
-  ps.slice(0, cap).forEach((p, i) => G.actors.push(fieldSeat(p, i)));
-  FIELD.packs.forEach((pk, k) => { for (let i = 0; i < pk.n; i++) spawnMob(G, k, { x: pk.x + (i - (pk.n - 1) / 2) * 34, y: pk.y + (i % 2) * 22 }); });
+  ps.slice(0, cap).forEach((p, i) => G.actors.push(fieldSeat(F, p, i)));
+  F.packs.forEach((pk, k) => { for (let i = 0; i < pk.n; i++) spawnMob(G, k, { x: pk.x + (i - (pk.n - 1) / 2) * 34, y: pk.y + (i % 2) * 22 }); });
   return G;
 }
 /* Someone walks in: they take a seat that was left, or a new one. Returns the seat, or -1 when the field is full. */
 function addFieldActor(G, p, at) {
   let idx = G.actors.findIndex(a => a.out); if (idx < 0) { if (G.actors.length >= G.cap) return -1; idx = G.actors.length; }
-  G.actors[idx] = fieldSeat(p, idx, at); for (const n of G.nodes) n.cd[idx] = 0; return idx;
+  G.actors[idx] = fieldSeat(G.F, p, idx, at); for (const n of G.nodes) n.cd[idx] = 0; return idx;
 }
 function removeFieldActor(G, idx) {
   const a = G.actors[idx]; if (!a || a.out) return; a.out = true; a.alive = false; a.target = null; a.gather = null;
   for (const e of G.enemies) e.threat.delete(a);
 }
 function nextWave(G) {
-  G.wave++; const w = WAVES[G.wave]; if (!w) return;
-  const list = []; for (const [k, n] of w) for (let i = 0; i < n; i++) list.push(k);
-  list.forEach((k, i) => mkEnemy(G, k, W / 2 + (i - (list.length - 1) / 2) * 52, k === 'boss' ? 84 : k === 'caster' ? 58 : 76));
-  if (G.boss) banner(G, '莫葛從潮門爬了出來', 2200);
+  G.wave++; const w = G.D.waves[G.wave]; if (!w) return; const had = G.boss;
+  const list = []; for (const [k, n] of w) if (ENEMY[k]) for (let i = 0; i < n; i++) list.push(k);
+  list.forEach((k, i) => mkEnemy(G, k, W / 2 + (i - (list.length - 1) / 2) * 52, ENEMY[k].boss ? 84 : ENEMY[k].caster ? 58 : 76));
+  if (G.boss && G.boss !== had) banner(G, G.boss.def.intro || `${G.boss.name} 出現了`, 2200);
 }
 
 /* ---------- combat helpers ---------- */
@@ -478,7 +519,7 @@ function botThink(G, a, dt) {
     let ld = 1e9; for (const e of en) if (e.alive && e.target && e.target !== a) { const d = dist(a, e); if (d < ld) { ld = d; tg = e; } }
     if (!tg) tg = (G.boss && G.boss.alive) ? G.boss : (a.target && a.target.alive ? a.target : nearest(a, en));
   } else {
-    const pr = e => e.kind === 'caster' ? 0 : e.kind === 'grunt' ? 1 : 2; let bs = 1e9;
+    const pr = e => e.def.caster ? 0 : e.boss ? 2 : 1; let bs = 1e9;
     for (const e of en) { if (!e.alive) continue; const s = pr(e) * 1e6 + e.hp; if (s < bs) { bs = s; tg = e; } }
   }
   a.target = tg;
@@ -546,7 +587,7 @@ function updActor(G, a, dt) {
     if (m > .05) { const sp = a.def.speed * a.mods.speed; a.x += mx * sp * dt; a.y += my * sp * dt; if (!a.target) a.face = Math.atan2(my, mx); }
   }
   a.x = clamp(a.x, a.r + 6, G.bw - a.r - 6); a.y = clamp(a.y, a.r + (G.mode === 'field' ? 6 : 36), G.bh - a.r - 8);
-  if (G.mode === 'field') pushOut(a);
+  if (G.mode === 'field') pushOut(a, G.F);
   if (a.target) a.face = Math.atan2(a.target.y - a.y, a.target.x - a.x);
   if (c.healOn) { const k = a.skills.findIndex(q => q.aim === 'ally'); if (k >= 0) tryCast(G, a, k, { k: 'id', id: -(c.healOn.idx + 1) }); c.healOn = null; }   // a tap on a party frame
   for (let i = 0; i < 4; i++) if (c.cast[i]) { const aim = c.aim[i]; c.cast[i] = false; c.aim[i] = null; tryCast(G, a, i, aim); }
@@ -584,32 +625,29 @@ function updEnemy(G, e, dt) {
     return;
   }
   if (d > e.r + tg.r + e.def.range) { e.x += dx * e.def.speed * dt; e.y += dy * e.def.speed * dt; }
-  else { e.atkT -= dt; if (e.atkT <= 0) { e.atkT = e.def.aspd / (e.tm.enraged ? 1.3 : 1); hurtActor(G, tg, e.dmg * (e.boss ? bossMul(G) : 1) * rand(.9, 1.1), false); ring(G, tg.x, tg.y, 4, 16, 'danger', .18); } }
-  if (e.boss) bossBrain(G, e, dt, tg);
+  else { e.atkT -= dt; if (e.atkT <= 0) { e.atkT = e.def.aspd / (e.tm.enraged ? e.tm.rage : 1); hurtActor(G, tg, e.dmg * (e.boss ? bossMul(G) : 1) * rand(.9, 1.1), false); ring(G, tg.x, tg.y, 4, 16, 'danger', .18); } }
+  if (e.mv) runMoves(G, e, dt, tg);
   if (e.def.elite) {      // the brute slams the ground under whoever it is chasing
     e.tm.slam = (e.tm.slam === undefined ? 4 : e.tm.slam) - dt;
     if (e.tm.slam <= 0) { e.tm.slam = 6; addZone(G, { type: 'circle', x: tg.x, y: tg.y, r: 62, dur: 1.5, dmg: 130 * lvF(e.lvl) }); e.cast = { name: '砸地', t: 0, dur: 1.5, kickable: false }; }
   }
 }
-function bossBrain(G, b, dt, tg) {
-  const tm = b.tm, sp = tm.enraged ? 1.3 : 1;
-  tm.cleave -= dt * sp; tm.bells -= dt * sp; tm.roar -= dt * sp;
-  if (!tm.adds && b.hp < b.maxHp * .5) { tm.adds = true; banner(G, '水鬼湧入！'); mkEnemy(G, 'grunt', 60, 70); mkEnemy(G, 'grunt', W - 60, 70); }
-  if (!tm.enraged && b.hp < b.maxHp * .3) { tm.enraged = true; banner(G, '看守者狂怒！'); ring(G, b.x, b.y, b.r, 120, 'danger', .6); }
-  if (tm.roar <= 0) {
-    tm.roar = 16;
-    b.cast = { name: '潮嘯', t: 0, dur: 2.8, kickable: true, done: () => { for (const a of G.actors) hurtActor(G, a, 250 * G.es * bossMul(G), false); ring(G, b.x, b.y, 20, 280, 'danger', .6); shake(G, .5); } };
-    return;
+function runMoves(G, b, dt, tg) {
+  const list = b.def.moves, sp = b.tm.enraged ? b.tm.rage : 1, hit = v => v * G.es * bossMul(G);
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i], st = b.mv[i]; if (!st) continue;
+    if (m.t === 'adds') { if (!st.used && b.hp < b.maxHp * m.at) { st.used = true; if (m.say) banner(G, m.say); const kind = ENEMY[m.kind] && !ENEMY[m.kind].boss ? m.kind : 'grunt'; for (let k = 0; k < m.n; k++) mkEnemy(G, kind, k % 2 ? W - 60 - 34 * (k >> 1) : 60 + 34 * (k >> 1), 70); } }
+    else if (m.t === 'enrage') { if (!st.used && b.hp < b.maxHp * m.at) { st.used = true; b.tm.enraged = true; b.tm.rage = m.mul; if (m.say) banner(G, m.say); ring(G, b.x, b.y, b.r, 120, 'danger', .6); } }
+    else st.t -= dt * sp;
   }
-  if (tm.cleave <= 0) {
-    tm.cleave = 7; const ang = Math.atan2(tg.y - b.y, tg.x - b.x);
-    addZone(G, { type: 'cone', x: b.x, y: b.y, ang, half: .62, len: 125, dur: 1.4, dmg: 300 * G.es * bossMul(G) });
-    b.cast = { name: '錨擊', t: 0, dur: 1.4, kickable: false }; return;
-  }
-  if (tm.bells <= 0) {
-    tm.bells = 9; let pool = G.actors.filter(a => a.alive && a !== tg); if (!pool.length) pool = [tg];
-    pool.sort(() => Math.random() - .5);
-    for (const a of pool.slice(0, tm.enraged ? 3 : 2)) addZone(G, { type: 'circle', x: a.x, y: a.y, r: 44, dur: 1.7, dmg: 290 * G.es * bossMul(G) });
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i], st = b.mv[i]; if (!st || m.t === 'adds' || m.t === 'enrage' || st.t > 0) continue;
+    st.t = m.every;
+    if (m.t === 'roar') { b.cast = { name: m.name || '吼叫', t: 0, dur: m.cast, kickable: true, done: () => { for (const a of G.actors) hurtActor(G, a, hit(m.dmg), false); ring(G, b.x, b.y, 20, 280, 'danger', .6); shake(G, .5); } }; return; }
+    if (m.t === 'cone') { addZone(G, { type: 'cone', x: b.x, y: b.y, ang: Math.atan2(tg.y - b.y, tg.x - b.x), half: m.half, len: m.len, dur: m.cast, dmg: hit(m.dmg) }); b.cast = { name: m.name || '重擊', t: 0, dur: m.cast, kickable: false }; return; }
+    if (m.t === 'nova') { addZone(G, { type: 'circle', x: b.x, y: b.y, r: m.r, dur: m.cast, dmg: hit(m.dmg) }); b.cast = { name: m.name || '震盪', t: 0, dur: m.cast, kickable: false }; return; }
+    if (m.t === 'circles') { let pool = G.actors.filter(a => a.alive && a !== tg); if (!pool.length) pool = [tg]; pool.sort(() => Math.random() - .5);
+      for (const a of pool.slice(0, m.n + (b.tm.enraged ? 1 : 0))) addZone(G, { type: 'circle', x: a.x, y: a.y, r: m.r, dur: m.cast, dmg: hit(m.dmg) }); }
   }
 }
 function updWorld(G, dt) {
@@ -619,7 +657,7 @@ function updWorld(G, dt) {
     const ux = (a.x - b.x) / d, uy = (a.y - b.y) / d, wa = a.boss ? 0 : b.boss ? 1 : .5;
     a.x += ux * ov * wa; a.y += uy * ov * wa; b.x -= ux * ov * (1 - wa); b.y -= uy * ov * (1 - wa);
   }
-  for (const e of en) { e.x = clamp(e.x, e.r, G.bw - e.r); e.y = clamp(e.y, e.r + (G.mode === 'field' ? 0 : 30), G.bh - e.r); if (G.mode === 'field') pushOut(e); }
+  for (const e of en) { e.x = clamp(e.x, e.r, G.bw - e.r); e.y = clamp(e.y, e.r + (G.mode === 'field' ? 0 : 30), G.bh - e.r); if (G.mode === 'field') pushOut(e, G.F); }
   for (const s of G.shots) {
     const t = s.t; if (!t.alive) { s.dead = true; continue; }
     const d = dist(s, t) || 1, st = s.spd * dt; s.px = s.x; s.py = s.y;
@@ -640,7 +678,7 @@ function finish(G, win) {
   // a win does not stop the world: the clock stops, everyone gets up, and a portal opens for whoever wants to leave
   G.state = win ? 'won' : 'over'; G.result = { win, onTime: win && G.t <= TIME_LIMIT, t: G.t };
   if (win) for (const a of G.actors) { if (!a.alive) revive(G, a); a.target = null; }
-  banner(G, win ? '莫葛沉回海底' : '全隊倒下', 1500);
+  banner(G, win ? (G.did === 'tower' ? '莫葛沉回海底' : `${G.D.name}　通關`) : '全隊倒下', 1500);
 }
 /* ---------- field rules ---------- */
 /* Returns true when the creature should fight this step; otherwise it has already wandered or walked home. */
@@ -654,7 +692,7 @@ function fieldMob(G, e, dt) {
   }
   if (!e.engaged) {
     const near = nearest(e, G.actors);
-    if (near && !inCamp(near) && dist(e, near) < e.def.aggro + near.r) { e.engaged = true; e.threat.set(near, (e.threat.get(near) || 0) + 1); }
+    if (near && !inCamp(G, near) && dist(e, near) < e.def.aggro + near.r) { e.engaged = true; e.threat.set(near, (e.threat.get(near) || 0) + 1); }
     else if (e.threat.size) e.engaged = true;          // somebody hit it from a distance
     else {
       e.wt -= dt; if (e.wt <= 0) { e.wt = rand(2, 5); const an = rand(0, TAU), rr = rand(0, 40); e.wx = home.x + Math.cos(an) * rr; e.wy = home.y + Math.sin(an) * rr; }
@@ -662,7 +700,7 @@ function fieldMob(G, e, dt) {
       return false;
     }
   }
-  let foe = false; for (const p of e.threat.keys()) if (p.alive && !inCamp(p)) { foe = true; break; }
+  let foe = false; for (const p of e.threat.keys()) if (p.alive && !inCamp(G, p)) { foe = true; break; }
   if (dHome > e.def.leash || !foe) { e.engaged = false; e.ret = true; e.threat.clear(); e.cast = null; e.fix = null; e.target = null; return false; }   // dragged too far, or nobody left to fight
   return true;
 }
@@ -671,7 +709,7 @@ function fieldActor(G, a, dt) {
   if (!a.alive) {
     a.gather = null; a.downT += dt;
     if (a.downT >= 3) { a.downT = 0; a.alive = true; a.hp = a.maxHp; const E = G.ev && !G.ev.done ? G.ev : null;      // during a surge you get back up at its edge, not at the far camp
-      a.x = E ? E.x + (a.idx % 2 ? 1 : -1) * 40 : FIELD.spawn[0]; a.y = E ? Math.min(FIELD.h - 20, E.y + E.r + 40) : FIELD.spawn[1]; a.target = null; ev(G, { k: 'woke', i: a.idx, ev: E ? 1 : 0 }); }
+      a.x = E ? E.x + (a.idx % 2 ? 1 : -1) * 40 : G.F.spawn[0]; a.y = E ? Math.min(G.F.h - 20, E.y + E.r + 40) : G.F.spawn[1]; a.target = null; ev(G, { k: 'woke', i: a.idx, ev: E ? 1 : 0 }); }
     return;
   }
   const hunted = G.enemies.some(e => e.engaged && e.threat.has(a));
@@ -696,7 +734,7 @@ function stepField(G, dt) {
   G.enemies = G.enemies.filter(e => e.alive);
   G.respawns = G.respawns.filter(r => { if (G.t < r.at || here.some(a => Math.hypot(a.x - r.home.x, a.y - r.home.y) < 170)) return true; spawnMob(G, r.pk, r.home); return false; });
   // creatures that are not in a fight follow the party's level, inside their pack's range, and its size
-  for (const e of G.enemies) if (!e.evm && !e.engaged && !e.ret) { const want = mobLevel(FIELD.packs[e.pk], plv); if (e.lvl !== want || e.size !== size) scaleMob(e, want, size); }
+  for (const e of G.enemies) if (!e.evm && !e.engaged && !e.ret) { const pkd = G.F.packs[e.pk]; if (!pkd) continue; const want = mobLevel(pkd, plv); if (e.lvl !== want || e.size !== size) scaleMob(e, want, size); }
   for (const n of G.nodes) for (let i = 0; i < n.cd.length; i++) if (n.cd[i] > 0) n.cd[i] -= dt;
   stepEvent(G, dt);
   for (const a of G.actors) fieldActor(G, a, dt);
@@ -711,7 +749,7 @@ function stepEvent(G, dt) {
   if (E.wave >= EV_WAVES.length - 1) { E.done = true; ev(G, { k: 'event-done' }); return; }
   E.gap -= dt; if (E.gap > 0) return; E.gap = 2.5; E.wave++;
   const size = here.length, lvl = clamp(partyLevel(G), EV_MIN, EV_MAX); let i = 0;
-  for (const [kind, n] of EV_WAVES[E.wave]) for (let k = 0; k < n + (kind === 'crab' ? Math.floor((size - 1) / 2) : 0); k++) {
+  for (const [kind, n] of EV_WAVES[E.wave]) if (ENEMY[kind]) for (let k = 0; k < n + (baseOf(kind) === 'crab' ? Math.floor((size - 1) / 2) : 0); k++) {
     const an = (i++) * 2.4 + E.wave, e = mkEnemy(G, kind, E.x + Math.cos(an) * 92, E.y + Math.sin(an) * 92);
     e.evm = true; e.pk = -1; e.home = { x: E.x, y: E.y }; e.wx = e.x; e.wy = e.y; e.wt = 0; e.engaged = true; e.ret = false; scaleMob(e, lvl, 1 + (size - 1) * .7);      // a little gentler per head than a party's own field
   }
@@ -728,16 +766,16 @@ function eventReward(p) {
 function fieldYield(what, key) {
   const m = {};
   if (what === 'gather') { if (key === 'herb') m.herb = 1 + (Math.random() < .35 ? 1 : 0); else if (key === 'wreck') m.scrap = 2 + Math.floor(Math.random() * 2); else if (key === 'salt') m.salt = 1; }
-  else if (key === 'crab') { if (Math.random() < .6) m.scrap = 1; }
-  else if (key === 'acolyte') { if (Math.random() < .5) m.salt = 1; }
+  else if (baseOf(key) === 'crab') { if (Math.random() < .6) m.scrap = 1; }
+  else if (baseOf(key) === 'acolyte') { if (Math.random() < .5) m.salt = 1; }
   return m;
 }
 function grant(p, mats) { fixProfile(p); for (const k of Object.keys(mats)) if (k in MATS) p.inv[k] = Math.min(MAT_CAP, p.inv[k] + mats[k]); }
 /* Everything one gather or one kill gives this profile: materials and experience. For a kill, pk says which pack the
  * creature belonged to; null when the claim does not name a real pack of that creature. */
-function fieldGain(p, what, key, pk) {
+function fieldGain(p, what, key, pk, map) {
   fixProfile(p); let xp = 5, ml = 0;
-  if (what === 'kill') { const def = Number.isInteger(pk) ? FIELD.packs[pk] : null; if (!def || def.kind !== key) return null; ml = mobLevel(def, p.cl); xp = xpForKill(key, ml, p.cl); }
+  if (what === 'kill') { const def = Number.isInteger(pk) ? (MAPS[map] || FIELD).packs[pk] : null; if (!def || def.kind !== key) return null; ml = mobLevel(def, p.cl); xp = xpForKill(key, ml, p.cl); }
   const mats = fieldYield(what, key); grant(p, mats); const x = addXp(p, xp);
   const coin = what === 'kill' && Math.random() < .6 ? addCoin(p, 1 + Math.floor(Math.random() * 2) + Math.floor(p.cl / 6)) : 0;      // creatures sometimes carry a little coin
   const item = ml && Math.random() < DROP.field ? giveItem(p, rollItem(fieldIlvl(ml), null, DROP.fieldSet)) : null;      // and, now and then, something to wear
@@ -761,7 +799,7 @@ function step(G, dt) {
   G.enemies = G.enemies.filter(e => e.alive);
   if (G.actors.every(a => !a.alive)) return finish(G, false);
   if (!G.enemies.length) {
-    if (G.wave >= WAVES.length - 1) return finish(G, true);
+    if (G.wave >= G.D.waves.length - 1) return finish(G, true);
     if (G.gap == null) { G.gap = 1.8; for (const a of G.actors) if (!a.alive) revive(G, a); }
     G.gap -= dt; if (G.gap <= 0) { G.gap = null; nextWave(G); }
   }
@@ -776,7 +814,7 @@ const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
 const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
 const gearCap = lvl => 10 + lvl * 4 + 7;        // how far tempering can push a slot at this tower level
 const charPower = p => powerOf(p.gear) * lvF(p.cl);     // what a character brings to a fight: gear and level
-function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, eq: { w: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } }, bag: [], best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {}, coin: 0, talents: {} }; }
+function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, eq: { w: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } }, bag: [], dl: {}, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {}, coin: 0, talents: {} }; }
 const COIN_CAP = 9999999;
 function addCoin(p, n) { n = Math.max(0, Math.round(n)); p.coin = Math.min(COIN_CAP, (p.coin || 0) + n); return n; }
 function fixProfile(p) {   // fill in anything an older save does not have
@@ -790,6 +828,7 @@ function fixProfile(p) {   // fill in anything an older save does not have
     if (Array.isArray(p.bag)) for (const o of p.bag.slice(0, TUNE.bagCap)) { const it = fixItem(o); if (it) bag.push(it); }
     for (const k of SLOTS) { const o = old[k]; eq[k] = o && typeof o === 'object' && typeof o.n === 'string' && NAME_SLOT[o.n] === k ? { n: o.n, q: qInt(o.q, 0, 2) } : { n: '', q: 0 }; }
     p.bag = bag; p.eq = eq; }
+  { const dl = {}, old = isObj(p.dl) ? p.dl : {}; for (const k of Object.keys(DUNGEONS)) if (k !== 'tower' && Number.isInteger(old[k]) && old[k] > 1) dl[k] = Math.min(50, old[k]); p.dl = dl; }      // floors reached in the other dungeons
   p.cl = Number.isInteger(p.cl) ? clamp(p.cl, 1, TUNE.maxLevel) : 1; p.xp = p.xp >= 0 && p.cl < TUNE.maxLevel ? Math.min(Math.floor(p.xp), xpNeed(p.cl)) : 0;
   fixQuests(p);
   const lo = {}, old = p.loadout && typeof p.loadout === 'object' ? p.loadout : {};      // keep only loadouts that are still allowed
@@ -885,8 +924,9 @@ function applyResult(p, lvl, r, o) {
   // alone, the first piece leans towards your weakest slot
   const weak = Math.random() < .5 ? SLOTS.reduce((m, k) => p.gear[k] < p.gear[m] ? k : m, 'w') : null;
   const loot = o.share ? [] : runDrops(lvl, r, 1, clamp(o.trash | 0, 0, 3), weak).map(it => giveItem(p, it));
-  if (!p.best[lvl] || r.t < p.best[lvl]) p.best[lvl] = Math.round(r.t * 10) / 10;
-  if (r.onTime) p.lvl = Math.max(p.lvl, Math.min(50, lvl + 1));
+  const did = DUNGEONS[o.dungeon] ? o.dungeon : 'tower', bk = did === 'tower' ? lvl : did + ':' + lvl;
+  if (!p.best[bk] || r.t < p.best[bk]) p.best[bk] = Math.round(r.t * 10) / 10;
+  if (r.onTime) { const next = Math.max(floorOf(p, did), Math.min(50, lvl + 1)); if (did === 'tower') p.lvl = next; else p.dl[did] = next; }
   return { loot, mats, xp: x.xp, ups: x.ups, coin };
 }
 
@@ -1054,7 +1094,7 @@ function snapshot(G) {
  * The server applies game/data.js when it starts; the page applies the same file and then what the editor saved on
  * that device. LIM is also what the editor reads for labels and steps: [label, min, max, step]. */
 const LIM = {
-  towerLevel: ['進塔等級', 1, 60, 1], maxLevel: ['等級上限', 5, 60, 1], lvStep: ['每升一級的強度增幅', 0, .5, .01], xpBase: ['升級經驗：基礎', 10, 5000, 1], xpGrow: ['升級經驗：成長', 0, 1000, 1], xpPow: ['升級經驗：曲線', 1, 3, .05],
+  maxLevel: ['等級上限', 5, 60, 1], lvStep: ['每升一級的強度增幅', 0, .5, .01], xpBase: ['升級經驗：基礎', 10, 5000, 1], xpGrow: ['升級經驗：成長', 0, 1000, 1], xpPow: ['升級經驗：曲線', 1, 3, .05],
   towerStep: ['塔每高一層的強度倍率', 1, 2, .01], trashDrop: ['塔內小怪掉裝機率', 0, 1, .01], gatherTime: ['採集秒數', .2, 10, .1], nodeRespawn: ['採集點重生秒數', 1, 600, 1], mobRespawn: ['野怪重生秒數', 1, 600, 1],
   potionCap: ['藥水攜帶上限', 1, 20, 1], potionHeal: ['藥水回復比例', .05, 1, .01], bagCap: ['背包格數', 4, 40, 1], respecCost: ['重置天賦價格', 0, 9999, 1],
   hp: ['生命', 1, 1e6, 10], atk: ['攻擊力', 0, 1e5, 1], aspd: ['攻擊間隔（秒，0 是不普攻）', 0, 10, .05], range: ['距離', 0, 900, 1], speed: ['移動速度', 10, 400, 1], threat: ['仇恨倍率', 0, 50, .5], ultK: ['大招充能難度（越大越慢）', 1, 500, 1],
@@ -1065,7 +1105,7 @@ const LIM = {
   need: ['需要的次數', 1, 999, 1], n: ['數量', 1, 6, 1], min: ['最低等級', 1, 60, 1], max: ['最高等級', 1, 60, 1]
 };
 const TEXT = { name: 14, desc: 60, title: 14, goal: 40, seal: 1 };
-const MOD_KEYS = ['hp', 'dmg', 'heal', 'taken', 'speed', 'threat', 'ult', 'cdr'], NODE_TYPES = ['herb', 'wreck', 'salt'], TOWER_KINDS = ['grunt', 'caster', 'boss'], FIELD_KINDS = ['crab', 'acolyte', 'brute'];
+const MOD_KEYS = ['hp', 'dmg', 'heal', 'taken', 'speed', 'threat', 'ult', 'cdr'], NODE_TYPES = ['herb', 'wreck', 'salt'], WALL_TYPES = ['wall', 'water', 'road'], ID_OK = /^[a-z][a-z0-9]{1,11}$/;
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const cleanStr = (v, max) => typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, max) : '';
 const numIn = (v, lo, hi, int) => typeof v === 'number' && Number.isFinite(v) ? clamp(int ? Math.round(v) : v, lo, hi) : null;
@@ -1079,17 +1119,42 @@ function patch(tgt, src) {
 const editable = o => { const r = {}; for (const k of Object.keys(o)) if ((LIM[k] && typeof o[k] === 'number') || (TEXT[k] && typeof o[k] === 'string')) r[k] = o[k]; return r; };
 function exportData() {
   const map = t => { const r = {}; for (const k of Object.keys(t)) r[k] = editable(t[k]); return r; }, quests = list => list.map(x => Object.assign({ id: x.id }, editable(x), { reward: x.reward }));
-  return JSON.parse(JSON.stringify({ v: 1, tune: TUNE, classes: map(CLASSES), skills: map(SKILLS), enemies: map(ENEMY), drop: DROP, shop: SHOP, recipes: RECIPES.map(r => ({ id: r.id, name: r.name, cost: r.cost })),
-    talents: TALENTS, sets: SETS, plain: PLAIN, quests: { main: quests(MAIN), week: quests(WEEK), side: quests(SIDE) }, waves: WAVES, evWaves: EV_WAVES,
-    field: { w: FIELD.w, h: FIELD.h, gate: { x: FIELD.gate.x, y: FIELD.gate.y }, packs: FIELD.packs, nodes: FIELD.nodes, rocks: FIELD.rocks, events: FIELD.events, npcs: FIELD.npcs, stalls: FIELD.stalls.map(o => ({ id: o.id, x: o.x, y: o.y })) } }));
+  const enemies = map(ENEMY), maps = {}, dungeons = {};
+  for (const k of Object.keys(ENEMY)) { if (ENEMY[k].base) enemies[k].base = ENEMY[k].base; if (ENEMY[k].moves) enemies[k].moves = ENEMY[k].moves; }
+  for (const k of Object.keys(DUNGEONS)) dungeons[k] = { name: DUNGEONS[k].name, min: DUNGEONS[k].min, waves: DUNGEONS[k].waves };
+  for (const k of Object.keys(MAPS)) { const F = MAPS[k];
+    maps[k] = { name: F.name, w: F.w, h: F.h, spawn: { x: F.spawn[0], y: F.spawn[1] }, gate: F.gate ? { x: F.gate.x, y: F.gate.y } : null, packs: F.packs, nodes: F.nodes, rocks: F.rocks, walls: F.walls, exits: F.exits };
+    if (k === 'shore') Object.assign(maps[k], { events: F.events, npcs: F.npcs, stalls: F.stalls.map(o => ({ id: o.id, x: o.x, y: o.y })) }); }
+  return JSON.parse(JSON.stringify({ v: 2, tune: TUNE, classes: map(CLASSES), skills: map(SKILLS), enemies, drop: DROP, shop: SHOP, recipes: RECIPES.map(r => ({ id: r.id, name: r.name, cost: r.cost })),
+    talents: TALENTS, sets: SETS, plain: PLAIN, quests: { main: quests(MAIN), week: quests(WEEK), side: quests(SIDE) }, dungeons, evWaves: EV_WAVES, maps }));
+}
+function cleanMoves(list) {
+  const out = [];
+  for (const m of list.slice(0, 8)) {
+    const spec = isObj(m) && MOVES[m.t]; if (!spec) continue; const r = { t: m.t }; let ok = true;
+    for (const f of Object.keys(spec[1])) { const L = spec[1][f], v = numIn(m[f], L[1], L[2], L[3] >= 1); if (v === null) ok = false; else r[f] = v; }
+    if (!ok) continue;
+    if (spec[1].cast) r.name = cleanStr(m.name, 6); else r.say = cleanStr(m.say, 12);
+    if (m.t === 'adds') r.kind = typeof m.kind === 'string' ? m.kind : 'grunt';
+    out.push(r);
+  }
+  return out;
 }
 function applyData(d) {
   if (!isObj(d)) return false;
   const each = (src, tgt, f) => { if (isObj(src)) for (const k of Object.keys(tgt)) if (isObj(src[k])) f(tgt[k], src[k], k); };
   const prices = (src, lo, hi, keys) => { const r = {}; if (isObj(src)) for (const k of keys) { const v = numIn(src[k], lo, hi, true); if (v !== null && v > 0) r[k] = v; } return r; };
-  const matKeys = Object.keys(MATS), pos = (o, r) => { const x = numIn(o && o.x, 20, FIELD.w - 20, true), y = numIn(o && o.y, 20, FIELD.h - 20, true); return x === null || y === null ? null : Object.assign(r || {}, { x, y }); };
-  if (isObj(d.tune)) patch(TUNE, d.tune);
-  each(d.classes, CLASSES, patch); each(d.skills, SKILLS, patch); each(d.enemies, ENEMY, patch);
+  const matKeys = Object.keys(MATS);
+  if (isObj(d.tune)) { patch(TUNE, d.tune); const v = numIn(d.tune.towerLevel, 1, 60, true); if (v !== null) DUNGEONS.tower.min = v; }      // an older save kept the tower's level here
+  each(d.classes, CLASSES, patch); each(d.skills, SKILLS, patch);
+  if (isObj(d.enemies)) {
+    for (const k of Object.keys(ENEMY)) if (ENEMY[k].base && !isObj(d.enemies[k])) delete ENEMY[k];      // a kind made in the editor that is no longer listed
+    for (const k of Object.keys(d.enemies).slice(0, 40)) {
+      const src = d.enemies[k]; if (!isObj(src)) continue;
+      if (!ENEMY[k]) { if (!ID_OK.test(k) || !TOWER_BASE.concat(FIELD_BASE).includes(src.base)) continue; ENEMY[k] = Object.assign(JSON.parse(JSON.stringify(ENEMY[src.base])), { base: src.base }); delete ENEMY[k].intro; }
+      patch(ENEMY[k], src); if (ENEMY[k].boss && Array.isArray(src.moves)) ENEMY[k].moves = cleanMoves(src.moves);
+    }
+  }
   if (isObj(d.drop)) patch(DROP, d.drop);
   if (isObj(d.shop)) { if (isObj(d.shop.buy)) SHOP.buy = prices(d.shop.buy, 1, 99999, ['potion'].concat(matKeys)); if (isObj(d.shop.sell)) SHOP.sell = prices(d.shop.sell, 1, 99999, matKeys); }
   if (Array.isArray(d.recipes)) for (const r of d.recipes) { const t = isObj(r) && RECIPES.find(x => x.id === r.id), cost = t ? prices(r.cost, 1, 999, matKeys) : null; if (cost && Object.keys(cost).length) t.cost = cost; }
@@ -1120,22 +1185,52 @@ function applyData(d) {
     const t = isObj(q) && list.find(x => x.id === q.id); if (!t) continue; patch(t, q);
     if (isObj(q.reward)) { const r = prices(q.reward, 1, 99999, ['coin', 'xp', 'potion'].concat(matKeys)); if (Object.keys(r).length) t.reward = r; }
   }
-  const waves = (src, tgt, kinds) => { if (!Array.isArray(src) || src.length !== tgt.length) return; src.forEach((w, i) => { const out = []; if (Array.isArray(w)) for (const e of w.slice(0, 4)) { const n = Array.isArray(e) ? numIn(e[1], 1, 8, true) : null; if (n && kinds.includes(e[0])) out.push([e[0], n]); } if (out.length) tgt[i] = out; }); };
-  waves(d.waves, WAVES, TOWER_KINDS); waves(d.evWaves, EV_WAVES, FIELD_KINDS);
-  const f = d.field;
-  if (isObj(f)) {
-    if (pos(f.gate)) Object.assign(FIELD.gate, pos(f.gate));
-    if (Array.isArray(f.packs)) { const out = []; for (const o of f.packs.slice(0, 30)) { const p = isObj(o) && FIELD_KINDS.includes(o.kind) ? pos(o, { kind: o.kind }) : null, n = p && numIn(o.n, 1, 6, true), lo = p && numIn(o.min, 1, 60, true), hi = p && numIn(o.max, 1, 60, true); if (p && n && lo && hi) out.push(Object.assign(p, { n, min: Math.min(lo, hi), max: Math.max(lo, hi) })); } if (out.length) FIELD.packs = out; }
-    if (Array.isArray(f.nodes)) { const out = [], ids = new Set(); for (const o of f.nodes.slice(0, 40)) { const id = isObj(o) ? numIn(o.id, 1, 999, true) : null, p = id && !ids.has(id) && NODE_TYPES.includes(o.type) ? pos(o, { id, type: o.type }) : null; if (p) { ids.add(id); out.push(p); } } if (out.length) FIELD.nodes = out; }
-    if (Array.isArray(f.rocks)) { const out = []; for (const o of f.rocks.slice(0, 30)) { const p = isObj(o) ? pos(o) : null, r = p && numIn(o.r, 10, 80, true); if (r) out.push(Object.assign(p, { r })); } FIELD.rocks = out; }
-    if (Array.isArray(f.events)) { const out = []; for (const o of f.events.slice(0, 6)) { const p = isObj(o) ? pos(o) : null, r = p && numIn(o.r, 60, 200, true); if (r) out.push(Object.assign(p, { r })); } if (out.length) FIELD.events = out; }
-    for (const [key, list] of [['npcs', FIELD.npcs], ['stalls', FIELD.stalls]]) if (Array.isArray(f[key])) for (const o of f[key]) { const t = isObj(o) && list.find(x => x.id === o.id), p = t && pos(o); if (p) Object.assign(t, p); }
+  const wavesOf = (src, max) => { const out = []; if (Array.isArray(src)) for (const w of src.slice(0, max)) { const row = []; if (Array.isArray(w)) for (const e of w.slice(0, 4)) { const n = Array.isArray(e) ? numIn(e[1], 1, 8, true) : null; if (n && typeof e[0] === 'string') row.push([e[0], n]); } if (row.length) out.push(row); } return out; };
+  const setWaves = (D, w) => { if (D.waves === WAVES) { WAVES.length = 0; for (const row of w) WAVES.push(row); } else D.waves = w; };
+  if (Array.isArray(d.waves) && !isObj(d.dungeons)) { const w = wavesOf(d.waves, 8); if (w.length) setWaves(DUNGEONS.tower, w); }      // an older save: the tower's waves on their own
+  if (isObj(d.dungeons)) {
+    for (const k of Object.keys(DUNGEONS)) if (k !== 'tower' && !isObj(d.dungeons[k])) delete DUNGEONS[k];
+    for (const k of Object.keys(d.dungeons).slice(0, 12)) {
+      const src = d.dungeons[k]; if (!isObj(src) || !ID_OK.test(k)) continue;
+      if (!DUNGEONS[k]) DUNGEONS[k] = { name: '新副本', min: 1, waves: [] };
+      patch(DUNGEONS[k], src); if (Array.isArray(src.waves)) { const w = wavesOf(src.waves, 8); if (w.length) setWaves(DUNGEONS[k], w); }
+    }
   }
+  { const ev = wavesOf(d.evWaves, EV_WAVES.length); if (ev.length === EV_WAVES.length && ev.every(w => w.length)) ev.forEach((w, i) => { EV_WAVES[i] = w; }); }
+  const mapsIn = isObj(d.maps) ? d.maps : isObj(d.field) ? { shore: d.field } : null;      // an older save had the one map as `field`
+  if (mapsIn) {
+    if (isObj(d.maps)) for (const k of Object.keys(MAPS)) if (k !== 'shore' && !isObj(mapsIn[k])) delete MAPS[k];
+    for (const k of Object.keys(mapsIn).slice(0, 12)) {
+      const f = mapsIn[k]; if (!isObj(f) || !ID_OK.test(k)) continue;
+      if (!MAPS[k]) MAPS[k] = blankMap(k, '新地圖'); const F = MAPS[k];
+      { const nm = cleanStr(f.name, 8), w = numIn(f.w, 360, 2400, true), h = numIn(f.h, 440, 3000, true); if (nm) F.name = nm; if (k !== 'shore') { if (w) F.w = w; if (h) F.h = h; } }
+      const pos = (o, r) => { const x = numIn(o && o.x, 20, F.w - 20, true), y = numIn(o && o.y, 20, F.h - 20, true); return x === null || y === null ? null : Object.assign(r || {}, { x, y }); };
+      const lst = (key, max, one) => { if (!Array.isArray(f[key])) return null; const out = []; for (const o of f[key].slice(0, max)) { const v = isObj(o) ? one(o) : null; if (v) out.push(v); } return out; };
+      { const sp = pos(f.spawn); if (sp) F.spawn = [sp.x, sp.y]; else { F.spawn[0] = clamp(F.spawn[0], 20, F.w - 20); F.spawn[1] = clamp(F.spawn[1], 20, F.h - 20); } }
+      if (f.gate === null && k !== 'shore') F.gate = null; else if (pos(f.gate)) F.gate = Object.assign({ r: 46 }, pos(f.gate));
+      { const v = lst('packs', 30, o => { const p = typeof o.kind === 'string' ? pos(o, { kind: o.kind }) : null, n = p && numIn(o.n, 1, 6, true), lo = p && numIn(o.min, 1, 60, true), hi = p && numIn(o.max, 1, 60, true); return p && n && lo && hi ? Object.assign(p, { n, min: Math.min(lo, hi), max: Math.max(lo, hi) }) : null; }); if (v && (v.length || k !== 'shore')) F.packs = v; }
+      { const ids = new Set(), v = lst('nodes', 40, o => { const id = numIn(o.id, 1, 999, true), p = id && !ids.has(id) && NODE_TYPES.includes(o.type) ? pos(o, { id, type: o.type }) : null; if (p) ids.add(id); return p; }); if (v && (v.length || k !== 'shore')) F.nodes = v; }
+      { const v = lst('rocks', 30, o => { const p = pos(o), r = p && numIn(o.r, 10, 80, true); return r ? Object.assign(p, { r }) : null; }); if (v) F.rocks = v; }
+      { const v = lst('walls', 40, o => { const p = pos(o), w = p && numIn(o.w, 20, 1200, true), h = p && numIn(o.h, 20, 1200, true); return w && h && WALL_TYPES.includes(o.type) ? Object.assign(p, { w, h, type: o.type }) : null; }); if (v) F.walls = v; }
+      { const v = lst('exits', 6, o => { const p = typeof o.to === 'string' ? pos(o, { to: o.to }) : null; if (p && Number.isFinite(o.tx) && Number.isFinite(o.ty)) { p.tx = Math.round(o.tx); p.ty = Math.round(o.ty); } return p; }); if (v) F.exits = v; }
+      if (k !== 'shore') continue;
+      { const v = lst('events', 6, o => { const p = pos(o), r = p && numIn(o.r, 60, 200, true); return r ? Object.assign(p, { r }) : null; }); if (v && v.length) F.events = v; }
+      for (const [key, list] of [['npcs', F.npcs], ['stalls', F.stalls]]) if (Array.isArray(f[key])) for (const o of f[key]) { const t = isObj(o) && list.find(x => x.id === o.id), p = t && pos(o); if (p) Object.assign(t, p); }
+    }
+  }
+  /* Whatever was changed, nothing may point at something that no longer exists. */
+  { const tk = kindsOf(TOWER_BASE), fk = kindsOf(FIELD_BASE);
+    for (const k of Object.keys(ENEMY)) if (ENEMY[k].moves) for (const m of ENEMY[k].moves) if (m.t === 'adds' && (!tk.includes(m.kind) || ENEMY[m.kind].boss)) m.kind = 'grunt';
+    for (const k of Object.keys(DUNGEONS)) { const w = DUNGEONS[k].waves.map(row => row.filter(e => tk.includes(e[0]))).filter(row => row.length); if (!w.length) w.push([['grunt', 1]]); setWaves(DUNGEONS[k], w); }
+    EV_WAVES.forEach((w, i) => { const row = w.filter(e => fk.includes(e[0])); EV_WAVES[i] = row.length ? row : [['crab', 1]]; });
+    for (const k of Object.keys(MAPS)) { const F = MAPS[k]; F.packs = F.packs.filter(p => fk.includes(p.kind));
+      F.exits = F.exits.filter(e => MAPS[e.to] && e.to !== k); for (const e of F.exits) { const T = MAPS[e.to]; e.tx = clamp(Number.isFinite(e.tx) ? e.tx : T.spawn[0], 20, T.w - 20); e.ty = clamp(Number.isFinite(e.ty) ? e.ty : T.spawn[1], 20, T.h - 20); } } }
   return true;
 }
 { const pre = typeof self !== 'undefined' && self ? self.EmbertideData : null; if (pre) applyData(pre); }      // the committed data file, when the page loaded one before this script
 
-return { exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_TYPES, TOWER_KINDS, FIELD_KINDS, EV_WAVES, PLAIN, TUNE,
+return { exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_TYPES, WALL_TYPES, MOVES, MAPS, DUNGEONS, floorOf, baseOf, EV_WAVES, PLAIN, TUNE,
+  get TOWER_KINDS() { return kindsOf(TOWER_BASE); }, get FIELD_KINDS() { return kindsOf(FIELD_BASE); },
   W, H, TIME_LIMIT, CLASSES, SKILLS, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
   cleanAim, defaultLoadout, validLoadout, loadoutOf, setLoadout,
   FIELD, get GATHER_TIME() { return TUNE.gatherTime; }, get NODE_RESPAWN() { return TUNE.nodeRespawn; }, createField, addFieldActor, removeFieldActor, present, pushOut, fieldYield, grant, fieldGain, eventReward,
@@ -1144,5 +1239,5 @@ return { exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_TYPES, TOWER_KINDS, FI
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id),
   TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, get RESPEC_COST() { return TUNE.respecCost; }, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
   SLOTS, SLOT_NAME: { w: '武器', a: '護甲', t: '飾品' }, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
-  runDrops, bossDrops, refit, get TOWER_LEVEL() { return TUNE.towerLevel; }, PORTAL };
+  runDrops, bossDrops, refit, get TOWER_LEVEL() { return DUNGEONS.tower.min; }, PORTAL };
 });

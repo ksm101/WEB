@@ -98,7 +98,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   // accounts
   const A = await named(port, '小明', 'dps'), B = await named(port, '<b>壞</b>名字超級長', 'heal');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);
-  { const { q, loadout, talents, eq, bag, ...rest } = A.me.profile; assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(talents, {}); assert.deepStrictEqual(bag, []); assert.deepStrictEqual(eq.w, { n: '', q: 0 }); assert.deepStrictEqual(rest, { name: '小明', cls: 'dps', lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, coin: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
+  { const { q, loadout, talents, eq, bag, dl, ...rest } = A.me.profile; assert.deepStrictEqual(dl, {}); assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(talents, {}); assert.deepStrictEqual(bag, []); assert.deepStrictEqual(eq.w, { n: '', q: 0 }); assert.deepStrictEqual(rest, { name: '小明', cls: 'dps', lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, coin: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
   assert.strictEqual(B.me.profile.name, 'b壞/b名字超級');
   const forged = client(port, { id: A.me.id, token: 'x'.repeat(32) }); await forged.ready;
   assert.notStrictEqual(forged.me.id, A.me.id, 'a wrong token must not open someone else\'s account'); forged.ws.close();
@@ -450,6 +450,36 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     s2.store.get(N.me.id).chars[0].cl = 3; N.join('dps', 'LOW'); assert.strictEqual((await N.wait('lobby', m => m.code === 'LOW')).you, 2);
     N.ws.close(); await sleep(50); await s2.close();
     ok('the tower is closed below its level, for groups and for solo claims, and opens at it');
+  }
+
+  // more than one map and more than one dungeon: made as data, played through the server
+  { const canon = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {}) : x), base = Sim.exportData(), d = Sim.exportData();
+    d.enemies.kraken = { base: 'boss', name: '深海巨妖', hp: 5000, moves: [{ t: 'nova', name: '水爆', first: 3, every: 8, cast: 1.5, dmg: 200, r: 110 }, { t: 'adds', at: .5, n: 9, kind: 'boss', say: '<b>來' }, { t: 'fly' }, { t: 'cone', first: 1 }] };
+    d.enemies.shark = { base: 'crab', name: '礁鯊', hp: 500, xp: 30 }; d.enemies['Bad Id'] = { base: 'crab' }; d.enemies.ghost = { base: 'dragon' };
+    d.dungeons.deep = { name: '深淵', min: 2, waves: [[['grunt', 1], ['shark', 2]], [['kraken', 1]], []] };
+    d.maps.reef = { name: '礁岸', w: 800, h: 700, spawn: { x: 400, y: 620 }, gate: null, packs: [{ kind: 'shark', x: 300, y: 300, n: 2, min: 4, max: 8 }, { kind: 'grunt', x: 100, y: 100, n: 1, min: 1, max: 1 }],
+      nodes: [{ id: 1, type: 'salt', x: 100, y: 100 }], rocks: [], walls: [{ x: 400, y: 450, w: 300, h: 40, type: 'wall' }, { x: 100, y: 500, w: 80, h: 80, type: 'lava' }], exits: [{ x: 400, y: 670, to: 'shore' }, { x: 50, y: 50, to: 'nowhere' }, { x: 60, y: 60, to: 'reef' }] };
+    d.maps.shore.exits = [{ x: 120, y: 1400, to: 'reef', tx: 400, ty: 620 }];
+    Sim.applyData(d);
+    assert.deepStrictEqual(Sim.ENEMY.kraken.moves.map(m => m.t), ['nova', 'adds'], 'unknown and incomplete moves are dropped'); assert.strictEqual(Sim.ENEMY.kraken.moves[1].n, 4); assert.strictEqual(Sim.ENEMY.kraken.moves[1].kind, 'grunt', 'a boss cannot call another boss'); assert.strictEqual(Sim.ENEMY.kraken.moves[1].say, 'b來');
+    assert.ok(Sim.ENEMY.kraken.boss && Sim.ENEMY.shark.aggro === Sim.ENEMY.crab.aggro && !Sim.ENEMY['Bad Id'] && !Sim.ENEMY.ghost, 'a new kind takes its behaviour from its base'); assert.deepStrictEqual(Sim.TOWER_KINDS, ['grunt', 'caster', 'boss', 'kraken']);
+    assert.deepStrictEqual(Sim.DUNGEONS.deep, { name: '深淵', min: 2, waves: [[['grunt', 1]], [['kraken', 1]]] }, 'a field creature cannot be put in a dungeon wave');
+    assert.deepStrictEqual(Sim.MAPS.reef.packs.map(p => p.kind), ['shark']); assert.deepStrictEqual(Sim.MAPS.reef.walls.length, 1); assert.deepStrictEqual(Sim.MAPS.reef.exits, [{ to: 'shore', x: 400, y: 670, tx: Sim.FIELD.spawn[0], ty: Sim.FIELD.spawn[1] }], 'an exit must lead to another map that exists'); assert.strictEqual(Sim.MAPS.reef.gate, null);
+    { const G = Sim.createField({ map: 'reef', lvl: 1, player: { cls: 'tank', name: 'x', pow: 1, id: 'a', lvl: 5 } }), me = G.actors[0]; assert.deepStrictEqual(G.enemies.map(e => e.name + e.lvl), ['礁鯊5', '礁鯊5']);
+      me.x = 400; me.y = 520; me.input.my = -1; for (let i = 0; i < 90; i++) Sim.step(G, 1 / 30); assert.ok(me.y > 470 + me.r - 1, `a wall stops you (${me.y})`); }
+    { const G = Sim.createRun({ dungeon: 'deep', lvl: 1, players: [{ cls: 'dps', name: 'x', pow: 1, id: 'a', lvl: 1 }] }); let novas = 0, n = 0; while (!G.result && n++ < 20000) { Sim.step(G, 1 / 30); if (G.boss && G.zones.some(z => z.type === 'circle' && z.r === 110)) novas++; }
+      assert.ok(G.result && G.D.name === '深淵' && novas > 0, 'a made-up boss uses its moves and the run ends'); }
+    const U = await named(port, '探險', 'dps'), cu = srv.store.get(U.me.id).chars[0];
+    U.send({ t: 'join', d: 'deep', room: 'DEEP' }); let lbU = await U.wait('lobby', m => m.code === 'DEEP'); assert.strictEqual(lbU.d, 'deep'); assert.strictEqual(lbU.dname, '深淵'); U.send({ t: 'ready' });
+    const stU = await U.wait('start', m => !m.field); assert.strictEqual(stU.d, 'deep'); await U.wait('s', m => m.st === 'run'); U.send({ t: 'dbg', k: 'skip' }); const tkU = setInterval(() => { U.send({ t: 'a', c: 0 }); U.send({ t: 'dbg', k: 'weak' }); }, 100);
+    const endU = await U.wait('end', null, 60000); clearInterval(tkU); assert.strictEqual(endU.win, true); assert.strictEqual(endU.d, 'deep'); assert.strictEqual(endU.profile.lvl, 1, 'another dungeon does not move your tower floor'); assert.strictEqual(endU.profile.dl.deep, endU.onTime ? 2 : undefined); U.send({ t: 'leave' });
+    U.send({ t: 'join', field: true, room: 'MAPS', map: 'reef' }); const fU = await U.wait('start', m => m.field); assert.strictEqual(fU.map, 'reef'); assert.ok(srv.rooms.has('f:MAPS@reef') && srv.rooms.get('f:MAPS@reef').G.map === 'reef');
+    const V2 = await named(port, '同伴', 'tank'); V2.send({ t: 'join', field: true, room: 'MAPS' }); assert.strictEqual((await V2.wait('start', m => m.field)).map, 'shore'); assert.strictEqual(Sim.present(srv.rooms.get('f:MAPS@reef').G).length, 1, 'people of one party on different maps are in different fields');
+    cu.cl = 5; const xp0 = cu.xp; U.send({ t: 'dbg', k: 'tp', x: 300, y: 330 }); U.send({ t: 'dbg', k: 'weak' }); const ivU = setInterval(() => U.send({ t: 'dbg', k: 'weak' }), 150); await U.wait('fy', m => m.xp > 0, 15000); clearInterval(ivU); assert.ok(cu.xp > xp0 || cu.cl > 5, 'kills on another map pay by that map\'s packs');
+    U.ws.close(); V2.ws.close(); await sleep(60);
+    Sim.applyData(base); assert.strictEqual(canon(Sim.exportData()), canon(base), 'and all of it can be taken away again'); assert.ok(!Sim.MAPS.reef && !Sim.DUNGEONS.deep && !Sim.ENEMY.kraken);
+    { const p = Sim.fixProfile(Object.assign(Sim.newProfile(), { dl: { deep: 4 } })); assert.deepStrictEqual(p.dl, {}, 'progress in a dungeon that no longer exists is dropped'); }
+    ok('worlds: new creature kinds, boss moves, dungeons and maps are data; the server runs them, keeps floors per dungeon and a field per map');
   }
 
   // waiting for a tower group does not take you out of the field

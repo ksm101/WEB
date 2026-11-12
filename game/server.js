@@ -38,7 +38,7 @@ const cleanId = s => typeof s === 'string' && /^[a-f0-9]{16}$/.test(s) ? s : '';
  * skills) belongs to a character; friends belong to the account. rec.name mirrors the name of the character in use. */
 const MAX_CHARS = 4;
 const pc = r => r.chars[r.cur] || null;        // the character this account is playing
-const charProfile = c => ({ name: c.name, cls: c.cls, lvl: c.lvl, cl: c.cl, xp: c.xp, gear: c.gear, eq: c.eq, bag: c.bag, best: c.best, runs: c.runs, inv: c.inv, q: c.q, loadout: c.loadout, coin: c.coin, talents: c.talents });
+const charProfile = c => ({ name: c.name, cls: c.cls, lvl: c.lvl, cl: c.cl, xp: c.xp, gear: c.gear, eq: c.eq, bag: c.bag, dl: c.dl, best: c.best, runs: c.runs, inv: c.inv, q: c.q, loadout: c.loadout, coin: c.coin, talents: c.talents });
 const profileOf = r => { const c = pc(r); return c ? charProfile(c) : null; };
 const rosterOf = r => r.chars.map(c => ({ name: c.name, cls: c.cls, cl: c.cl, lvl: c.lvl, ilvl: Sim.ilvlOf(c.gear) }));
 const charName = s => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '';
@@ -56,8 +56,8 @@ function normChar(b) {
   const g = b.gear || {}, v = b.inv || {};
   const c = { name: cleanName(b.name), cls: SEATS.includes(b.cls) ? b.cls : 'dps', made: clampInt(b.made, 0, 9e15), lvl: clampInt(b.lvl, 1, 50), cl: clampInt(b.cl, 1, Sim.MAX_LEVEL), xp: clampInt(b.xp, 0, 1e9),
     gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) }, best: {}, runs: clampInt(b.runs, 0, 1e9),
-    inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) }, q: b.q, loadout: b.loadout, coin: clampInt(b.coin, 0, 9999999), talents: b.talents, eq: b.eq, bag: b.bag };
-  if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const n = Number(b.best[k]); if (/^\d+$/.test(k) && Number.isFinite(n)) c.best[k] = n; }
+    inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) }, q: b.q, loadout: b.loadout, coin: clampInt(b.coin, 0, 9999999), talents: b.talents, eq: b.eq, bag: b.bag, dl: b.dl };
+  if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const n = Number(b.best[k]); if (/^([a-z][a-z0-9]{1,11}:)?\d+$/.test(k) && Number.isFinite(n)) c.best[k] = n; }
   return Sim.fixProfile(c);
 }
 function normalize(b) {
@@ -78,7 +78,8 @@ function start(opts) {
   const speed = opts.speed || 1;                       // tests fast-forward the simulation
   const lobbyWait = opts.lobbyWait != null ? opts.lobbyWait : 8000;
   const soloMin = opts.soloMin != null ? opts.soloMin : 75;
-  const towerLevel = opts.towerLevel != null ? opts.towerLevel : Sim.TOWER_LEVEL;      // the tower opens at this level
+  const minLevel = did => opts.towerLevel != null ? opts.towerLevel : Sim.DUNGEONS[did].min;      // each dungeon opens at its own level; tests can lower them all
+  const dungeonOf = v => typeof v === 'string' && Object.prototype.hasOwnProperty.call(Sim.DUNGEONS, v) ? v : 'tower', mapOf = v => typeof v === 'string' && Object.prototype.hasOwnProperty.call(Sim.MAPS, v) ? v : 'shore';
   const wonStay = opts.wonStay != null ? opts.wonStay : 120000;                       // how long a cleared tower stays up for people to walk out
   const lootWait = opts.lootWait != null ? opts.lootWait : 25000;      // how long a group has to decide who gets what
   // the tide surge: every evPeriod ms one starts and stays open for evDur ms, at a spot that rotates
@@ -184,7 +185,7 @@ function start(opts) {
     if (!mutual) return send(ws, { t: 'note', msg: '對方也加你為好友之後才能邀請。' });
     if (!tws) return send(ws, { t: 'note', msg: `${o.name} 現在不在線上。` });
     if (stateOf(id) === 'run') return send(ws, { t: 'note', msg: `${o.name} 正在打副本。` });
-    send(tws, { t: 'invited', from: { id: rec.id, name: rec.name }, code: room.code, field: afield });
+    send(tws, { t: 'invited', from: { id: rec.id, name: rec.name }, code: room.code, field: afield, map: afield ? room.map : undefined });
     send(ws, { t: 'note', msg: `已邀請 ${o.name}。` });
   }
 
@@ -272,15 +273,15 @@ function start(opts) {
   }
 
   /* ---------- rooms ---------- */
-  function mkRoom(key, code, pub) {
-    const room = { key, code, pub, state: 'lobby', slots: [null, null, null, null], deadline: 0, emptySince: Date.now(), G: null, acc: 0, n: 0, clock: 0, goneSince: 0, leader: -1, loot: 'roll' };
+  function mkRoom(key, code, pub, did) {
+    const room = { key, code, pub, did: did || 'tower', state: 'lobby', slots: [null, null, null, null], deadline: 0, emptySince: Date.now(), G: null, acc: 0, n: 0, clock: 0, goneSince: 0, leader: -1, loot: 'roll' };
     rooms.set(key, room); return room;
   }
   function lobbyInfo(room) {
     const now = Date.now();
     for (let i = 0; i < 4; i++) {
       const me = room.slots[i]; if (!me) continue;
-      send(me.ws, { t: 'lobby', code: room.pub ? '' : room.code, you: i, leader: room.pub ? -1 : room.leader, mode: room.pub ? 'roll' : room.loot,
+      send(me.ws, { t: 'lobby', code: room.pub ? '' : room.code, you: i, d: room.did, dname: Sim.DUNGEONS[room.did] ? Sim.DUNGEONS[room.did].name : '', leader: room.pub ? -1 : room.leader, mode: room.pub ? 'roll' : room.loot,
         left: room.pub && room.deadline ? Math.max(0, Math.ceil((room.deadline - now) / 1000)) : -1,
         slots: room.slots.map((s, k) => ({ cls: SEATS[k], name: s ? s.name : '', ready: !!(s && s.ready) })) });
     }
@@ -309,25 +310,25 @@ function start(opts) {
     if (seats.has(rec.id)) return;                       // already seated in a run
     if (m.event) return onEventJoin(ws, m);
     if (m.field) return onFieldJoin(ws, m);
-    if (c.cl < towerLevel) return send(ws, { t: 'err', msg: `沉鐘塔要 Lv.${towerLevel} 才能進，你現在 Lv.${c.cl}。` });
+    const code = cleanCode(m.room), known = code ? rooms.get('p:' + code) : null, did = known && Sim.DUNGEONS[known.did] ? known.did : dungeonOf(m.d);      // a room that exists has already chosen its dungeon
+    if (c.cl < minLevel(did)) return send(ws, { t: 'err', msg: `${Sim.DUNGEONS[did].name}要 Lv.${minLevel(did)} 才能進，你現在 Lv.${c.cl}。` });
     unqueue(ws);      // one group at a time; where you stand does not change
-    const cls = c.cls, code = cleanCode(m.room); let room = null, idx = -1;      // the class is the character's, whatever the client says
+    const cls = c.cls; let room = null, idx = -1;      // the class is the character's, whatever the client says
     const freeSeat = r => r.slots.findIndex((s, k) => !s && SEATS[k] === cls);
     if (code) {
       room = rooms.get('p:' + code);
       if (room && room.state === 'run') return send(ws, { t: 'err', msg: '這個房間正在打副本，等他們打完再進來。' });
-      if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('p:' + code, code, false); }
+      if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('p:' + code, code, false, did); }
       idx = freeSeat(room);
       if (idx < 0) return send(ws, { t: 'err', msg: `這個房間的${Sim.CLASSES[cls].name}位置滿了，換一個職業再進來。` });
     } else {
-      for (const r of rooms.values()) if (r.pub && r.state === 'lobby' && freeSeat(r) >= 0) { room = r; break; }
-      if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('q:' + (++publicN), '', true); }
+      for (const r of rooms.values()) if (r.pub && r.did === did && r.state === 'lobby' && freeSeat(r) >= 0) { room = r; break; }
+      if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('q:' + (++publicN), '', true, did); }
       idx = freeSeat(room);
     }
-    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: c.lvl, cl: c.cl, pow: Sim.charPower(c), mods: Sim.modsFor(c, cls), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), ws, ready: false };   // level and power come from the account, never from the client
+    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: Sim.floorOf(c, room.did), cl: c.cl, pow: Sim.charPower(c), mods: Sim.modsFor(c, cls), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), ws, ready: false };   // level and power come from the account, never from the client
     ws.lobby = { room, idx }; if (room.leader < 0 || !room.slots[room.leader]) room.leader = idx;      // whoever is first leads
-    const fr = code ? rooms.get('f:' + code) : null;      // the rest of the party is still out in the field: tell them where to come
-    if (fr) for (const o of fr.slots) if (o && o.ws && o.ws !== ws) send(o.ws, { t: 'invited', from: { id: rec.id, name: c.name }, code, gate: true });
+    if (code) for (const fr of rooms.values()) if (fr.kind === 'field' && fr.party === code) for (const o of fr.slots) if (o && o.ws && o.ws !== ws) send(o.ws, { t: 'invited', from: { id: rec.id, name: c.name }, code, gate: true });      // the rest of the party is still out in the field, on whatever map: tell them
     const wr = ws.info && ws.info.room;      // still inside a tower they just cleared together: ask the others along
     if (code && wr && wr.won) for (const o of wr.slots) if (o && o.ws && o.ws !== ws) send(o.ws, { t: 'invited', from: { id: rec.id, name: c.name }, code, again: true });
     const now = Date.now();
@@ -338,12 +339,13 @@ function start(opts) {
     const G = room.G;
     room.slots.forEach((s, i) => {
       if (!s || (only != null && only !== i)) return;
-      send(s.ws, { t: 'start', you: i, lvl: G.lvl, elvl: G.elvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, lvl: a.lvl, human: a.human, maxHp: a.maxHp, potions: a.potions, spd: a.mods.speed, skills: a.skills.map(k => k.id) })) });
+      send(s.ws, { t: 'start', you: i, d: G.did, lvl: G.lvl, elvl: G.elvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, lvl: a.lvl, human: a.human, maxHp: a.maxHp, potions: a.potions, spd: a.mods.speed, skills: a.skills.map(k => k.id) })) });
     });
   }
   function startRoom(room) {
     const lvl = Math.min.apply(null, humans(room).map(s => s.lvl));
-    room.G = Sim.createRun({ lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.cl, pow: s.pow, mods: s.mods, id: s.id, potions: s.potions, skills: s.skills })) });
+    if (!Sim.DUNGEONS[room.did]) room.did = 'tower';      // the dungeon was removed while they waited
+    room.G = Sim.createRun({ dungeon: room.did, lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.cl, pow: s.pow, mods: s.mods, id: s.id, potions: s.potions, skills: s.skills })) });
     // seats and actors share the same order, so slot i drives actor i
     room.slots.forEach((s, i) => { if (s) { if (room.G.actors[i].pid !== s.id) throw new Error('seat mismatch'); seats.set(s.id, { room, idx: i }); if (s.ws) { leaveWorld(s.ws); s.ws.lobby = null; s.ws.info = { room, idx: i }; } } });      // the group is taken out of wherever each of them stood
     room.state = 'run'; room.acc = 0; room.n = 0; room.clock = 0; room.goneSince = 0; room.last = Date.now();
@@ -377,12 +379,12 @@ function start(opts) {
     if (L) loots.set(L.id, L);
     room.slots.forEach((s, i) => {
       const rec = s && store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) return;     // the character that took the seat
-      const rw = Sim.applyResult(c, G.lvl, r, { trash: G.drops, share });
+      const rw = Sim.applyResult(c, G.lvl, r, { trash: G.drops, share, dungeon: G.did });
       c.inv.potion = Math.max(0, c.inv.potion - G.actors[i].stats.pots);
       Sim.questEvent(c, { type: 'run', win: r.win, onTime: r.onTime, cls: s.cls, kicks: G.actors[i].stats.kicks, hits: G.actors[i].stats.hits, mates: hs.length - 1 }, now);
       for (const o of hs) if (o.id !== s.id) rec.recent = [{ id: o.id, name: o.name, cls: o.cls, at: now }].concat(rec.recent.filter(x => x.id !== o.id)).slice(0, 10);
       store.put(rec);
-      send(s.ws, { t: 'end', win: r.win, onTime: r.onTime, time: Math.round(r.t * 10) / 10, lvl: G.lvl, stats, loot: rw.loot, mats: rw.mats, xp: rw.xp, coin: rw.coin, again, profile: profileOf(rec), bk: store.pack(rec),
+      send(s.ws, { t: 'end', d: G.did, win: r.win, onTime: r.onTime, time: Math.round(r.t * 10) / 10, lvl: G.lvl, stats, loot: rw.loot, mats: rw.mats, xp: rw.xp, coin: rw.coin, again, profile: profileOf(rec), bk: store.pack(rec),
         pile: L ? { id: L.id, mode: L.mode, leader: L.leader, you: hs.indexOf(s), left: Math.ceil(lootWait / 1000), items: L.items.map(e => e.it), members: L.members.map(x => ({ name: x.name, cls: x.cls })) } : null,
         mates: hs.filter(o => o.id !== s.id).map(o => ({ id: o.id, name: o.name, cls: o.cls, friend: !!rec.friends[o.id] })) });
     });
@@ -390,7 +392,7 @@ function start(opts) {
     /* A cleared tower stays up for a while: the people in it can still walk about, and leave through the portal when
      * they like. Nobody is held to it any more, and its code is free at once for the next group. */
     for (const s of hs) seats.delete(s.id);
-    rooms.delete(room.key); if (!room.pub) mkRoom(room.key, room.code, false).loot = room.loot;
+    rooms.delete(room.key); if (!room.pub) mkRoom(room.key, room.code, false, room.did).loot = room.loot;
     room.key = 'w:' + (++wonN); room.won = true; room.wonAt = now; rooms.set(room.key, room);
   }
   /* ---------- dividing a group's gear ----------
@@ -435,13 +437,13 @@ function start(opts) {
    * passed as the run says it took. */
   function onSolo(ws, m) {
     const rec = ws.acc, c = pc(rec);
-    if (m.t === 'solo0') { ws.solo = c.cl < towerLevel ? null : { lvl: clampInt(m.lvl, 1, c.lvl), cls: c.cls, at: Date.now() }; return; }
+    if (m.t === 'solo0') { const did = dungeonOf(m.d); ws.solo = c.cl < minLevel(did) ? null : { did, lvl: clampInt(m.lvl, 1, Sim.floorOf(c, did)), cls: c.cls, at: Date.now() }; return; }
     const s = ws.solo; ws.solo = null; const time = Number(m.time), win = m.win === true;
     const ok = !!s && Number.isFinite(time) && time > 0 && time < 3600 && (Date.now() - s.at) / 1000 >= time * .9 && (!win || time >= soloMin);
     let rw = { loot: [], mats: null, xp: 0, coin: 0 };
     if (s && m.pots > 0) c.inv.potion = Math.max(0, c.inv.potion - 1);   // a potion drunk in the run is gone either way
     if (ok) {     // kicks and hits are the device's own count: fine for quests, not for anything worth cheating
-      rw = Sim.applyResult(c, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time }, { trash: clampInt(m.drops, 0, 3) });
+      rw = Sim.applyResult(c, s.lvl, { win, onTime: win && time <= Sim.TIME_LIMIT, t: time }, { trash: clampInt(m.drops, 0, 3), dungeon: Sim.DUNGEONS[s.did] ? s.did : 'tower' });
       Sim.questEvent(c, { type: 'run', win, onTime: win && time <= Sim.TIME_LIMIT, cls: s.cls, kicks: clampInt(m.kicks, 0, 50), hits: clampInt(m.hits, 0, 999), mates: 0 }, Date.now());
     }
     if (s) store.put(rec);
@@ -457,15 +459,16 @@ function start(opts) {
     let code = cleanCode(m.room); if (!code) do { code = crypto.randomBytes(2).toString('hex').toUpperCase(); } while (rooms.has('f:' + code));
     const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsFor(c, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
     const at = Number.isFinite(m.x) && Number.isFinite(m.y) ? [m.x, m.y] : null;      // coming back from a surge: stand where you were
-    let room = rooms.get('f:' + code), idx = 0;
+    const map = mapOf(m.map), key = 'f:' + code + (map === 'shore' ? '' : '@' + map);      // a party has one field for each map its people are on
+    let room = rooms.get(key), idx = 0;
     if (room) { idx = Sim.addFieldActor(room.G, p, at); if (idx < 0) return send(ws, { t: 'err', msg: '這個隊伍滿了，最多 4 個人。' }); }
     else {
       if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' });
-      room = { key: 'f:' + code, code, kind: 'field', pub: false, state: 'run', slots: [], G: Sim.createField({ lvl: c.lvl, grace: 12, players: [] }), acc: 0, n: 0, clock: 0, last: Date.now(), goneSince: 0 };
+      room = { key, code, party: code, map, kind: 'field', pub: false, state: 'run', slots: [], G: Sim.createField({ map, lvl: c.lvl, grace: 12, players: [] }), acc: 0, n: 0, clock: 0, last: Date.now(), goneSince: 0 };
       rooms.set(room.key, room); idx = Sim.addFieldActor(room.G, p, at);
     }
     room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls: c.cls, ws }; ws.info = { room, idx }; ws.field = null;
-    send(ws, { t: 'start', field: true, code, you: idx, lvl: room.G.lvl, elvl: 1, roster: fieldRosterOf(room) });
+    send(ws, { t: 'start', field: true, code, map, you: idx, lvl: room.G.lvl, elvl: 1, roster: fieldRosterOf(room) });
     fieldRoster(room);
   }
   /* The tide surge. Everyone who walks into it while it is open lands in the same field, strangers included; it is
@@ -504,14 +507,14 @@ function start(opts) {
     const G = room.G, now = Date.now(); let grew = false;
     const pay = (idx, what, key, pk) => {
       const s = room.slots[idx], rec = s && store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) return;
-      const gain = Sim.fieldGain(c, what, key, pk); if (!gain) return;
+      const gain = Sim.fieldGain(c, what, key, pk, G.map); if (!gain) return;
       Sim.questEvent(c, { type: what }, now); store.put(rec);
       if (gain.ups) { Sim.setLevel(G.actors[idx], c.cl, Sim.charPower(c)); grew = true; }
       else if (gain.item && gain.item.up) { Sim.refit(G.actors[idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls)); grew = true; }
       send(s.ws, { t: 'fy', ok: true, mats: gain.mats, xp: gain.xp, coin: gain.coin, item: gain.item, profile: charProfile(c) }); later(s.ws);
     };
     for (const o of events) {
-      if (o.k === 'gathered') { const n = Sim.FIELD.nodes.find(q => q.id === o.id); if (n) pay(o.by, 'gather', n.type); }
+      if (o.k === 'gathered') { const n = G.F.nodes.find(q => q.id === o.id); if (n) pay(o.by, 'gather', n.type); }
       else if (o.k === 'kill') for (const i of o.who) pay(i, 'kill', o.kind, o.pk);
       else if (o.k === 'event-done') endEvent(room, true);
     }
@@ -523,15 +526,15 @@ function start(opts) {
    * it regrows, gathers cannot outpace the gathering time, and kills are limited to a steady rate. */
   function onField(ws, m) {
     const rec = ws.acc, c = pc(rec), now = Date.now();
-    if (m.t === 'field0') { ws.field = { nodes: {}, lastG: 0, tokens: 6, at: now }; return; }
+    if (m.t === 'field0') { ws.field = { map: mapOf(m.map), nodes: {}, lastG: 0, tokens: 6, at: now }; return; }
     const f = ws.field; let gain = null;
     if (f && m.t === 'fg') {
-      const node = Sim.FIELD.nodes.find(n => n.id === m.id);
-      if (node && now - (f.nodes[node.id] || 0) >= Sim.NODE_RESPAWN * 900 && now - f.lastG >= Sim.GATHER_TIME * 900) { f.nodes[node.id] = now; f.lastG = now; gain = Sim.fieldGain(c, 'gather', node.type); Sim.questEvent(c, { type: 'gather' }, now); }
+      const node = (Sim.MAPS[f.map] || Sim.FIELD).nodes.find(n => n.id === m.id);
+      if (node && now - (f.nodes[node.id] || 0) >= Sim.NODE_RESPAWN * 900 && now - f.lastG >= Sim.GATHER_TIME * 900) { f.nodes[node.id] = now; f.lastG = now; gain = Sim.fieldGain(c, 'gather', node.type, null, f.map); Sim.questEvent(c, { type: 'gather' }, now); }
     } else if (f && m.t === 'fk') {
       f.tokens = Math.min(6, f.tokens + (now - f.at) / 2500); f.at = now;
       // the creature's level, and so its experience, is worked out here from the account's level and the pack it names
-      if (f.tokens >= 1 && typeof m.kind === 'string') { gain = Sim.fieldGain(c, 'kill', m.kind, m.pk); if (gain) { f.tokens -= 1; Sim.questEvent(c, { type: 'kill' }, now); } }
+      if (f.tokens >= 1 && typeof m.kind === 'string') { gain = Sim.fieldGain(c, 'kill', m.kind, m.pk, f.map); if (gain) { f.tokens -= 1; Sim.questEvent(c, { type: 'kill' }, now); } }
     }
     if (gain) store.put(rec);
     send(ws, { t: 'fy', ok: !!gain, mats: gain ? gain.mats : {}, xp: gain ? gain.xp : 0, coin: gain ? gain.coin : 0, item: gain ? gain.item : null, profile: profileOf(rec) }); if (gain) later(ws);
@@ -635,7 +638,7 @@ function start(opts) {
         else if (m.p === 1) inp.pot = true;
       } else if (m.t === 'dbg' && opts.debug) {     // test hook, never enabled in production
         const G = room.G;
-        if (m.k === 'skip') { G.wave = Math.max(G.wave, Sim.WAVES.length - 2); for (const e of G.enemies) e.hp = 1; }
+        if (m.k === 'skip') { G.wave = Math.max(G.wave, G.D.waves.length - 2); for (const e of G.enemies) e.hp = 1; }
         if (m.k === 'win' && G.boss) G.boss.hp = 1;
         if (m.k === 'hurt') a.hp = Math.round(a.maxHp * .4);
         if (m.k === 'tp' && Number.isFinite(m.x) && Number.isFinite(m.y)) { a.x = m.x; a.y = m.y; }
