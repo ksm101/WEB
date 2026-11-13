@@ -18,7 +18,7 @@ const MAX_ROOMS = 200, MAX_FRIENDS = 50;
 /* Mail and the auction house. Mail belongs to the account; what is attached comes from, and goes to, the character in use. */
 const MAIL_CAP = 30, MAIL_FEE = 5, MAIL_TEXT = 80;
 const AH_MAX = 8, AH_CUT = .05, AH_HOURS = 24, AH_SHOW = 80, AH_PRICE = 999999;
-const NEEDS_CHAR = ['join', 'name', 'loadout', 'claim', 'craft', 'solo0', 'solo1', 'field0', 'fg', 'fk', 'talent', 'talent-reset', 'shop', 'item', 'mail-send', 'mail-take', 'ah'];
+const NEEDS_CHAR = ['join', 'name', 'loadout', 'claim', 'craft', 'solo0', 'solo1', 'field0', 'fg', 'fk', 'fr', 'talent', 'talent-reset', 'shop', 'item', 'mail-send', 'mail-take', 'ah'];
 const SEATS = Sim.ROSTER;       // tank, heal, dps, dps
 const FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
@@ -381,7 +381,7 @@ function start(opts) {
       const rec = s && store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) return;     // the character that took the seat
       const rw = Sim.applyResult(c, G.lvl, r, { trash: G.drops, share, dungeon: G.did });
       c.inv.potion = Math.max(0, c.inv.potion - G.actors[i].stats.pots);
-      Sim.questEvent(c, { type: 'run', win: r.win, onTime: r.onTime, cls: s.cls, kicks: G.actors[i].stats.kicks, hits: G.actors[i].stats.hits, mates: hs.length - 1 }, now);
+      Sim.questEvent(c, { type: 'run', d: G.did, win: r.win, onTime: r.onTime, cls: s.cls, kicks: G.actors[i].stats.kicks, hits: G.actors[i].stats.hits, mates: hs.length - 1 }, now);
       for (const o of hs) if (o.id !== s.id) rec.recent = [{ id: o.id, name: o.name, cls: o.cls, at: now }].concat(rec.recent.filter(x => x.id !== o.id)).slice(0, 10);
       store.put(rec);
       send(s.ws, { t: 'end', d: G.did, win: r.win, onTime: r.onTime, time: Math.round(r.t * 10) / 10, lvl: G.lvl, stats, loot: rw.loot, mats: rw.mats, xp: rw.xp, coin: rw.coin, again, profile: profileOf(rec), bk: store.pack(rec),
@@ -444,7 +444,7 @@ function start(opts) {
     if (s && m.pots > 0) c.inv.potion = Math.max(0, c.inv.potion - 1);   // a potion drunk in the run is gone either way
     if (ok) {     // kicks and hits are the device's own count: fine for quests, not for anything worth cheating
       rw = Sim.applyResult(c, s.lvl, { win, onTime: win && time <= ((Sim.DUNGEONS[s.did] || {}).time || Sim.TIME_LIMIT), t: time }, { trash: clampInt(m.drops, 0, 6), dungeon: Sim.DUNGEONS[s.did] ? s.did : 'tower' });
-      Sim.questEvent(c, { type: 'run', win, onTime: win && time <= ((Sim.DUNGEONS[s.did] || {}).time || Sim.TIME_LIMIT), cls: s.cls, kicks: clampInt(m.kicks, 0, 50), hits: clampInt(m.hits, 0, 999), mates: 0 }, Date.now());
+      Sim.questEvent(c, { type: 'run', d: Sim.DUNGEONS[s.did] ? s.did : 'tower', win, onTime: win && time <= ((Sim.DUNGEONS[s.did] || {}).time || Sim.TIME_LIMIT), cls: s.cls, kicks: clampInt(m.kicks, 0, 50), hits: clampInt(m.hits, 0, 999), mates: 0 }, Date.now());
     }
     if (s) store.put(rec);
     send(ws, { t: 'solo', ok, loot: rw.loot, mats: rw.mats, xp: rw.xp, coin: rw.coin, profile: profileOf(rec), bk: store.pack(rec) });
@@ -508,7 +508,7 @@ function start(opts) {
     const pay = (idx, what, key, pk) => {
       const s = room.slots[idx], rec = s && store.get(s.id), c = rec && rec.chars[s.ci]; if (!c) return;
       const gain = Sim.fieldGain(c, what, key, pk, G.map); if (!gain) return;
-      Sim.questEvent(c, { type: what, tag: what === 'kill' ? Sim.packTag(G.map, pk) : '' }, now); store.put(rec);
+      Sim.questEvent(c, { type: what, map: G.map, tag: what === 'kill' ? Sim.packTag(G.map, pk) : '', kind: what === 'kill' ? key : '', node: what === 'gather' ? key : '' }, now); store.put(rec);
       if (gain.ups) { Sim.setLevel(G.actors[idx], c.cl, Sim.charPower(c)); grew = true; }
       else if (gain.item && gain.item.up) { Sim.refit(G.actors[idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls)); grew = true; }
       send(s.ws, { t: 'fy', ok: true, mats: gain.mats, xp: gain.xp, coin: gain.coin, item: gain.item, profile: charProfile(c) }); later(s.ws);
@@ -517,6 +517,7 @@ function start(opts) {
       if (o.k === 'gathered') { const n = G.F.nodes.find(q => q.id === o.id); if (n) pay(o.by, 'gather', n.type); }
       else if (o.k === 'kill') for (const i of o.who) pay(i, 'kill', o.kind, o.pk);
       else if (o.k === 'event-done') endEvent(room, true);
+      else if (o.k === 'reach') { const s = room.slots[o.by], rec = s && store.get(s.id), c = rec && rec.chars[s.ci]; if (c) { Sim.questEvent(c, { type: 'reach', tag: o.tag }, now); store.put(rec); send(s.ws, { t: 'fy', ok: true, mats: {}, xp: 0, coin: 0, profile: charProfile(c) }); later(s.ws); } }
     }
     if (grew) fieldRoster(room);
   }
@@ -530,11 +531,14 @@ function start(opts) {
     const f = ws.field; let gain = null;
     if (f && m.t === 'fg') {
       const node = (Sim.MAPS[f.map] || Sim.FIELD).nodes.find(n => n.id === m.id);
-      if (node && now - (f.nodes[node.id] || 0) >= Sim.NODE_RESPAWN * 900 && now - f.lastG >= Sim.GATHER_TIME * 900) { f.nodes[node.id] = now; f.lastG = now; gain = Sim.fieldGain(c, 'gather', node.type, null, f.map); Sim.questEvent(c, { type: 'gather' }, now); }
+      if (node && now - (f.nodes[node.id] || 0) >= Sim.NODE_RESPAWN * 900 && now - f.lastG >= Sim.GATHER_TIME * 900) { f.nodes[node.id] = now; f.lastG = now; gain = Sim.fieldGain(c, 'gather', node.type, null, f.map); Sim.questEvent(c, { type: 'gather', node: node.type, map: f.map }, now); }
     } else if (f && m.t === 'fk') {
       f.tokens = Math.min(6, f.tokens + (now - f.at) / 2500); f.at = now;
       // the creature's level, and so its experience, is worked out here from the account's level and the pack it names
-      if (f.tokens >= 1 && typeof m.kind === 'string') { gain = Sim.fieldGain(c, 'kill', m.kind, m.pk, f.map); if (gain) { f.tokens -= 1; Sim.questEvent(c, { type: 'kill', tag: Sim.packTag(f.map, m.pk) }, now); } }
+      if (f.tokens >= 1 && typeof m.kind === 'string') { gain = Sim.fieldGain(c, 'kill', m.kind, m.pk, f.map); if (gain) { f.tokens -= 1; Sim.questEvent(c, { type: 'kill', map: f.map, kind: m.kind, tag: Sim.packTag(f.map, m.pk) }, now); } }
+    } else if (f && m.t === 'fr') {      // a landmark found on the map they said they are on
+      f.tokens = Math.min(6, f.tokens + (now - f.at) / 2500); f.at = now; const mk = ((Sim.MAPS[f.map] || Sim.FIELD).marks || []).find(x => x.name === m.tag);
+      if (mk && f.tokens >= 1) { f.tokens -= 1; Sim.questEvent(c, { type: 'reach', tag: mk.name }, now); gain = { mats: {}, xp: 0, coin: 0, item: null }; }
     }
     if (gain) store.put(rec);
     send(ws, { t: 'fy', ok: !!gain, mats: gain ? gain.mats : {}, xp: gain ? gain.xp : 0, coin: gain ? gain.coin : 0, item: gain ? gain.item : null, profile: profileOf(rec) }); if (gain) later(ws);
@@ -616,7 +620,7 @@ function start(opts) {
         case 'roll': case 'assign': return onLoot(ws, m);
         case 'mail': case 'mail-read': case 'mail-del': case 'mail-take': case 'mail-send': return onMail(ws, m);
         case 'ah': return onAuction(ws, m);
-        case 'field0': case 'fg': case 'fk': return onField(ws, m);
+        case 'field0': case 'fg': case 'fk': case 'fr': return onField(ws, m);
         case 'loadout': { const r = Sim.setLoadout(pc(ws.acc), pc(ws.acc).cls, m.skills); if (r.ok) { store.put(ws.acc); refit(ws); } return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'claim': { const r = Sim.questClaim(pc(ws.acc), String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'craft': { const r = Sim.craft(pc(ws.acc), String(m.id)); if (r.ok) { Sim.questEvent(pc(ws.acc), { type: 'craft', kind: r.kind }, Date.now()); store.put(ws.acc); } return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }

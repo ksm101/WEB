@@ -600,7 +600,18 @@ const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').s
 const inviteRoom = cleanCode(qs.get('room'));   // opened from a friend's invite link
 /* Run a change to the save and report which quests it finished. */
 const readyQuests = () => S.questList(save, Date.now(), online).items.filter(x => x.ready).map(x => x.title);
-function newlyDone(change) { const before = readyQuests(); change(); levelCheck(); return readyQuests().filter(t => !before.includes(t)); }
+/* Side quests say so when they move on, the way a hunter's tally does: "清灘 3/12" over your head. */
+const sideTally = () => { const m = {}; for (const x of S.questList(save, Date.now(), online).items) if (x.group === 'side' && !x.claimed) m[x.id] = x; return m; };
+function newlyDone(change) {
+  const before = readyQuests(), t0 = sideTally(); change(); levelCheck();
+  if (V && V.me) { const t1 = sideTally(); let n = 0; for (const id of Object.keys(t1)) if (t0[id] && t1[id].have > t0[id].have && n < 2) addText(V.me.x, V.me.y - 74 - 15 * n++, `${t1[id].tally || t1[id].title} ${t1[id].have}/${t1[id].need}`, C.brass, 12, 1.8); }
+  return readyQuests().filter(t => !before.includes(t));
+}
+/* Walked into a landmark: say so, and let the quests know. */
+function reachMark(tag) {
+  if (online) { if (net.authed) send({ t: 'fr', tag }); return; }
+  const done = newlyDone(() => S.questEvent(save, { type: 'reach', tag }, Date.now())); writeSave(); if (done.length) toast(`任務完成：${done.join('、')}。`, [], 3500); renderQuests();
+}
 /* Gear or talents changed: in a field this device runs, the body out there follows. (A party's field is refitted by the server.) */
 function refitMe() { if (mode === 'field' && V && V.me && V.me.def) { S.refit(V.me, save.cl, S.charPower(save), S.modsFor(save, save.cls), S.loadoutOf(save, save.cls)); buildHud(); } }
 /* Announce a level-up once, wherever the experience came from, and make it count straight away in the field. */
@@ -670,6 +681,7 @@ function handleEvent(o) {
   switch (o.k) {
     case 'text': addText(o.x, o.y, o.s, C[o.c], o.z, o.d); break;
     case 'ring': FX.fx.push({ type: 'ring', x: o.x, y: o.y, r0: o.a, r1: o.b, col: C[o.c], t: 0, dur: o.d }); break;
+    case 'reach': if (o.by === meIdx) banner('發現　' + o.tag, 2200); break;
     case 'woke': if (o.i === meIdx) banner(o.ev ? '你在漲潮邊上站了起來' : '你在營火邊醒來', 1800); break;
     case 'beam': FX.fx.push({ type: 'beam', x: o.x, y: o.y, x2: o.x2, y2: o.y2, col: C[o.c], t: 0, dur: .22 }); break;
     case 'line': FX.fx.push({ type: 'line', x: o.x, y: o.y, x2: o.x2, y2: o.y2, w: o.w, col: C[o.c], t: 0, dur: .32 }); break;
@@ -720,7 +732,7 @@ function conclude(r, stats, extra) {
   }
   let rw; const cl0 = save.cl, done = newlyDone(() => {
     rw = S.applyResult(save, lvl, r, { trash: view.drops || 0, dungeon: view.did }); save.inv.potion = Math.max(0, save.inv.potion - stats.pots);
-    S.questEvent(save, { type: 'run', win: r.win, onTime: r.onTime, cls: view.me.cls, kicks: stats.kicks, hits: stats.hits, mates: 0 }, Date.now());
+    S.questEvent(save, { type: 'run', d: view.did, win: r.win, onTime: r.onTime, cls: view.me.cls, kicks: stats.kicks, hits: stats.hits, mates: 0 }, Date.now());
   });
   writeSave(); show(rw.loot, { mats: rw.mats, xp: rw.xp, coin: rw.coin, up: save.cl > cl0, quests: done });
 }
@@ -775,7 +787,7 @@ function linkOffer() {
 function fieldFrame(dt) {
   S.step(G, dt);
   const evs = G.events; G.events = [];
-  for (const o of evs) { handleEvent(o); if (o.k === 'gathered') fieldReport('fg', { id: o.id }, 'gather', o.type); else if (o.k === 'kill') fieldReport('fk', { kind: o.kind, pk: o.pk }, 'kill', o.kind, o.pk); }
+  for (const o of evs) { handleEvent(o); if (o.k === 'gathered') fieldReport('fg', { id: o.id }, 'gather', o.type); else if (o.k === 'kill') fieldReport('fk', { kind: o.kind, pk: o.pk }, 'kill', o.kind, o.pk); else if (o.k === 'reach' && o.by === meIdx) reachMark(o.tag); }
   fieldView(dt);
 }
 /* The tide surge runs on the server's clock. null when there is no server to run it. */
@@ -819,7 +831,7 @@ function showYield(mats, done, xp, coin, item) {
 }
 function fieldReport(t, body, what, key, pk) {
   if (online) { if (net.authed) send(Object.assign({ t }, body)); else banner('連線中斷，這段時間的收穫不會記錄', 2500); return; }
-  let g = null; const done = newlyDone(() => { g = S.fieldGain(save, what, key, pk, FD.id); if (g) S.questEvent(save, { type: what, tag: what === 'kill' ? S.packTag(FD.id, pk) : '' }, Date.now()); });
+  let g = null; const done = newlyDone(() => { g = S.fieldGain(save, what, key, pk, FD.id); if (g) S.questEvent(save, { type: what, map: FD.id, tag: what === 'kill' ? S.packTag(FD.id, pk) : '', kind: what === 'kill' ? key : '', node: what === 'gather' ? key : '' }, Date.now()); });
   writeSave(); if (g) { showYield(g.mats, done, g.xp, g.coin, g.item); if (g.item && g.item.up) refitMe(); }
 }
 
@@ -1215,6 +1227,10 @@ function drawField() {
   for (const e of FD.exits) { const T = S.MAPS[e.to]; if (!T) continue;      // a way to another map
     c.strokeStyle = C.hex; c.lineWidth = 3; c.globalAlpha = .9; c.beginPath(); c.arc(e.x, e.y, 30 + (reduced ? 0 : Math.sin(clock * 3) * 2), 0, TAU); c.stroke(); c.globalAlpha = .18; c.fillStyle = C.hex; c.fill();
     c.globalAlpha = 1; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText('往 ' + T.name, e.x, e.y - 40); c.fillStyle = C.foam; c.fillText('往 ' + T.name, e.x, e.y - 40); }
+  for (const m of FD.marks || []) {      // a landmark: a ring of posts and its name
+    c.strokeStyle = C.brass; c.globalAlpha = .35; c.lineWidth = 1.5; c.setLineDash([3, 12]); c.beginPath(); c.arc(m.x, m.y, m.r, 0, TAU); c.stroke(); c.setLineDash([]);
+    c.globalAlpha = .8; c.font = `900 12px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText(m.name, m.x, m.y - m.r - 6); c.fillStyle = C.brass; c.fillText(m.name, m.x, m.y - m.r - 6); }
+  c.globalAlpha = 1;
   if (FD.safe) { c.strokeStyle = C.brass; c.globalAlpha = .2; c.setLineDash([4, 9]); c.lineWidth = 1.5; c.beginPath(); c.arc(FD.safe.x, FD.safe.y, FD.safe.r, 0, TAU); c.stroke(); c.setLineDash([]); }
   if (FD.fire) {
   const fx = FD.fire[0], fy = FD.fire[1], fg = c.createRadialGradient(fx, fy, 4, fx, fy, 96); fg.addColorStop(0, C.ember); fg.addColorStop(1, 'transparent');
@@ -1271,7 +1287,7 @@ function drawMinimap() {
   const c = ctx, w = 46, h = w * FD.h / FD.w, x = stageW - w - 10, y = 10, k = w / FD.w;
   c.setTransform(dpr, 0, 0, dpr, 0, 0); c.globalAlpha = .82; c.fillStyle = C.ink; c.fillRect(x, y, w, h); c.globalAlpha = 1; c.strokeStyle = C.line; c.lineWidth = 1; c.strokeRect(x + .5, y + .5, w, h);
   const dot = (px, py, col, r) => { c.fillStyle = col; c.beginPath(); c.arc(x + px * k, y + py * k, r, 0, TAU); c.fill(); };
-  if (FD.gate) dot(FD.gate.x, FD.gate.y, C.brass, 3); if (FD.fire) dot(FD.fire[0], FD.fire[1], C.ember, 3); for (const e of FD.exits) dot(e.x, e.y, C.hex, 2.5);
+  if (FD.gate) dot(FD.gate.x, FD.gate.y, C.brass, 3); if (FD.fire) dot(FD.fire[0], FD.fire[1], C.ember, 3); for (const e of FD.exits) dot(e.x, e.y, C.hex, 2.5); for (const m of FD.marks || []) dot(m.x, m.y, C.brass, 2);
   for (const a of V.actors) if (a !== V.me && !a.out && !a.ghost) dot(a.x, a.y, C.heal, 2);      // the rest of the party
   dot(V.me.x, V.me.y, C.foam, 2.5);
   const en = V.evInfo;

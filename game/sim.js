@@ -163,7 +163,7 @@ const BOT_NAMES = { tank: '柯爾', heal: '蜜拉', dps: ['阿燼', '小霧'] };
 /* ---------- the field: 鏽灘, the shore between the camp (south) and the tower gate (north) ---------- */
 const SOLO_BOOST = { tank: 1.8, heal: 3.2, dps: 1 };   // alone in the field, tanks and healers hit harder so every class can hunt
 const FIELD = {
-  id: 'shore', name: '鏽灘', w: 900, h: 1500, exits: [], walls: [],
+  id: 'shore', name: '鏽灘', w: 900, h: 1500, exits: [], walls: [], marks: [],
   spawn: [450, 1398], fire: [450, 1330], safe: { x: 450, y: 1325, r: 150 },   // monsters neither enter nor attack into the camp
   gate: { x: 450, y: 120, r: 46 },
   events: [{ x: 450, y: 790, r: 115 }, { x: 620, y: 430, r: 115 }],             // where the tide surge can come ashore
@@ -208,7 +208,7 @@ function setLevel(a, lvl, pow) { a.lvl = lvl; a.pow = pow; a.maxHp = R(a.def.hp 
 /* Every map of the world. The shore is the one with the camp, the people and the tide surge; maps made in the editor
  * are joined to it by exits. A field (G) is one map: G.F. */
 const MAPS = { shore: FIELD };
-const blankMap = (id, name) => ({ id, name, w: 900, h: 900, spawn: [450, 800], fire: null, safe: null, gate: null, events: [], npcs: [], stalls: [], path: [], rocks: [], nodes: [], packs: [], exits: [], walls: [] });
+const blankMap = (id, name) => ({ id, name, marks: [], w: 900, h: 900, spawn: [450, 800], fire: null, safe: null, gate: null, events: [], npcs: [], stalls: [], path: [], rocks: [], nodes: [], packs: [], exits: [], walls: [] });
 const inCamp = (G, p) => { const c = G.F.safe; return !!c && Math.hypot(p.x - c.x, p.y - c.y) < c.r; };
 /* Keep a body out of what cannot be walked through: rocks (round) and walls or water (boxes, x and y at the centre). */
 function pushOut(p, F) {
@@ -335,7 +335,7 @@ function spawnMob(G, pk, home) {
 function fieldSeat(F, p, idx, at) {
   const a = mkActor(p.cls, p.name, at ? [clamp(at[0], 20, F.w - 20), clamp(at[1], 20, F.h - 20)] : [clamp(F.spawn[0] + (idx % 4 - 1.5) * 26, 20, F.w - 20), clamp(F.spawn[1] + (idx % 2) * 18, 20, F.h - 20)], p.pow, p.mods);
   a.lvl = p.lvl > 0 ? p.lvl : 1; if (p.skills) a.skills = skillSet(p.cls, p.skills);
-  a.idx = idx; a.human = true; a.out = false; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; return a;
+  a.idx = idx; a.human = true; a.out = false; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; a.seen = new Set(); return a;
 }
 /* opts: { lvl, players: [{ cls, name, pow, id, lvl, skills }] } (or a single `player`), cap (seats, 4 unless said), event ({ x, y, r }
  * for a field that holds a tide surge). No bots and no timer. Each gathering spot regrows separately for each person. */
@@ -818,6 +818,9 @@ function stepField(G, dt) {
   // creatures that are not in a fight follow the party's level, inside their pack's range, and its size
   for (const e of G.enemies) if (!e.evm && !e.engaged && !e.ret) { const pkd = G.F.packs[e.pk]; if (!pkd) continue; const want = mobLevel(pkd, plv); if (e.lvl !== want || e.size !== size) scaleMob(e, want, size); }
   for (const n of G.nodes) for (let i = 0; i < n.cd.length; i++) if (n.cd[i] > 0) n.cd[i] -= dt;
+  // a landmark is found by walking into it, once for each time someone enters this field
+  for (const a of here) if (a.alive) for (const m of G.F.marks || []) { const d = Math.hypot(m.x - a.x, m.y - a.y);      // found on walking in, and again after walking well away
+    if (d < m.r) { if (!a.seen.has(m.name)) { a.seen.add(m.name); ev(G, { k: 'reach', tag: m.name, by: a.idx }); } } else if (d > m.r + 60) a.seen.delete(m.name); }
   stepEvent(G, dt);
   for (const a of G.actors) fieldActor(G, a, dt);
 }
@@ -1124,14 +1127,31 @@ function fixQuests(p, now) {
 }
 const rewardText = r => Object.keys(r).map(k => `${k === 'xp' ? '經驗' : k === 'coin' ? '鐘幣' : k === 'potion' ? '潮息藥水' : MATS[k]} +${r[k]}`).join('、');
 /* Everything the quest screen needs. online = false hides quests that need other players. */
+/* A quest made in the editor is one of these kinds. Each is counted from the events the game already reports:
+ * a kill carries the creature's kind, its pack's own name (tag) and the map; a gather the kind of spot and the map;
+ * a finished run the dungeon; a landmark its name. `after` names a quest that must be handed in first. */
+const QUEST_TYPES = { kill: '擊倒一隻有名字的怪', kind: '擊倒某一種怪', gather: '採集', item: '收集任務物品（怪身上掉）', reach: '到達一個地標', run: '通關副本' };
+function questHit(t, ev) {
+  switch (t.type) {
+    case 'kill': return ev.type === 'kill' && !!ev.tag && ev.tag === t.kill;
+    case 'kind': return ev.type === 'kill' && ev.kind === t.kind && (!t.map || ev.map === t.map);
+    case 'gather': return ev.type === 'gather' && (!t.node || ev.node === t.node) && (!t.map || ev.map === t.map);
+    case 'item': return ev.type === 'kill' && (t.kill ? ev.tag === t.kill : ev.kind === t.kind) && Math.random() < t.chance;
+    case 'reach': return ev.type === 'reach' && !!ev.tag && ev.tag === t.reach;
+    case 'run': return ev.type === 'run' && !!ev.win && (!t.run || ev.d === t.run) && (!t.fast || !!ev.onTime);
+  }
+  return false;
+}
+const questDone = (q, id) => q.side[id] === -1 || (MAIN.findIndex(m => m.id === id) >= 0 && q.main > MAIN.findIndex(m => m.id === id));
 function questList(p, now, online) {
   const q = fixQuests(p, now), items = [], m = MAIN[q.main];
   if (m) { const have = Math.min(m.need, m.value ? m.value(p) : q.mp); items.push({ id: m.id, group: 'main', title: m.title, goal: m.goal, have, need: m.need, ready: have >= m.need, claimed: false, reward: rewardText(m.reward) }); }
   for (const d of WEEK) { if (d.online && !online) continue; const have = q.week.p[d.id] || 0, claimed = !!q.week.c[d.id]; items.push({ id: d.id, group: 'week', title: d.title, goal: d.goal, have: claimed ? d.need : have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) }); }
   for (const d of SIDE) {
     if (d.online && !online) continue;
+    if (d.after && !questDone(q, d.after)) continue;
     const v = d.id === 's-level' && q.side[d.id] !== -1 ? p.cl : q.side[d.id] || 0, claimed = v === -1, have = claimed ? d.need : Math.min(d.need, d.have ? d.have(v) : v);
-    items.push({ id: d.id, group: 'side', title: d.title, goal: d.goal, have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) });
+    items.push({ id: d.id, group: 'side', title: d.title, tally: d.type === 'item' && d.item ? d.item : d.title, goal: d.goal, have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) });
   }
   return { items, mainDone: q.main, mainTotal: MAIN.length };
 }
@@ -1141,7 +1161,7 @@ function questEvent(p, ev, now) {
   if (isRun(ev)) { ev.kicks = qInt(ev.kicks, 0, 50); ev.hits = qInt(ev.hits, 0, 999); }
   if (m && m.inc) q.mp = Math.min(m.need, q.mp + (m.inc(ev) || 0));
   for (const d of WEEK) if (!q.week.c[d.id]) { const v = Math.min(d.need, (q.week.p[d.id] || 0) + (d.inc(ev) || 0)); if (v > 0) q.week.p[d.id] = v; }
-  for (const d of SIDE) if (q.side[d.id] !== -1) { const v = d.upd(q.side[d.id] || 0, ev, p); if (v > 0) q.side[d.id] = v; }
+  for (const d of SIDE) if (q.side[d.id] !== -1 && !(d.after && !questDone(q, d.after))) { const v = d.upd(q.side[d.id] || 0, ev, p); if (v > 0) q.side[d.id] = v; }
 }
 function questClaim(p, id, now) {
   const q = fixQuests(p, now), it = questList(p, now, true).items.find(x => x.id === id);
@@ -1205,12 +1225,12 @@ function patch(tgt, src) {
 }
 const editable = o => { const r = {}; for (const k of Object.keys(o)) if ((LIM[k] && typeof o[k] === 'number') || (TEXT[k] && typeof o[k] === 'string')) r[k] = o[k]; return r; };
 function exportData() {
-  const map = t => { const r = {}; for (const k of Object.keys(t)) r[k] = editable(t[k]); return r; }, quests = list => list.map(x => Object.assign({ id: x.id }, editable(x), { reward: x.reward }, x.custom ? { kill: x.kill } : null));
+  const map = t => { const r = {}; for (const k of Object.keys(t)) r[k] = editable(t[k]); return r; }, quests = list => list.map(x => Object.assign({ id: x.id }, editable(x), { reward: x.reward }, x.custom ? { type: x.type, kill: x.kill, kind: x.kind, node: x.node, map: x.map, item: x.item, chance: x.chance, reach: x.reach, run: x.run, fast: x.fast, after: x.after } : null));
   const enemies = map(ENEMY), maps = {}, dungeons = {};
   for (const k of Object.keys(ENEMY)) { if (ENEMY[k].base) enemies[k].base = ENEMY[k].base; if (ENEMY[k].moves) enemies[k].moves = ENEMY[k].moves; }
   for (const k of Object.keys(DUNGEONS)) { const D = DUNGEONS[k]; dungeons[k] = D.type === 'layout' ? { name: D.name, min: D.min, time: D.time, type: 'layout', map: D.map } : { name: D.name, min: D.min, time: D.time, type: 'waves', waves: D.waves }; }
   for (const k of Object.keys(MAPS)) { const F = MAPS[k];
-    maps[k] = { name: F.name, w: F.w, h: F.h, spawn: { x: F.spawn[0], y: F.spawn[1] }, gate: F.gate ? { x: F.gate.x, y: F.gate.y } : null, packs: F.packs, nodes: F.nodes, rocks: F.rocks, walls: F.walls, exits: F.exits };
+    maps[k] = { marks: F.marks || [], name: F.name, w: F.w, h: F.h, spawn: { x: F.spawn[0], y: F.spawn[1] }, gate: F.gate ? { x: F.gate.x, y: F.gate.y } : null, packs: F.packs, nodes: F.nodes, rocks: F.rocks, walls: F.walls, exits: F.exits };
     if (k === 'shore') Object.assign(maps[k], { events: F.events, npcs: F.npcs, stalls: F.stalls.map(o => ({ id: o.id, x: o.x, y: o.y })) }); }
   return JSON.parse(JSON.stringify({ v: 2, tune: TUNE, classes: map(CLASSES), skills: map(SKILLS), enemies, drop: DROP, shop: SHOP, recipes: RECIPES.map(r => ({ id: r.id, name: r.name, cost: r.cost })),
     talents: TALENTS, sets: SETS, plain: PLAIN, quests: { main: quests(MAIN), week: quests(WEEK), side: quests(SIDE) }, dungeons, evWaves: EV_WAVES, maps }));
@@ -1273,13 +1293,18 @@ function applyData(d) {
   if (isObj(d.quests) && Array.isArray(d.quests.side)) {
     for (let i = SIDE.length - 1; i >= 0; i--) if (SIDE[i].custom && !d.quests.side.some(q => isObj(q) && q.id === SIDE[i].id)) SIDE.splice(i, 1);
     for (const q of d.quests.side) {
-      if (!isObj(q) || typeof q.kill !== 'string' || !/^k[a-z0-9]{1,8}$/.test(q.id) || SIDE.some(x => x.id === q.id) || SIDE.filter(x => x.custom).length >= 20) continue;
-      const t = { id: q.id, title: '新任務', goal: '擊倒指定的怪', need: 1, reward: { xp: 100 }, kill: '', custom: true }; t.upd = (v, ev) => ev.type === 'kill' && !!ev.tag && ev.tag === t.kill ? Math.min(t.need, v + 1) : v; SIDE.push(t);
+      if (!isObj(q) || !(typeof q.kill === 'string' || Object.prototype.hasOwnProperty.call(QUEST_TYPES, q.type)) || !/^k[a-z0-9]{1,8}$/.test(q.id) || SIDE.some(x => x.id === q.id) || SIDE.filter(x => x.custom).length >= 30) continue;
+      const t = { id: q.id, title: '新任務', goal: '', need: 1, reward: { xp: 100 }, custom: true, type: 'kill', kill: '', kind: '', node: '', map: '', item: '', chance: .5, reach: '', run: '', fast: false, after: '' };
+      t.upd = (v, ev) => questHit(t, ev) ? Math.min(t.need, v + 1) : v; SIDE.push(t);
     }
   }
   if (isObj(d.quests)) for (const [key, list] of [['main', MAIN], ['week', WEEK], ['side', SIDE]]) if (Array.isArray(d.quests[key])) for (const q of d.quests[key]) {
     const t = isObj(q) && list.find(x => x.id === q.id); if (!t) continue; patch(t, q);
-    if (t.custom) { if (typeof q.kill === 'string') t.kill = cleanStr(q.kill, 8); t.need = Math.min(99, t.need); }
+    if (t.custom) {
+      if (Object.prototype.hasOwnProperty.call(QUEST_TYPES, q.type)) t.type = q.type;
+      for (const [f, n] of [['kill', 8], ['kind', 12], ['node', 6], ['map', 12], ['item', 6], ['reach', 8], ['run', 12], ['after', 12]]) if (typeof q[f] === 'string') t[f] = cleanStr(q[f], n);
+      { const c = numIn(q.chance, .05, 1, false); if (c !== null) t.chance = c; } if (q.fast !== undefined) t.fast = !!q.fast; t.need = Math.min(99, t.need);
+    }
     if (isObj(q.reward)) { const r = prices(q.reward, 1, 99999, ['coin', 'xp', 'potion'].concat(matKeys)); if (Object.keys(r).length) t.reward = r; }
   }
   const wavesOf = (src, max) => { const out = []; if (Array.isArray(src)) for (const w of src.slice(0, max)) { const row = []; if (Array.isArray(w)) for (const e of w.slice(0, 4)) { const n = Array.isArray(e) ? numIn(e[1], 1, 8, true) : null; if (n && typeof e[0] === 'string') row.push([e[0], n]); } if (row.length) out.push(row); } return out; };
@@ -1328,11 +1353,14 @@ function applyData(d) {
       { const v = lst('rocks', 30, o => { const p = pos(o), r = p && numIn(o.r, 10, 80, true); return r ? Object.assign(p, { r }) : null; }); if (v) F.rocks = v; }
       { const v = lst('walls', 40, o => { const p = pos(o), w = p && numIn(o.w, 20, 1200, true), h = p && numIn(o.h, 20, 1200, true); return w && h && WALL_TYPES.includes(o.type) ? Object.assign(p, { w, h, type: o.type }) : null; }); if (v) F.walls = v; }
       { const v = lst('exits', 6, o => { const p = typeof o.to === 'string' ? pos(o, { to: o.to }) : null; if (p && Number.isFinite(o.tx) && Number.isFinite(o.ty)) { p.tx = Math.round(o.tx); p.ty = Math.round(o.ty); } return p; }); if (v) F.exits = v; }
+      { const names = new Set(), v = lst('marks', 10, o => { const p = pos(o), nm = p && cleanStr(o.name, 8); if (!nm || names.has(nm)) return null; names.add(nm); return Object.assign(p, { name: nm, r: numIn(o.r, 30, 300, true) || 80 }); }); if (v) F.marks = v; }
       if (k !== 'shore') continue;
       { const v = lst('events', 6, o => { const p = pos(o), r = p && numIn(o.r, 60, 200, true); return r ? Object.assign(p, { r }) : null; }); if (v && v.length) F.events = v; }
       for (const [key, list] of [['npcs', F.npcs], ['stalls', F.stalls]]) if (Array.isArray(f[key])) for (const o of f[key]) { const t = isObj(o) && list.find(x => x.id === o.id), p = t && pos(o); if (p) Object.assign(t, p); }
     }
   }
+  for (const t of SIDE) if (t.custom && t.after && (t.after === t.id || !(MAIN.concat(SIDE).some(x => x.id === t.after)))) t.after = '';      // a quest cannot wait for itself or for one that is gone
+  for (const t of SIDE) if (t.custom) { if (t.map && !MAPS[t.map]) t.map = ''; if (t.run && !DUNGEONS[t.run]) t.run = ''; }
   /* Whatever was changed, nothing may point at something that no longer exists. */
   { const tk = kindsOf(TOWER_BASE), fk = kindsOf(FIELD_BASE);
     for (const k of Object.keys(ENEMY)) if (ENEMY[k].moves) for (const m of ENEMY[k].moves) if (m.t === 'adds' && (!tk.includes(m.kind) || ENEMY[m.kind].boss)) m.kind = 'grunt';
@@ -1346,7 +1374,7 @@ function applyData(d) {
 }
 { const pre = typeof self !== 'undefined' && self ? self.EmbertideData : null; if (pre) applyData(pre); }      // the committed data file, when the page loaded one before this script
 
-return { packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_TYPES, WALL_TYPES, MOVES, MAPS, DUNGEONS, floorOf, baseOf, EV_WAVES, PLAIN, TUNE,
+return { QUEST_TYPES, packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_TYPES, WALL_TYPES, MOVES, MAPS, DUNGEONS, floorOf, baseOf, EV_WAVES, PLAIN, TUNE,
   EVENT_TYPES, get TOWER_KINDS() { return kindsOf(TOWER_BASE); }, get FIELD_KINDS() { return kindsOf(FIELD_BASE); },
   W, H, TIME_LIMIT, CLASSES, SKILLS, ENEMY, WAVES, ROSTER, SPOTS, createRun, step, snapshot,
   cleanAim, defaultLoadout, validLoadout, loadoutOf, setLoadout,
