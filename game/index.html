@@ -531,6 +531,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
   <div id="toast" hidden role="status"><span id="toast-msg"></span><span id="toast-btns"></span></div>
 </div>
 
+<script src="art/manifest.js"></script>
 <script src="data.js"></script>
 <script src="sim.js"></script>
 <script>
@@ -690,7 +691,7 @@ function handleEvent(o) {
     case 'shake': FX.shake = Math.max(FX.shake, o.v); break;
     case 'hurt': { const a = V.actors[o.i]; addText(a.x, a.y - 18, o.v, C.danger, a === me ? 14 : 10); if (a === me) { FX.shake = Math.max(FX.shake, o.av ? .35 : .15); lastHurt = performance.now(); } break; }
     case 'down': { const a = V.actors[o.i]; if (a === me) banner('你倒下了，等隊友救援', 2600); else addText(a.x, a.y - 30, a.name + ' 倒地', C.danger, 12, 1.4); break; }
-    case 'dmg': if (o.by === meIdx) addText(o.x, o.y, o.v, o.big ? C.ember : C.foam, o.big ? 16 : 12); break;
+    case 'dmg': { const by = V.actors[o.by]; if (by && !(by._atk > 0)) by._atk = .34; } if (o.by === meIdx) addText(o.x, o.y, o.v, o.big ? C.ember : C.foam, o.big ? 16 : 12); break;
     case 'heal': { const a = V.actors[o.i]; addText(a.x, a.y - 18, '+' + o.v, C.heal, a === me || o.by === meIdx ? 12 : 10); break; }
     case 'fail': if (o.i === meIdx) addText(me.x, me.y - 30, o.s, C.mute, 11, 1); break;
   }
@@ -1156,28 +1157,59 @@ function drawZone(z) {
   if (!z.done) { c.globalAlpha = .42; path(p); c.fill(); c.globalAlpha = .95; c.strokeStyle = C.danger; c.lineWidth = 2; path(1); c.stroke(); }
   c.globalAlpha = 1;
 }
+/* ---------- pixel art ----------
+ * Whoever art/manifest.js lists is drawn from strips of frames (art/<id>/<anim>_<dir>.png); everyone else stays a shape.
+ * A strip that is missing falls back: an action to idle, a direction to down. The number of frames is read off the
+ * picture's width, so the list only has to say which strips there are. */
+const ART = {}, ART_FPS = { idle: 5, walk: 10, attack: 12, hurt: 8 };
+for (const id of Object.keys(window.ART_MANIFEST || {})) {
+  const d = window.ART_MANIFEST[id] || {}, set = { cell: d.cell > 0 ? d.cell : 32, scale: d.scale > 0 ? d.scale : 1, foot: d.foot >= 0 ? d.foot : 4, img: {} };
+  for (const an of d.anims || ['idle']) for (const dir of d.dirs || ['down']) { const im = new Image(); im.onload = () => { set.img[an + '_' + dir] = im; }; im.src = `art/${id}/${an}_${dir}.png`; }
+  ART[id] = set;
+}
+const spriteOf = id => { const s = ART[id]; return s && (s.img.idle_down || s.img.idle_side) ? s : null; };
+const spriteTop = (set, r) => set ? (set.cell - set.foot) * set.scale - r * .7 - 2 : r;      // how far above its centre the picture reaches
+/* Draw o from its strips. It walks when it has moved, strikes for as long as `striking` says (or for a moment after
+ * o._atk is set), and flinches when `hit`. Returns false when there was nothing to draw. */
+function drawSprite(set, o, dt, striking, hit) {
+  const moved = o._sx !== undefined && dt > 0 ? Math.hypot(o.x - o._sx, o.y - o._sy) / dt : 0; o._sx = o.x; o._sy = o.y;
+  o._mv = moved > 6 ? .15 : Math.max(0, (o._mv || 0) - dt); if (striking && !(o._atk > 0)) o._atk = .34; if (o._atk > 0) o._atk -= dt;
+  const has = an => set.img[an + '_down'] || set.img[an + '_side'] || set.img[an + '_up'];
+  const name = hit && has('hurt') ? 'hurt' : o._atk > 0 && has('attack') ? 'attack' : o._mv > 0 && has('walk') ? 'walk' : 'idle';
+  if (o._an !== name) { o._an = name; o._at = 0; } else o._at += dt;
+  const fx = Math.cos(o.face || 0), fy = Math.sin(o.face || 0), dir = Math.abs(fx) >= Math.abs(fy) ? 'side' : fy > 0 ? 'down' : 'up';
+  const img = set.img[name + '_' + dir] || set.img[name + '_down'] || set.img[name + '_side'] || set.img['idle_' + dir] || set.img.idle_down || set.img.idle_side; if (!img) return false;
+  const n = Math.max(1, Math.round(img.width / set.cell)), t = Math.floor(o._at * (ART_FPS[name] || 8)), f = name === 'attack' ? Math.min(n - 1, t) : t % n, w = set.cell * set.scale, c = ctx;
+  c.save(); c.imageSmoothingEnabled = false; c.translate(Math.round(o.x), Math.round(o.y + o.r * .7 + set.foot * set.scale)); if (dir === 'side' && fx < 0) c.scale(-1, 1);
+  c.drawImage(img, f * set.cell, 0, set.cell, img.height, -w / 2, -img.height * set.scale, w, img.height * set.scale); c.restore(); return true;
+}
 function drawActor(a, dt) {
-  const c = ctx, { x, y, r } = a, fl = flashing(a, dt), me = a === V.me, guard = a.wallT > 0 || a.shield > 0;
+  const c = ctx, { x, y, r } = a, fl = flashing(a, dt), me = a === V.me, guard = a.wallT > 0 || a.shield > 0, art = spriteOf(a.cls), up = spriteTop(art, r);
   if (!a.alive) { c.globalAlpha = .55; c.fillStyle = C.line; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); c.strokeStyle = C.mute; c.lineWidth = 2; c.beginPath(); c.moveTo(x - 5, y - 5); c.lineTo(x + 5, y + 5); c.moveTo(x + 5, y - 5); c.lineTo(x - 5, y + 5); c.stroke(); c.globalAlpha = 1; return; }
   shadow(x, y, r);
   if (guard) { c.strokeStyle = C.tank; c.globalAlpha = .8; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, r + 5, 0, TAU); c.stroke(); c.globalAlpha = 1; }
   if (me) { c.strokeStyle = C.brass; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r + (guard ? 9 : 4.5), 0, TAU); c.stroke(); }
   c.globalAlpha = a.iframe > 0 ? .5 : 1;
+  if (!art || !drawSprite(art, a, dt, false, fl)) {
   c.fillStyle = fl ? C.foam : C[a.def.color]; c.strokeStyle = C.ink; c.lineWidth = 2;
   if (a.cls === 'tank') poly(x, y, r + 1, r - 1, 3, a.face); else if (a.cls === 'dps') poly(x, y, r + 3, r - 4, 2, a.face); else { c.beginPath(); c.arc(x, y, r, 0, TAU); }
   c.fill(); c.stroke();
   c.fillStyle = C.ink; c.beginPath(); c.arc(x + Math.cos(a.face) * (r - 5), y + Math.sin(a.face) * (r - 5), 2.4, 0, TAU); c.fill();
   if (a.cls === 'heal') { c.strokeStyle = C.ink; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, r - 5, 0, TAU); c.stroke(); }
+  }
   c.globalAlpha = 1;
-  bar(x - 16, y - r - 10, 32, 4, a.hp / a.maxHp, a.hp / a.maxHp < .35 ? C.danger : C.heal);
-  plate(x, y - r - 14, a.lvl, a.name, me ? C.brass : a.human ? C.foam : C.mute, me ? 5 : a.human ? 3 : 2);      // yours in brass, other players bright, AI dimmer
+  bar(x - 16, y - up - 10, 32, 4, a.hp / a.maxHp, a.hp / a.maxHp < .35 ? C.danger : C.heal);
+  plate(x, y - up - 14, a.lvl, a.name, me ? C.brass : a.human ? C.foam : C.mute, me ? 5 : a.human ? 3 : 2);      // yours in brass, other players bright, AI dimmer
 }
 function drawEnemy(e, dt) {
-  const c = ctx, { x, y, r } = e, fl = flashing(e, dt);
+  const c = ctx, { x, y, r } = e, fl = flashing(e, dt), art = spriteOf(e.kind) || spriteOf(S.baseOf(e.kind)), up = spriteTop(art, r);
+  const prey = art && onWhom(e) >= 0 ? V.actors[onWhom(e)] : null, striking = !!art && (e.def.caster ? !!e.cast : !!prey && Math.hypot(prey.x - x, prey.y - y) < e.def.range + r + 26);
   c.globalAlpha = e.spawnT > 0 ? clamp(1 - e.spawnT / .6, 0, 1) : 1; shadow(x, y, r);
   if (V.me && V.me.target === e) { c.save(); c.translate(x, y); c.rotate(clock * 1.5); c.setLineDash([6, 5]); c.strokeStyle = C.brass; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, r + 6, 0, TAU); c.stroke(); c.restore(); }
   c.lineWidth = 2;
-  if (e.boss) {
+  if (art && e.boss && e.tm.enraged) { c.strokeStyle = C.danger; c.globalAlpha = .5 + .3 * Math.sin(clock * 8); c.lineWidth = 4; c.beginPath(); c.arc(x, y, r + 5, 0, TAU); c.stroke(); c.globalAlpha = 1; }
+  if (art && drawSprite(art, e, dt, striking, fl)) { /* drawn from its picture */ }
+  else if (e.boss) {
     if (e.tm.enraged) { c.strokeStyle = C.danger; c.globalAlpha = .5 + .3 * Math.sin(clock * 8); c.lineWidth = 4; c.beginPath(); c.arc(x, y, r + 5, 0, TAU); c.stroke(); c.globalAlpha = 1; }
     c.fillStyle = fl ? C.foam : C.slate; c.strokeStyle = C.rust; c.lineWidth = 5; poly(x, y, r, r - 4, 8, clock * .3); c.fill(); c.stroke();
     c.fillStyle = C.brass; c.beginPath(); c.arc(x, y, 9, 0, TAU); c.fill(); c.fillStyle = C.ink; c.beginPath(); c.arc(x, y, 3.5, 0, TAU); c.fill();
@@ -1200,9 +1232,9 @@ function drawEnemy(e, dt) {
   if (!e.boss) {
     const mine = !!V.me && V.me.target === e, hot = mine || e.engaged || !!e.target;
     if (onWhom(e) === meIdx && V.me.alive) { c.strokeStyle = C.danger; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r + 3, 0, TAU); c.stroke(); }      // this one is on you
-    bar(x - 16, y - r - 9, 32, 4, e.hp / e.maxHp, C.rust);
-    plate(x, y - r - 13, e.lvl, e.name, e.named || e.rare ? C.brass : hot ? C.foam : C.mute, mine ? 4 : e.cast ? 3 : hot || e.named ? 1 : 0);      // a creature with a name of its own stands out
-    if (e.cast) { bar(x - 20, y - r - 30, 40, 5, e.cast.t / e.cast.dur, e.cast.kickable ? C.brass : C.mute); c.fillStyle = C.brass; c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.fillText(e.cast.name, x, y - r - 34); }
+    bar(x - 16, y - up - 9, 32, 4, e.hp / e.maxHp, C.rust);
+    plate(x, y - up - 13, e.lvl, e.name, e.named || e.rare ? C.brass : hot ? C.foam : C.mute, mine ? 4 : e.cast ? 3 : hot || e.named ? 1 : 0);      // a creature with a name of its own stands out
+    if (e.cast) { bar(x - 20, y - up - 30, 40, 5, e.cast.t / e.cast.dur, e.cast.kickable ? C.brass : C.mute); c.fillStyle = C.brass; c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.fillText(e.cast.name, x, y - up - 34); }
   }
   c.globalAlpha = 1;
 }
@@ -1271,17 +1303,21 @@ function drawStall(n) {
   c.strokeStyle = C.ink; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x - 12, y); c.lineTo(x + 12, y); c.moveTo(x, y - 12); c.lineTo(x, y + 12); c.stroke();
   c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; const t = `${n.title}　${n.name}`; c.strokeText(t, x, y - 20); c.fillStyle = C.brass; c.fillText(t, x, y - 20);
 }
+const NPC_POSE = {};
 function drawNpc(n) {
-  const c = ctx, cls = NPC_CLS[n.id], d = CLASSES[cls], cast = Story.CAST[n.id], r = 12, { x, y } = n, face = Math.atan2(V.me.y - y, V.me.x - x);
+  const c = ctx, cls = NPC_CLS[n.id], d = CLASSES[cls], cast = Story.CAST[n.id], r = 12, { x, y } = n, face = Math.atan2(V.me.y - y, V.me.x - x), art = spriteOf(n.id), up = spriteTop(art, r);
   shadow(x, y, r);
   if (talk.focus === n) { c.strokeStyle = C.brass; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r + 6, 0, TAU); c.stroke(); }
+  const pose = NPC_POSE[n.id] || (NPC_POSE[n.id] = {}); pose.x = x; pose.y = y; pose.r = r; pose.face = face;      // the map's own record is left alone
+  if (!art || !drawSprite(art, pose, 1 / 60, false, false)) {
   c.fillStyle = cast ? C[cast.color] : C[d.color]; c.strokeStyle = C.ink; c.lineWidth = 2;
   if (cls === 'tank') poly(x, y, r + 1, r - 1, 3, face); else if (cls === 'dps') poly(x, y, r + 3, r - 4, 2, face); else { c.beginPath(); c.arc(x, y, r, 0, TAU); }
   c.fill(); c.stroke();
   c.fillStyle = C.ink; c.beginPath(); c.arc(x + Math.cos(face) * (r - 5), y + Math.sin(face) * (r - 5), 2.4, 0, TAU); c.fill();
-  bar(x - 16, y - r - 10, 32, 4, 1, C.heal); plate(x, y - r - 14, cast ? cast.lvl : 1, cast ? cast.name : '', C.foam, 2);
+  }
+  bar(x - 16, y - up - 10, 32, 4, 1, C.heal); plate(x, y - up - 14, cast ? cast.lvl : 1, cast ? cast.name : '', C.foam, 2);
   c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink;
-  if (quest.giver === n.id && !talk.lines) { c.font = `900 22px ${F.display}`; c.fillStyle = C.brass; const my = y - r - 30 + (reduced ? 0 : Math.sin(clock * 4) * 2); c.strokeText('！', x, my); c.fillText('！', x, my); }
+  if (quest.giver === n.id && !talk.lines) { c.font = `900 22px ${F.display}`; c.fillStyle = C.brass; const my = y - up - 30 + (reduced ? 0 : Math.sin(clock * 4) * 2); c.strokeText('！', x, my); c.fillText('！', x, my); }
 }
 function drawMinimap() {
   const c = ctx, w = 46, h = w * FD.h / FD.w, x = stageW - w - 10, y = 10, k = w / FD.w;

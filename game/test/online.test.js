@@ -42,7 +42,8 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
 
   assert.strictEqual(JSON.parse((await get(port, '/health')).body).embertide, 1);
   assert.match((await get(port, '/')).body, /<title>燼潮/); assert.match((await get(port, '/sim.js')).body, /createRun/); assert.match((await get(port, '/story.js')).body, /SCENES/);
-  for (const p of ['/server.js', '/store.js', '/data/accounts.json', '/data/secret', '/../package.json']) assert.strictEqual((await get(port, p)).status, 404, p);
+  for (const p of ['/server.js', '/store.js', '/data/accounts.json', '/data/secret', '/../package.json', '/art/README.md', '/art/../server.js', '/art/x/../../server.js', '/art/dps/walk_side.js']) assert.strictEqual((await get(port, p)).status, 404, p);
+  assert.match((await get(port, '/art/manifest.js')).body, /ART_MANIFEST/, 'the list of pixel art is served');
   ok('serves the page, sim.js and /health; server code and account data are not reachable');
 
   // story content: one scene per main quest, in the same order, every speaker known, lines short enough for a phone

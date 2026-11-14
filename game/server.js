@@ -26,8 +26,10 @@ const FILES = {
   '/sim.js': ['sim.js', 'text/javascript; charset=utf-8'],
   '/story.js': ['story.js', 'text/javascript; charset=utf-8'],
   '/data.js': ['data.js', 'text/javascript; charset=utf-8'],
-  '/editor.js': ['editor.js', 'text/javascript; charset=utf-8']
+  '/editor.js': ['editor.js', 'text/javascript; charset=utf-8'],
+  '/art/manifest.js': ['art/manifest.js', 'text/javascript; charset=utf-8']
 };
+const ART_FILE = /^\/art\/[a-z0-9]{1,12}\/[a-z]{1,10}_(down|side|up)\.png$/;      // the strips of frames, and nothing else in there
 
 const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : a; };
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';
@@ -107,7 +109,7 @@ function start(opts) {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
       return res.end(JSON.stringify({ embertide: 1, rooms: rooms.size, players: online.size }));
     }
-    const f = FILES[url];
+    const f = FILES[url] || (ART_FILE.test(url) ? [url.slice(1), 'image/png'] : null);
     if (!f || req.method !== 'GET') { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('not found'); }
     fs.readFile(path.join(__dirname, f[0]), (err, buf) => {
       if (err) { res.writeHead(500); return res.end('error'); }
