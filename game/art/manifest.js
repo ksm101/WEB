@@ -15,4 +15,6 @@ window.ART_MANIFEST = Object.assign({
   grunt: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   caster: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   crab: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
+  brute: { cell: 48, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
+  boss: { cell: 64, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
 },window.ART_MANIFEST);
