@@ -1168,7 +1168,11 @@ for (const id of Object.keys(window.ART_MANIFEST || {})) {
   ART[id] = set;
 }
 const spriteOf = id => { const s = ART[id]; return s && (s.img.idle_down || s.img.idle_side) ? s : null; };
-const spriteTop = (set, r) => set ? (set.cell - set.foot) * set.scale - r * .7 - 2 : r;      // how far above its centre the picture reaches
+/* One pixel of a picture covers a whole number of screen pixels, whatever the zoom, so it stays crisp: this is how
+ * many, and how many world units that comes to. */
+const ART_ZOOM = 1.3;
+const artPx = set => { const k = ctx.getTransform().a || 1; return Math.max(1, Math.round(set.scale * ART_ZOOM * k)); };
+const spriteTop = (set, r) => set ? (set.cell - set.foot) * artPx(set) / (ctx.getTransform().a || 1) - r * .7 - 2 : r;      // how far above its centre the picture reaches
 /* Draw o from its strips. It walks when it has moved, strikes for as long as `striking` says (or for a moment after
  * o._atk is set), and flinches when `hit`. Returns false when there was nothing to draw. */
 function drawSprite(set, o, dt, striking, hit) {
@@ -1179,9 +1183,9 @@ function drawSprite(set, o, dt, striking, hit) {
   if (o._an !== name) { o._an = name; o._at = 0; } else o._at += dt;
   const fx = Math.cos(o.face || 0), fy = Math.sin(o.face || 0), dir = Math.abs(fx) >= Math.abs(fy) ? 'side' : fy > 0 ? 'down' : 'up';
   const img = set.img[name + '_' + dir] || set.img[name + '_down'] || set.img[name + '_side'] || set.img['idle_' + dir] || set.img.idle_down || set.img.idle_side; if (!img) return false;
-  const n = Math.max(1, Math.round(img.width / set.cell)), t = Math.floor(o._at * (ART_FPS[name] || 8)), f = name === 'attack' ? Math.min(n - 1, t) : t % n, w = set.cell * set.scale, c = ctx;
-  c.save(); c.imageSmoothingEnabled = false; c.translate(Math.round(o.x), Math.round(o.y + o.r * .7 + set.foot * set.scale)); if (dir === 'side' && fx < 0) c.scale(-1, 1);
-  c.drawImage(img, f * set.cell, 0, set.cell, img.height, -w / 2, -img.height * set.scale, w, img.height * set.scale); c.restore(); return true;
+  const n = Math.max(1, Math.round(img.width / set.cell)), t = Math.floor(o._at * (ART_FPS[name] || 8)), f = name === 'attack' ? Math.min(n - 1, t) : t % n, c = ctx, m = c.getTransform(), q = artPx(set);
+  c.save(); c.setTransform(dir === 'side' && fx < 0 ? -q : q, 0, 0, q, Math.round(m.a * o.x + m.e), Math.round(m.d * (o.y + o.r * .7) + m.f) + set.foot * q); c.imageSmoothingEnabled = false;
+  c.drawImage(img, f * set.cell, 0, set.cell, img.height, -set.cell / 2, -img.height, set.cell, img.height); c.restore(); return true;
 }
 function drawActor(a, dt) {
   const c = ctx, { x, y, r } = a, fl = flashing(a, dt), me = a === V.me, guard = a.wallT > 0 || a.shield > 0, art = spriteOf(a.cls), up = spriteTop(art, r);
