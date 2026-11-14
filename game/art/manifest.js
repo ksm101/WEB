@@ -8,4 +8,6 @@
  *   dps: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle', 'walk', 'attack', 'hurt'] }
  */
 window.ART_MANIFEST = Object.assign({
-}, window.ART_MANIFEST);
+  dps: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
+  crab: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
+},window.ART_MANIFEST);
