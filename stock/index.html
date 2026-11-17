@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>股票分析</title>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f4f4f2; --surface:#fcfcfb; --border:#e3e2dd; --grid:#ecebe6;
+  --text:#0b0b0b; --text2:#52514e; --muted:#85837c;
+  --up:#e34948; --down:#008300;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#6250d6; --band:#2a78d622;
+  --accent:#2a78d6;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    color-scheme:dark;
+    --bg:#111110; --surface:#1a1a19; --border:#31302d; --grid:#262624;
+    --text:#f0efec; --text2:#c3c2b7; --muted:#8b897f;
+    --up:#e66767; --down:#0ca30c;
+    --s1:#3987e5; --s2:#d95926; --s3:#9085e9; --band:#3987e522;
+    --accent:#3987e5;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:15px/1.5 system-ui,-apple-system,"Segoe UI","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
+main{max-width:1080px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0 12px}
+h2{font-size:14px;margin:0 0 8px;color:var(--text2);font-weight:600}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input[type=text],select,button,.filebtn{
+  font:inherit;height:38px;padding:0 12px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text)}
+input[type=text]{width:150px}
+button,.filebtn{cursor:pointer;display:inline-flex;align-items:center}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+.filebtn input{display:none}
+#msg{margin-top:8px;color:var(--text2);font-size:13px;min-height:1.3em}
+#msg.err{color:var(--up)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+.tile .k{font-size:12px;color:var(--muted)}
+.tile .v{font-size:19px;font-weight:650;font-variant-numeric:tabular-nums}
+.tile .s{font-size:12px;color:var(--text2);font-variant-numeric:tabular-nums}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:baseline}
+.sw{display:inline-block;width:12px;height:3px;border-radius:2px;margin:0 4px 3px 0;vertical-align:middle}
+#signals{margin:0;padding:0;list-style:none}
+#signals li{padding:5px 0;border-top:1px solid var(--grid);display:flex;gap:8px}
+#signals li:first-child{border-top:0}
+#signals .tag{flex:none;width:44px;font-size:12px;font-weight:600;color:var(--text2)}
+#verdict{font-size:16px;font-weight:650;margin-bottom:4px}
+.panel{margin-top:10px}
+.phead{font-size:12px;color:var(--text2);display:flex;flex-wrap:wrap;gap:2px 12px;
+  font-variant-numeric:tabular-nums;min-height:18px}
+.phead b{color:var(--text);font-weight:600}
+canvas{display:block;width:100%}
+#charts{touch-action:pan-y;cursor:crosshair}
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:4px 8px;text-align:right;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-weight:500}
+.tw{overflow-x:auto}
+details summary{cursor:pointer;color:var(--text2);font-size:13px}
+footer{color:var(--muted);font-size:12px;padding:4px 2px 24px}
+.hide{display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>股票分析</h1>
+
+  <div class="card">
+    <form class="bar" id="form">
+      <input type="text" id="sym" placeholder="代號：2330 或 AAPL" value="2330" autocomplete="off" aria-label="股票代號">
+      <select id="range" aria-label="期間">
+        <option value="90">3 個月</option>
+        <option value="180" selected>6 個月</option>
+        <option value="365">1 年</option>
+        <option value="730">2 年</option>
+      </select>
+      <button class="primary" id="go" type="submit">分析</button>
+      <label class="filebtn">匯入 CSV<input type="file" id="csv" accept=".csv,text/csv"></label>
+      <button type="button" id="demo">示範資料</button>
+    </form>
+    <div id="msg">輸入台股代號（如 2330、0050）或美股代號（如 AAPL），按「分析」。</div>
+  </div>
+
+  <div id="out" class="hide">
+    <div class="tiles" id="tiles"></div>
+
+    <div class="card" style="margin-top:12px">
+      <h2>技術面訊號</h2>
+      <div id="verdict"></div>
+      <ul id="signals"></ul>
+    </div>
+
+    <div class="card" id="charts">
+      <div class="panel" style="margin-top:0"><div class="phead" id="h-price"></div><canvas id="c-price" style="height:320px"></canvas></div>
+      <div class="panel"><div class="phead" id="h-vol"></div><canvas id="c-vol" style="height:90px"></canvas></div>
+      <div class="panel"><div class="phead" id="h-rsi"></div><canvas id="c-rsi" style="height:110px"></canvas></div>
+      <div class="panel"><div class="phead" id="h-macd"></div><canvas id="c-macd" style="height:120px"></canvas></div>
+      <div class="panel"><div class="phead" id="h-kd"></div><canvas id="c-kd" style="height:130px"></canvas></div>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary>資料表（最近 30 個交易日）</summary>
+        <div class="tw"><table id="tbl"></table></div>
+      </details>
+    </div>
+  </div>
+
+  <footer>
+    資料來源：FinMind 開放資料（台股為未還原股價）。指標：MA 5/20/60、布林通道 20/2、RSI 14、MACD 12/26/9、KD 9。
+    本工具僅供學習與參考，不構成投資建議。
+  </footer>
+</main>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- 指標計算 ---------- */
+function sma(a, n){
+  const out = Array(a.length).fill(null); let s = 0;
+  for (let i = 0; i < a.length; i++){
+    s += a[i]; if (i >= n) s -= a[i-n];
+    if (i >= n-1) out[i] = s / n;
+  }
+  return out;
+}
+function ema(a, n){
+  const out = Array(a.length).fill(null), k = 2/(n+1); let e = null;
+  for (let i = 0; i < a.length; i++){
+    if (a[i] == null) continue;
+    e = e == null ? a[i] : a[i]*k + e*(1-k);
+    out[i] = e;
+  }
+  return out;
+}
+function stdev(a, n){
+  const out = Array(a.length).fill(null);
+  for (let i = n-1; i < a.length; i++){
+    let m = 0; for (let j = i-n+1; j <= i; j++) m += a[j]; m /= n;
+    let v = 0; for (let j = i-n+1; j <= i; j++) v += (a[j]-m)**2;
+    out[i] = Math.sqrt(v/n);
+  }
+  return out;
+}
+function rsi(c, n){
+  const out = Array(c.length).fill(null); let g = 0, l = 0;
+  for (let i = 1; i < c.length; i++){
+    const d = c[i]-c[i-1], up = Math.max(d,0), dn = Math.max(-d,0);
+    if (i <= n){ g += up/n; l += dn/n; }
+    else { g = (g*(n-1)+up)/n; l = (l*(n-1)+dn)/n; }
+    if (i >= n) out[i] = l === 0 ? 100 : 100 - 100/(1+g/l);
+  }
+  return out;
+}
+function kd(h, l, c, n){
+  const K = Array(c.length).fill(null), D = K.slice(); let k = 50, d = 50;
+  for (let i = n-1; i < c.length; i++){
+    let hi = -Infinity, lo = Infinity;
+    for (let j = i-n+1; j <= i; j++){ hi = Math.max(hi,h[j]); lo = Math.min(lo,l[j]); }
+    const rsv = hi === lo ? 50 : (c[i]-lo)/(hi-lo)*100;
+    k = k*2/3 + rsv/3; d = d*2/3 + k/3;
+    K[i] = k; D[i] = d;
+  }
+  return {K, D};
+}
+function analyze(rows){
+  const c = rows.map(r=>r.c), h = rows.map(r=>r.h), l = rows.map(r=>r.l), v = rows.map(r=>r.v);
+  const ma5 = sma(c,5), ma20 = sma(c,20), ma60 = sma(c,60), sd = stdev(c,20);
+  const bbU = ma20.map((m,i)=> m==null?null:m+2*sd[i]), bbL = ma20.map((m,i)=> m==null?null:m-2*sd[i]);
+  const e12 = ema(c,12), e26 = ema(c,26);
+  const dif = c.map((_,i)=> i<25?null:e12[i]-e26[i]);
+  const sig = ema(dif,9).map((x,i)=> i<33?null:x);
+  const hist = dif.map((x,i)=> sig[i]==null?null:x-sig[i]);
+  const {K, D} = kd(h,l,c,9);
+  return {c,h,l,v,ma5,ma20,ma60,bbU,bbL,dif,sig,hist,K,D,rsi:rsi(c,14),vma20:sma(v,20)};
+}
+
+/* ---------- 資料取得 ---------- */
+const iso = d => d.toISOString().slice(0,10);
+async function fetchFinMind(sym, days){
+  const tw = /^\d/.test(sym);
+  const start = new Date(Date.now() - (days+220)*864e5);
+  const u = 'https://api.finmindtrade.com/api/v4/data?dataset=' + (tw?'TaiwanStockPrice':'USStockPrice') +
+            '&data_id=' + encodeURIComponent(sym) + '&start_date=' + iso(start);
+  const res = await fetch(u);
+  if (!res.ok) throw new Error(res.status === 402 ? '已達資料來源的查詢次數上限，請稍後再試' : '資料來源回應錯誤（HTTP '+res.status+'）');
+  const j = await res.json();
+  const rows = (j.data||[]).map(d => tw
+    ? {d:d.date, o:+d.open, h:+d.max, l:+d.min, c:+d.close, v:+d.Trading_Volume}
+    : {d:d.date, o:+d.Open, h:+d.High, l:+d.Low, c:+d.Close, v:+d.Volume});
+  let name = '';
+  if (tw) try {
+    const r = await (await fetch('https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockInfo&data_id='+encodeURIComponent(sym))).json();
+    name = r.data && r.data[0] ? r.data[0].stock_name : '';
+  } catch(e){}
+  return {rows, name};
+}
+function parseCSV(text){
+  const lines = text.replace(/^﻿/,'').split(/\r?\n/).filter(x=>x.trim());
+  const split = s => s.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(x=>x.replace(/^"|"$/g,'').trim());
+  const head = split(lines[0]).map(x=>x.toLowerCase());
+  const find = (...ks) => head.findIndex(x => ks.some(k => x === k || x.includes(k)));
+  const ix = {d:find('date','日期','時間'), o:find('open','開盤'), h:find('high','max','最高'),
+              l:find('low','min','最低'), c:find('close','收盤'), v:find('volume','成交量','成交股數')};
+  if (ix.d < 0 || ix.c < 0) throw new Error('CSV 需要有 Date 與 Close 欄位（可另含 Open/High/Low/Volume）');
+  const num = s => parseFloat(String(s).replace(/,/g,''));
+  const rows = [];
+  for (const ln of lines.slice(1)){
+    const f = split(ln); const c = num(f[ix.c]);
+    const t = new Date(String(f[ix.d]).replace(/\//g,'-'));
+    if (!isFinite(c) || isNaN(t)) continue;
+    const pick = (i) => i>=0 && isFinite(num(f[i])) ? num(f[i]) : c;
+    rows.push({d:iso(t), o:pick(ix.o), h:pick(ix.h), l:pick(ix.l), c, v: ix.v>=0 && isFinite(num(f[ix.v])) ? num(f[ix.v]) : 0});
+  }
+  rows.sort((a,b)=> a.d<b.d?-1:1);
+  return rows;
+}
+function demoRows(){
+  let seed = 20240607; const rnd = () => (seed = (seed*1664525+1013904223)>>>0) / 4294967296;
+  const gauss = () => Math.sqrt(-2*Math.log(rnd()+1e-12))*Math.cos(2*Math.PI*rnd());
+  const rows = []; let p = 100; const t = new Date(); t.setDate(t.getDate()-900);
+  for (let i = 0; i < 900; i++){
+    t.setDate(t.getDate()+1); const wd = t.getDay(); if (wd===0||wd===6) continue;
+    const o = p*(1+gauss()*0.004); p = o*(1+0.0004+Math.sin(i/55)*0.0012+gauss()*0.014);
+    const h = Math.max(o,p)*(1+Math.abs(gauss())*0.006), l = Math.min(o,p)*(1-Math.abs(gauss())*0.006);
+    rows.push({d:iso(t), o, h, l, c:p, v:Math.round(2e7*(0.6+rnd())*(1+Math.abs(p/o-1)*30))});
+  }
+  return rows;
+}
+
+/* ---------- 格式 ---------- */
+const f2 = x => x==null||!isFinite(x) ? '–' : x.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const f1 = x => x==null||!isFinite(x) ? '–' : x.toFixed(1);
+const pct = x => x==null||!isFinite(x) ? '–' : (x>0?'+':'') + (x*100).toFixed(2) + '%';
+const arrow = x => x>0 ? '▲' : x<0 ? '▼' : '';
+function big(x){
+  if (x==null||!isFinite(x)) return '–';
+  if (x >= 1e8) return (x/1e8).toFixed(2)+' 億';
+  if (x >= 1e4) return (x/1e4).toFixed(x>=1e6?0:1)+' 萬';
+  return Math.round(x).toString();
+}
+
+/* ---------- 狀態 ---------- */
+let S = null;   // {rows, ind, s (view start), title, note}
+let hov = null;
+
+function load(rows, title, days, note){
+  rows = rows.filter(r => isFinite(r.c) && r.c > 0);
+  if (rows.length < 30) throw new Error('資料不足（至少需要 30 個交易日），請確認代號是否正確');
+  const cutoff = iso(new Date(new Date(rows[rows.length-1].d).getTime() - days*864e5));
+  let s = rows.findIndex(r => r.d >= cutoff); if (s < 0) s = 0;
+  if (rows.length - s < 20) s = Math.max(0, rows.length-20);
+  S = {rows, ind:analyze(rows), s, title, note:note||''};
+  hov = null;
+  $('out').classList.remove('hide');
+  renderTiles(); renderSignals(); renderTable(); draw();
+}
+
+/* ---------- 摘要卡 ---------- */
+function renderTiles(){
+  const {rows, ind, s} = S, n = rows.length, last = rows[n-1], prev = rows[n-2];
+  const chg = last.c/prev.c - 1, ret = last.c/rows[s].c - 1;
+  const lr = []; for (let i = s+1; i < n; i++) lr.push(Math.log(rows[i].c/rows[i-1].c));
+  const m = lr.reduce((a,b)=>a+b,0)/lr.length;
+  const vol = Math.sqrt(lr.reduce((a,b)=>a+(b-m)**2,0)/Math.max(1,lr.length-1))*Math.sqrt(252);
+  let peak = -Infinity, mdd = 0, hi = -Infinity, lo = Infinity;
+  for (let i = s; i < n; i++){
+    peak = Math.max(peak, rows[i].c); mdd = Math.min(mdd, rows[i].c/peak-1);
+    hi = Math.max(hi, rows[i].h); lo = Math.min(lo, rows[i].l);
+  }
+  const dot = x => `<span class="dot" style="background:var(${x>=0?'--up':'--down'})"></span>`;
+  const T = (k,v,sub) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub||'&nbsp;'}</div></div>`;
+  $('tiles').innerHTML =
+    T(esc(S.title), f2(last.c), `${dot(chg)}${arrow(chg)} ${f2(Math.abs(last.c-prev.c))}（${pct(chg)}）`) +
+    T('期間報酬', dot(ret)+pct(ret), `${rows[s].d} 起`) +
+    T('年化波動率', (vol*100).toFixed(1)+'%', '日報酬標準差 × √252') +
+    T('最大回檔', (mdd*100).toFixed(1)+'%', '期間內高點至低點') +
+    T('期間高 / 低', f2(hi), '低 '+f2(lo)) +
+    T('成交量', big(last.v), '20 日均量 '+big(ind.vma20[n-1]));
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- 訊號 ---------- */
+function renderSignals(){
+  const {ind, rows} = S, i = rows.length-1, c = ind.c[i];
+  const out = []; let score = 0;
+  const add = (tag, pts, text) => { score += pts; out.push({tag, pts, text}); };
+  const crossed = (a, b) => {           // 近 3 日內 a 對 b 的交叉：1 向上、-1 向下
+    for (let j = i; j > i-3 && j > 0; j--){
+      if (a[j]==null||b[j]==null||a[j-1]==null||b[j-1]==null) continue;
+      if (a[j-1] <= b[j-1] && a[j] > b[j]) return 1;
+      if (a[j-1] >= b[j-1] && a[j] < b[j]) return -1;
+    }
+    return 0;
+  };
+  const m5 = ind.ma5[i], m20 = ind.ma20[i], m60 = ind.ma60[i];
+  if (m20 != null && m60 != null){
+    if (c > m20 && m20 > m60) add('均線', 2, `多頭排列：收盤 ${f2(c)} > MA20 ${f2(m20)} > MA60 ${f2(m60)}`);
+    else if (c < m20 && m20 < m60) add('均線', -2, `空頭排列：收盤 ${f2(c)} < MA20 ${f2(m20)} < MA60 ${f2(m60)}`);
+    else add('均線', 0, `均線糾結，趨勢不明（MA20 ${f2(m20)}、MA60 ${f2(m60)}）`);
+  } else if (m20 != null) add('均線', c>m20?1:-1, `收盤${c>m20?'站上':'跌破'} MA20（${f2(m20)}）；資料不足以計算 MA60`);
+  if (m5 != null && m20 != null){
+    const x = crossed(ind.ma5, ind.ma20);
+    if (x) add('均線', x, x>0 ? '近 3 日 MA5 向上穿越 MA20（黃金交叉）' : '近 3 日 MA5 向下跌破 MA20（死亡交叉）');
+  }
+  const r = ind.rsi[i];
+  if (r != null) add('RSI', r>=70?-1:r<=30?1:0,
+    `RSI(14) = ${f1(r)}，` + (r>=70?'進入超買區，留意短線過熱':r<=30?'進入超賣區，留意反彈機會':r>=50?'位於 50 之上，動能偏強':'位於 50 之下，動能偏弱'));
+  if (ind.hist[i] != null){
+    const x = crossed(ind.dif, ind.sig), hgt = ind.hist[i];
+    if (x) add('MACD', x, x>0 ? '近 3 日 DIF 向上穿越訊號線（偏多）' : '近 3 日 DIF 向下跌破訊號線（偏空）');
+    else add('MACD', hgt>0?1:-1, `柱狀體為${hgt>0?'正':'負'}（${hgt.toFixed(2)}），` +
+      (Math.abs(hgt) > Math.abs(ind.hist[i-1]??hgt) ? '且持續擴大' : '但正在收斂'));
+  }
+  const k = ind.K[i], d = ind.D[i];
+  if (k != null){
+    const x = crossed(ind.K, ind.D);
+    let t = `K ${f1(k)}、D ${f1(d)}`, p = 0;
+    if (x > 0){ t += '，近 3 日黃金交叉'; p = 1; } else if (x < 0){ t += '，近 3 日死亡交叉'; p = -1; }
+    if (k >= 80) t += '；處於高檔區（>80）'; else if (k <= 20) t += '；處於低檔區（<20）';
+    add('KD', p, t);
+  }
+  if (ind.bbU[i] != null){
+    if (c > ind.bbU[i]) add('布林', 0, `收盤突破上軌（${f2(ind.bbU[i])}），強勢但乖離偏大`);
+    else if (c < ind.bbL[i]) add('布林', 0, `收盤跌破下軌（${f2(ind.bbL[i])}），弱勢但乖離偏大`);
+  }
+  const vr = ind.vma20[i] ? ind.v[i]/ind.vma20[i] : null;
+  if (vr != null && vr >= 1.5) add('量能', 0, `成交量為 20 日均量的 ${vr.toFixed(1)} 倍（爆量）`);
+  else if (vr != null && vr <= 0.5) add('量能', 0, `成交量僅 20 日均量的 ${vr.toFixed(1)} 倍（量縮）`);
+
+  const v = score >= 3 ? '偏多' : score <= -3 ? '偏空' : score > 0 ? '中性偏多' : score < 0 ? '中性偏空' : '中性';
+  $('verdict').textContent = `綜合判讀：${v}（訊號分數 ${score>0?'+':''}${score}）`;
+  $('signals').innerHTML = out.map(o =>
+    `<li><span class="tag">${o.tag}</span><span>${o.pts>0?'▲ ':o.pts<0?'▼ ':'・'}${esc(o.text)}</span></li>`).join('');
+}
+
+/* ---------- 資料表 ---------- */
+function renderTable(){
+  const {rows, ind} = S, n = rows.length; let h = '<tr><th>日期</th><th>開</th><th>高</th><th>低</th><th>收</th><th>漲跌</th><th>成交量</th><th>RSI</th><th>K</th><th>D</th></tr>';
+  for (let i = n-1; i >= Math.max(1, n-30); i--){
+    const r = rows[i];
+    h += `<tr><td>${r.d}</td><td>${f2(r.o)}</td><td>${f2(r.h)}</td><td>${f2(r.l)}</td><td>${f2(r.c)}</td><td>${pct(r.c/rows[i-1].c-1)}</td><td>${big(r.v)}</td><td>${f1(ind.rsi[i])}</td><td>${f1(ind.K[i])}</td><td>${f1(ind.D[i])}</td></tr>`;
+  }
+  $('tbl').innerHTML = h;
+}
+
+/* ---------- 繪圖 ---------- */
+const PAD = {l:6, r:58, t:8};
+function niceTicks(min, max, count){
+  const span = max-min || 1, raw = span/count, mag = 10**Math.floor(Math.log10(raw));
+  const step = [1,2,2.5,5,10].map(x=>x*mag).find(x => x >= raw);
+  const out = []; for (let v = Math.ceil(min/step)*step; v <= max+1e-9; v += step) out.push(v);
+  return out;
+}
+function panel(id, opt){
+  const cv = $(id), dpr = window.devicePixelRatio||1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr);
+  const g = cv.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0);
+  const {s} = S, n = S.rows.length - s, pb = opt.dates ? 20 : 6;
+  const pw = w-PAD.l-PAD.r, ph = h-PAD.t-pb, step = pw/n;
+  let {min, max} = opt; if (min === max){ min -= 1; max += 1; }
+  const X = i => PAD.l + (i-s+0.5)*step, Y = v => PAD.t + (max-v)/(max-min)*ph;
+  g.font = '11px system-ui,sans-serif'; g.textBaseline = 'middle';
+  // 格線與 Y 軸
+  const ticks = opt.ticks || niceTicks(min, max, opt.dates ? 5 : 3);
+  for (const t of ticks){
+    const y = Math.round(Y(t))+0.5;
+    g.strokeStyle = css('--grid'); g.lineWidth = 1; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(PAD.l+pw, y); g.stroke();
+    g.fillStyle = css('--muted'); g.textAlign = 'left'; g.fillText((opt.fmt||f2)(t), PAD.l+pw+6, y);
+  }
+  // X 軸日期
+  if (opt.dates){
+    g.textAlign = 'center'; g.fillStyle = css('--muted'); let lastX = -99, prevKey = '';
+    const byYear = n > 400;
+    for (let i = s; i < S.rows.length; i++){
+      const d = S.rows[i].d, key = byYear ? d.slice(0,4) : d.slice(0,7);
+      if (key !== prevKey && i > s && X(i)-lastX > 46 && X(i) < PAD.l+pw-16){
+        g.fillText(byYear || d.slice(5,7)==='01' ? d.slice(0,7).replace('-','/') : d.slice(5,7)+'月', X(i), h-9); lastX = X(i);
+      }
+      prevKey = key;
+    }
+  }
+  const line = (arr, color, width) => {
+    g.strokeStyle = color; g.lineWidth = width||1.5; g.lineJoin = 'round'; g.beginPath(); let pen = false;
+    for (let i = s; i < arr.length; i++){
+      if (arr[i] == null){ pen = false; continue; }
+      pen ? g.lineTo(X(i), Y(arr[i])) : g.moveTo(X(i), Y(arr[i])); pen = true;
+    }
+    g.stroke();
+  };
+  g.save(); g.beginPath(); g.rect(PAD.l, PAD.t-4, pw, ph+8); g.clip();
+  opt.draw({g, X, Y, step, line, s, pw, ph});
+  g.restore();
+  // 十字線
+  if (hov != null){
+    const x = Math.round(X(hov))+0.5;
+    g.strokeStyle = css('--muted'); g.lineWidth = 1; g.setLineDash([3,3]);
+    g.beginPath(); g.moveTo(x, PAD.t); g.lineTo(x, PAD.t+ph); g.stroke(); g.setLineDash([]);
+  }
+}
+const ext = (arrs, s) => {
+  let min = Infinity, max = -Infinity;
+  for (const a of arrs) for (let i = s; i < a.length; i++) if (a[i] != null){ if (a[i]<min) min=a[i]; if (a[i]>max) max=a[i]; }
+  const p = (max-min)*0.05; return {min:min-p, max:max+p};
+};
+const sw = v => `<span class="sw" style="background:var(${v})"></span>`;
+
+function draw(){
+  if (!S) return;
+  const {rows, ind, s} = S, n = rows.length, i = hov ?? n-1, r = rows[i];
+  const up = css('--up'), down = css('--down'), s1 = css('--s1'), s2 = css('--s2'), s3 = css('--s3');
+  const colorOf = j => rows[j].c >= rows[j].o ? up : down;
+  const chg = i > 0 ? r.c/rows[i-1].c-1 : 0;
+
+  $('h-price').innerHTML = `<span><b>${r.d}</b></span><span>開 <b>${f2(r.o)}</b></span><span>高 <b>${f2(r.h)}</b></span><span>低 <b>${f2(r.l)}</b></span><span>收 <b>${f2(r.c)}</b></span><span>${arrow(chg)} <b>${pct(chg)}</b></span>` +
+    `<span>${sw('--s1')}MA5 <b>${f2(ind.ma5[i])}</b></span><span>${sw('--s2')}MA20 <b>${f2(ind.ma20[i])}</b></span><span>${sw('--s3')}MA60 <b>${f2(ind.ma60[i])}</b></span><span>布林 <b>${f2(ind.bbL[i])} – ${f2(ind.bbU[i])}</b></span>`;
+  panel('c-price', {...ext([ind.h.map((x,j)=>Math.max(x,ind.bbU[j]??x)), ind.l.map((x,j)=>Math.min(x,ind.bbL[j]??x))], s), dates:true,
+    draw({g, X, Y, step, line}){
+      // 布林通道
+      g.fillStyle = css('--band'); g.beginPath(); let st = false;
+      for (let j = s; j < n; j++) if (ind.bbU[j] != null){ st ? g.lineTo(X(j), Y(ind.bbU[j])) : g.moveTo(X(j), Y(ind.bbU[j])); st = true; }
+      for (let j = n-1; j >= s; j--) if (ind.bbL[j] != null) g.lineTo(X(j), Y(ind.bbL[j]));
+      if (st){ g.closePath(); g.fill(); }
+      // K 線
+      const bw = Math.max(1, Math.min(14, Math.floor(step*0.7)));
+      for (let j = s; j < n; j++){
+        const q = rows[j], x = Math.round(X(j)); g.fillStyle = colorOf(j);
+        g.fillRect(x-0.5, Y(q.h), 1, Math.max(1, Y(q.l)-Y(q.h)));
+        const top = Y(Math.max(q.o,q.c)), bot = Y(Math.min(q.o,q.c));
+        g.fillRect(x-bw/2, top, bw, Math.max(1, bot-top));
+      }
+      line(ind.ma5, s1); line(ind.ma20, s2); line(ind.ma60, s3);
+    }});
+
+  $('h-vol').innerHTML = `<span>成交量 <b>${big(r.v)}</b></span><span>${sw('--s2')}20 日均量 <b>${big(ind.vma20[i])}</b></span>`;
+  panel('c-vol', {min:0, max:ext([ind.v], s).max, fmt:big,
+    draw({g, X, Y, step, line}){
+      const bw = Math.max(1, Math.min(14, Math.floor(step*0.7)));
+      for (let j = s; j < n; j++){ g.fillStyle = colorOf(j); const y = Y(ind.v[j]); g.fillRect(Math.round(X(j))-bw/2, y, bw, Y(0)-y); }
+      line(ind.vma20, s2);
+    }});
+
+  $('h-rsi').innerHTML = `<span>${sw('--s1')}RSI(14) <b>${f1(ind.rsi[i])}</b></span><span>超買 70 ／ 超賣 30</span>`;
+  panel('c-rsi', {min:0, max:100, ticks:[30,50,70], fmt:x=>x.toFixed(0), draw({line}){ line(ind.rsi, s1); }});
+
+  $('h-macd').innerHTML = `<span>${sw('--s1')}DIF <b>${f2(ind.dif[i])}</b></span><span>${sw('--s2')}訊號線 <b>${f2(ind.sig[i])}</b></span><span>柱狀體 <b>${f2(ind.hist[i])}</b></span>`;
+  const me = ext([ind.dif, ind.sig, ind.hist], s), mm = Math.max(Math.abs(me.min), Math.abs(me.max)) || 1;
+  panel('c-macd', {min:-mm, max:mm,
+    draw({g, X, Y, step, line}){
+      const bw = Math.max(1, Math.min(14, Math.floor(step*0.7)));
+      for (let j = s; j < n; j++){
+        const v = ind.hist[j]; if (v == null) continue;
+        g.fillStyle = v >= 0 ? up : down; const y0 = Y(0), y = Y(v);
+        g.fillRect(Math.round(X(j))-bw/2, Math.min(y0,y), bw, Math.max(1, Math.abs(y-y0)));
+      }
+      line(ind.dif, s1); line(ind.sig, s2);
+    }});
+
+  $('h-kd').innerHTML = `<span>${sw('--s1')}K(9) <b>${f1(ind.K[i])}</b></span><span>${sw('--s2')}D(9) <b>${f1(ind.D[i])}</b></span><span>高檔 80 ／ 低檔 20</span>`;
+  panel('c-kd', {min:0, max:100, ticks:[20,50,80], fmt:x=>x.toFixed(0), dates:true, draw({line}){ line(ind.K, s1); line(ind.D, s2); }});
+}
+
+/* ---------- 互動 ---------- */
+const charts = $('charts');
+function onMove(e){
+  if (!S) return;
+  const cv = $('c-price'), b = cv.getBoundingClientRect(), n = S.rows.length - S.s;
+  const idx = Math.floor((e.clientX - b.left - PAD.l) / ((b.width-PAD.l-PAD.r)/n));
+  const h = S.s + Math.max(0, Math.min(n-1, idx));
+  if (h !== hov){ hov = h; draw(); }
+}
+charts.addEventListener('pointermove', onMove);
+charts.addEventListener('pointerdown', onMove);
+charts.addEventListener('pointerleave', () => { if (hov != null){ hov = null; draw(); } });
+window.addEventListener('resize', draw);
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change', draw);
+
+function say(t, err){ $('msg').textContent = t; $('msg').classList.toggle('err', !!err); }
+const days = () => +$('range').value;
+
+async function run(){
+  const sym = $('sym').value.trim().toUpperCase();
+  if (!sym) return say('請輸入股票代號', true);
+  $('go').disabled = true; say('讀取 ' + sym + ' 資料中…');
+  try {
+    const {rows, name} = await fetchFinMind(sym, days());
+    if (!rows.length) throw new Error('查無「'+sym+'」的資料，請確認代號（台股輸入數字代號，美股輸入英文代號）');
+    load(rows, name ? `${sym} ${name}` : sym, days());
+    say(`${sym}${name?' '+name:''}：${rows[S.s].d} ～ ${rows[rows.length-1].d}，共 ${rows.length-S.s} 個交易日。`);
+    S.src = 'net';
+  } catch(e){
+    say((e instanceof TypeError ? '無法連線到資料來源，請檢查網路，或改用「匯入 CSV」。' : e.message), true);
+  } finally { $('go').disabled = false; }
+}
+$('form').addEventListener('submit', e => { e.preventDefault(); run(); });
+$('range').addEventListener('change', () => {
+  if (!S) return;
+  if (S.src === 'net') return run();
+  try { const src = S.src; load(S.rows, S.title, days()); S.src = src; } catch(e){ say(e.message, true); }
+});
+$('demo').addEventListener('click', () => {
+  load(demoRows(), '示範股票', days()); S.src = 'demo';
+  say('目前顯示的是隨機產生的模擬資料，並非真實行情。');
+});
+$('csv').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    load(parseCSV(await f.text()), f.name.replace(/\.csv$/i,''), days()); S.src = 'csv';
+    say(`已載入 ${f.name}：${S.rows[S.s].d} ～ ${S.rows[S.rows.length-1].d}。`);
+  } catch(err){ say(err.message, true); }
+  e.target.value = '';
+});
+</script>
+</body>
+</html>
