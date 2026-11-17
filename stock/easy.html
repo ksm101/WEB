@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新手股票健檢</title>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f4f4f2; --surface:#fcfcfb; --border:#e3e2dd; --grid:#ecebe6;
+  --text:#0b0b0b; --text2:#52514e; --muted:#85837c;
+  --s1:#2a78d6; --s2:#eb6834; --accent:#2a78d6; --soft:#2a78d614;
+  --good:#0ca30c; --warn:#fab219; --bad:#d03b3b;
+  --up:#d03b3b; --down:#0ca30c;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    color-scheme:dark;
+    --bg:#111110; --surface:#1a1a19; --border:#31302d; --grid:#262624;
+    --text:#f0efec; --text2:#c3c2b7; --muted:#8b897f;
+    --s1:#3987e5; --s2:#d95926; --accent:#3987e5; --soft:#3987e51c;
+    --up:#e66767;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:16px/1.6 system-ui,-apple-system,"Segoe UI","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
+main{max-width:900px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0 2px}
+h2{font-size:18px;margin:0 0 6px}
+.sub{color:var(--text2);margin:0 0 14px;font-size:14px}
+a{color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tabs button{flex:1;height:44px;font-size:16px}
+.tabs button[aria-selected=true]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:650}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input,button{font:inherit;height:42px;padding:0 14px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--text)}
+input{flex:1;min-width:140px;max-width:240px}
+button{cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:650}
+button:disabled{opacity:.5;cursor:default}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chips button{height:32px;font-size:14px;padding:0 10px;border-radius:16px}
+.msg{color:var(--text2);font-size:14px;margin-top:8px;min-height:1.4em}
+.msg.err{color:var(--bad)}
+.notice{background:var(--soft);border-radius:10px;padding:10px 12px;font-size:14px;color:var(--text2)}
+.notice b{color:var(--text)}
+.hero{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}
+.hero .name{font-size:20px;font-weight:650}
+.hero .price{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+.hero .chg{font-variant-numeric:tabular-nums;color:var(--text2)}
+.summary{font-size:17px;margin:10px 0 0;padding:12px;border-radius:10px;background:var(--soft)}
+.grade{display:inline-flex;align-items:center;gap:6px;font-weight:700}
+.checks{list-style:none;margin:0;padding:0}
+.checks li{display:grid;grid-template-columns:28px 1fr;gap:4px 8px;padding:10px 0;border-top:1px solid var(--grid)}
+.checks li:first-child{border-top:0}
+.ico{width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:800;color:#fff;flex:none}
+.ico.good{background:var(--good)} .ico.warn{background:var(--warn);color:#2b2100} .ico.bad{background:var(--bad)} .ico.na{background:var(--muted)}
+.checks .t{font-weight:650}
+.checks .d{grid-column:2;color:var(--text2);font-size:14px}
+.checks details{grid-column:2;font-size:14px;color:var(--text2)}
+.checks summary{cursor:pointer;color:var(--accent)}
+.legend{display:flex;gap:14px;font-size:13px;color:var(--text2);margin-bottom:4px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+canvas{display:block;width:100%;height:240px;touch-action:pan-y}
+.rank{list-style:none;margin:0;padding:0}
+.rank li{border-top:1px solid var(--grid);padding:12px 0}
+.rank li:first-child{border-top:0}
+.rk{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rk .no{width:26px;color:var(--muted);font-variant-numeric:tabular-nums;font-weight:650}
+.rk .nm{font-weight:650;flex:1;min-width:140px}
+.rk .nm small{color:var(--muted);font-weight:400;margin-left:4px;white-space:nowrap}
+.badge .ico{width:16px;height:16px;font-size:10px;vertical-align:-3px}
+.badge{font-size:12px;padding:1px 8px;border-radius:10px;border:1px solid var(--border);color:var(--text2);font-weight:500;margin-left:6px;white-space:nowrap}
+.score{font-weight:700;font-variant-numeric:tabular-nums;min-width:62px;text-align:right}
+.meter{height:8px;border-radius:4px;background:var(--grid);overflow:hidden;width:90px}
+.meter span{display:block;height:100%;background:var(--accent);border-radius:4px}
+.mini{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0 0 36px;font-size:13px;color:var(--text2)}
+.mini .ico{width:16px;height:16px;font-size:10px;margin-right:3px;vertical-align:-3px}
+.rk button{height:32px;font-size:13px;padding:0 10px}
+@media (max-width:600px){
+  .rk .nm{flex-basis:calc(100% - 40px)}
+  .rk .meter{margin-left:36px;flex:1;max-width:120px}
+  .rk .score{min-width:0}
+  .rk button{margin-left:auto}
+  .mini{margin-left:36px}
+}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.filters button{height:34px;font-size:14px;border-radius:17px}
+.filters button[aria-pressed=true]{border-color:var(--accent);color:var(--accent);font-weight:650;background:var(--soft)}
+.progress{height:6px;background:var(--grid);border-radius:3px;overflow:hidden;margin-top:8px}
+.progress span{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
+dl.gloss{margin:0}
+dl.gloss dt{font-weight:650;margin-top:10px}
+dl.gloss dd{margin:2px 0 0;color:var(--text2);font-size:15px}
+footer{color:var(--muted);font-size:12px;padding:6px 2px 28px}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <h1>新手股票健檢</h1>
+  <p class="sub">用白話文看懂一檔股票的狀況。想看 K 線、MACD 等專業圖表，請到<a href="./">進階版</a>。</p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="check">查一檔股票</button>
+    <button role="tab" aria-selected="false" data-tab="rank">熱門股排行</button>
+    <button role="tab" aria-selected="false" data-tab="learn">名詞小教室</button>
+  </div>
+
+  <!-- 查一檔 -->
+  <section id="tab-check">
+    <div class="card">
+      <form class="bar" id="form">
+        <input id="sym" placeholder="輸入代號，例如 2330" value="2330" inputmode="numeric" autocomplete="off" aria-label="股票代號">
+        <button class="primary" id="go" type="submit">健檢</button>
+      </form>
+      <div class="chips" id="chips"></div>
+      <div class="msg" id="msg"></div>
+    </div>
+    <div id="result" class="hide">
+      <div class="card">
+        <div class="hero"><span class="name" id="r-name"></span><span class="price" id="r-price"></span><span class="chg" id="r-chg"></span></div>
+        <div class="summary" id="r-summary"></div>
+      </div>
+      <div class="card">
+        <h2>過去一年的股價</h2>
+        <div class="legend"><span><i style="background:var(--s1)"></i>每日收盤價</span><span><i style="background:var(--s2)"></i>年線（過去 240 天平均價）</span></div>
+        <canvas id="chart"></canvas>
+        <div class="msg" id="r-hover">在圖上移動或點一下，可以看當天價格。</div>
+      </div>
+      <div class="card">
+        <h2>六項體檢</h2>
+        <ul class="checks" id="r-checks"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 排行 -->
+  <section id="tab-rank" class="hide">
+    <div class="card">
+      <h2>熱門股、ETF 體檢排行</h2>
+      <p class="notice"><b>這不是「買這幾檔一定賺」的推薦名單。</b>這裡把台灣交易量大、新手常聽到的 25 檔股票和 ETF，用同一套六項體檢打分數，分數越高代表「過去一年走勢穩、價格不算太貴、有配息」，比較適合新手<b>先拿來研究</b>。過去表現不代表未來。</p>
+      <div class="bar" style="margin-top:10px">
+        <button class="primary" id="scan">開始體檢（約 30 秒）</button>
+        <span class="msg" id="scan-msg" style="margin:0"></span>
+      </div>
+      <div class="progress hide" id="prog"><span></span></div>
+      <div class="filters hide" id="filters">
+        <button aria-pressed="true" data-f="all">全部</button>
+        <button aria-pressed="false" data-f="etf">只看 ETF</button>
+        <button aria-pressed="false" data-f="stock">只看個股</button>
+      </div>
+      <ol class="rank" id="rank"></ol>
+    </div>
+  </section>
+
+  <!-- 名詞 -->
+  <section id="tab-learn" class="hide">
+    <div class="card">
+      <h2>新手常見名詞</h2>
+      <dl class="gloss">
+        <dt>ETF（指數股票型基金）</dt>
+        <dd>一次買進「一籃子」股票。例如 0050 等於同時買了台灣市值最大的 50 家公司，一家出事影響有限，是很多人入門的第一步。</dd>
+        <dt>年線</dt>
+        <dd>過去約一年（240 個交易日）的平均價格。股價在年線之上，通常代表這一年買的人大多是賺錢的，長期趨勢向上。</dd>
+        <dt>年報酬</dt>
+        <dd>如果一年前買進並放到今天，價格漲或跌了多少（不含配息）。</dd>
+        <dt>波動（起伏大小）</dt>
+        <dd>股價每天上上下下的幅度。波動大的股票可能漲很快，也可能跌很快，新手心臟要夠強。這裡用「年化波動率」計算：低於 25% 算穩，高於 40% 算刺激。</dd>
+        <dt>最大跌幅（最大回檔）</dt>
+        <dd>過去一年裡，從最高點跌到後來最低點，最多跌掉幾成。可以想成「最倒楣的時候會帳面虧多少」。</dd>
+        <dt>殖利率</dt>
+        <dd>一年配的現金股利 ÷ 股價。殖利率 4% 代表放 10 萬元，一年大約可以領 4 千元股利（股價本身還是會漲跌）。</dd>
+        <dt>本益比（PER）</dt>
+        <dd>股價 ÷ 每股一年賺的錢。本益比 15 代表「用 15 年的獲利來買它」。數字越高通常越貴，但成長快的公司本益比也常比較高。公司虧錢時沒有本益比。</dd>
+        <dt>漲紅跌綠</dt>
+        <dd>台股習慣：紅色代表上漲、綠色代表下跌，跟美股相反。</dd>
+        <dt>定期定額</dt>
+        <dd>每個月固定投入一筆錢買同一檔（常見是 ETF），不用猜高低點，是新手最常見的起步方式。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <footer>
+    資料來源：FinMind 開放資料（股價、本益比、殖利率），每次開啟時即時抓取。股價為未還原價，年報酬不含配息。
+    本頁為學習用途，所有分數只是依公式計算，不構成任何投資建議；投資前請自行評估風險。
+  </footer>
+</main>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- 清單 ---------- */
+const LIST = [
+  ['0050','元大台灣50','etf'], ['006208','富邦台50','etf'], ['0056','元大高股息','etf'],
+  ['00878','國泰永續高股息','etf'], ['00919','群益台灣精選高息','etf'],
+  ['2330','台積電'], ['2317','鴻海'], ['2454','聯發科'], ['2308','台達電'], ['2382','廣達'],
+  ['2303','聯電'], ['3711','日月光投控'], ['2412','中華電'], ['1216','統一'], ['2207','和泰車'],
+  ['1301','台塑'], ['2002','中鋼'], ['2603','長榮'], ['2881','富邦金'], ['2882','國泰金'],
+  ['2891','中信金'], ['2886','兆豐金'], ['2884','玉山金'], ['2892','第一金'], ['5880','合庫金'],
+];
+const NAMES = Object.fromEntries(LIST.map(x => [x[0], x[1]]));
+const isETF = id => /^00/.test(id);
+
+/* ---------- 資料 ---------- */
+const API = 'https://api.finmindtrade.com/api/v4/data';
+const iso = d => d.toISOString().slice(0,10);
+const ago = days => iso(new Date(Date.now() - days*864e5));
+function cacheGet(k){ try { const v = JSON.parse(localStorage.getItem(k)); if (v && Date.now()-v.t < 6*3600e3) return v.d; } catch(e){} return null; }
+function cacheSet(k, d){ try { localStorage.setItem(k, JSON.stringify({t:Date.now(), d})); } catch(e){} }
+async function api(params){
+  const q = new URLSearchParams(params).toString(), key = 'fm:' + q, hit = cacheGet(key);
+  if (hit) return hit;
+  let res;
+  try { res = await fetch(API + '?' + q); }
+  catch(e){ throw new Error('連不上資料來源，請檢查網路後再試一次'); }
+  if (res.status === 402 || res.status === 429) throw new Error('資料來源的免費查詢次數暫時用完了，請過一小時再試');
+  if (!res.ok) throw new Error('資料來源暫時有問題（代碼 ' + res.status + '），請稍後再試');
+  const j = await res.json(), d = j.data || [];
+  if (d.length) cacheSet(key, d);
+  return d;
+}
+async function getStock(id){
+  const [px, per] = await Promise.all([
+    api({dataset:'TaiwanStockPrice', data_id:id, start_date:ago(420)}),
+    api({dataset:'TaiwanStockPER', data_id:id, start_date:ago(14)}).catch(() => []),
+  ]);
+  const rows = px.map(d => ({d:d.date, c:+d.close})).filter(r => r.c > 0);
+  const p = per.length ? per[per.length-1] : null;
+  return {rows, per: p ? num(p.PER ?? p.per) : null, dy: p ? num(p.dividend_yield ?? p.DividendYield) : null};
+}
+const num = x => { const n = parseFloat(x); return isFinite(n) ? n : null; };
+async function getName(id){
+  if (NAMES[id]) return NAMES[id];
+  try { const d = await api({dataset:'TaiwanStockInfo', data_id:id}); return d[0] ? d[0].stock_name : ''; } catch(e){ return ''; }
+}
+
+/* ---------- 體檢 ---------- */
+function examine(id, {rows, per, dy}){
+  const n = rows.length, c = rows.map(r => r.c), last = c[n-1];
+  const ma240 = n >= 240 ? c.slice(n-240).reduce((a,b)=>a+b,0)/240 : null;
+  const i0 = Math.max(0, n-245), ret = last / c[i0] - 1, short = n < 200;
+  const lr = []; for (let i = i0+1; i < n; i++) lr.push(Math.log(c[i]/c[i-1]));
+  const m = lr.reduce((a,b)=>a+b,0)/lr.length;
+  const vol = Math.sqrt(lr.reduce((a,b)=>a+(b-m)**2,0)/Math.max(1,lr.length-1))*Math.sqrt(252);
+  let peak = -Infinity, mdd = 0;
+  for (let i = i0; i < n; i++){ peak = Math.max(peak, c[i]); mdd = Math.min(mdd, c[i]/peak-1); }
+  const P = x => (x*100).toFixed(1) + '%', etf = isETF(id);
+  const checks = [];
+  // 1 趨勢
+  if (ma240 == null) checks.push({k:'趨勢', s:'na', t:'長期趨勢：資料不足一年', d:'上市時間太短，還算不出年線。'});
+  else {
+    const gap = last/ma240 - 1;
+    checks.push({k:'趨勢', s: gap > 0 ? 'good' : gap > -0.05 ? 'warn' : 'bad',
+      t: gap > 0 ? '長期趨勢向上' : gap > -0.05 ? '長期趨勢走平' : '長期趨勢向下',
+      d: `現在股價${gap>0?'比':'比'}年線${gap>0?'高':'低'} ${P(Math.abs(gap))}。` + (gap>0 ? '過去一年買進的人平均是賺錢的。' : '過去一年買進的人平均是虧錢的。'),
+      why:'年線是過去一年的平均價格。股價站在年線上面，代表長期是往上走的。'});
+  }
+  // 2 年報酬
+  checks.push({k:'年報酬', s: ret > 0.05 ? 'good' : ret > -0.05 ? 'warn' : 'bad',
+    t: `${short?'上市以來':'一年'}${ret>=0?'上漲':'下跌'} ${P(Math.abs(ret))}`,
+    d: `如果${short?'上市時':'一年前'}投入 10 萬元，現在約值 ${Math.round(100000*(1+ret)).toLocaleString()} 元（不含配息）。`,
+    why:'看過去的成績單。注意：過去漲得多，不代表未來還會漲。'});
+  // 3 波動
+  checks.push({k:'波動', s: vol < 0.25 ? 'good' : vol < 0.40 ? 'warn' : 'bad',
+    t: vol < 0.25 ? '起伏小，走勢平穩' : vol < 0.40 ? '起伏中等' : '起伏很大，像雲霄飛車',
+    d: `年化波動率 ${P(vol)}。大約代表一年內股價常在「現價上下 ${Math.round(vol*100)}%」之間晃動。`,
+    why:'波動越小，帳面上下震盪越少，新手比較不容易因為緊張而亂賣。'});
+  // 4 最大跌幅
+  checks.push({k:'最大跌幅', s: mdd > -0.15 ? 'good' : mdd > -0.30 ? 'warn' : 'bad',
+    t: `最倒楣時曾跌 ${P(Math.abs(mdd))}`,
+    d: `${short?'上市以來':'過去一年'}從高點買進的人，最多曾經帳面虧損 ${P(Math.abs(mdd))}。問問自己：看到這種跌幅，你睡得著嗎？`,
+    why:'最大跌幅是衡量「最壞情況」的指標，數字越小越安心。'});
+  // 5 殖利率
+  if (dy == null || dy === 0) checks.push({k:'殖利率', s:'na', t:'殖利率：查無資料', d: etf ? 'ETF 的配息資料這裡查不到，可到發行投信官網查詢。' : '可能是近一年沒有配息，或資料來源沒有提供。'});
+  else checks.push({k:'殖利率', s: dy >= 4 ? 'good' : dy >= 2 ? 'warn' : 'bad',
+    t: `殖利率 ${dy.toFixed(2)}%`,
+    d: `以現在價格買 10 萬元，一年大約可以領 ${Math.round(dy*1000).toLocaleString()} 元現金股利（實際依公司配發）。`,
+    why:'殖利率越高，每年領到的股利越多。4% 以上算不錯；但太高（例如 10% 以上）有時是股價大跌造成的，要小心。'});
+  // 6 本益比
+  if (per == null || per <= 0) checks.push({k:'本益比', s:'na', t: etf ? '本益比：ETF 不適用' : '本益比：無法計算', d: etf ? 'ETF 是一籃子股票，不看單一本益比。' : '公司最近可能虧錢，或資料來源沒有提供。'});
+  else checks.push({k:'本益比', s: per <= 15 ? 'good' : per <= 25 ? 'warn' : 'bad',
+    t: per <= 15 ? `本益比 ${per.toFixed(1)}，價格偏便宜` : per <= 25 ? `本益比 ${per.toFixed(1)}，價格合理` : `本益比 ${per.toFixed(1)}，價格偏貴`,
+    d: `等於用 ${per.toFixed(0)} 年的獲利來買這家公司。`,
+    why:'本益比越低越便宜。但成長很快的公司本益比也常比較高，不一定代表不好。'});
+  const scored = checks.filter(x => x.s !== 'na');
+  const pts = scored.reduce((a,x) => a + (x.s==='good'?2:x.s==='warn'?1:0), 0);
+  const score = scored.length ? Math.round(pts / (scored.length*2) * 100) : 0;
+  return {id, last, prev:c[n-2], ret, vol, mdd, ma240, checks, score};
+}
+function gradeOf(score){
+  if (score >= 75) return {s:'good', w:'體質不錯', line:'各項表現大多良好，可以列入研究清單。'};
+  if (score >= 50) return {s:'warn', w:'表現普通', line:'有優點也有要注意的地方，建議先看懂下面的紅黃燈再決定。'};
+  return {s:'bad', w:'需要小心', line:'多項指標亮紅燈，新手建議先觀察，不急著進場。'};
+}
+const ICON = {good:'✓', warn:'!', bad:'✕', na:'–'};
+const ico = s => `<span class="ico ${s}" aria-hidden="true">${ICON[s]}</span>`;
+const LABEL = {good:'良好', warn:'普通', bad:'注意', na:'無資料'};
+
+/* ---------- 查一檔 ---------- */
+$('chips').innerHTML = '試試看：' + ['0050','0056','2330','2412','2881'].map(id => `<button type="button" data-id="${id}">${id} ${NAMES[id]}</button>`).join('');
+$('chips').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ $('sym').value = b.dataset.id; check(); } });
+$('form').addEventListener('submit', e => { e.preventDefault(); check(); });
+
+let cur = null, hov = null;
+async function check(id){
+  id = (id || $('sym').value).trim().toUpperCase();
+  if (!/^\d{4,6}[A-Z]?$/.test(id)) return say('請輸入台股代號（4～6 碼數字，例如 2330、0050）', true);
+  $('sym').value = id; $('go').disabled = true; say('查詢中…');
+  try {
+    const [data, name] = await Promise.all([getStock(id), getName(id)]);
+    if (data.rows.length < 30) throw new Error(`查不到「${id}」的資料，請確認代號是否正確（目前只支援台股）`);
+    const r = examine(id, data), g = gradeOf(r.score);
+    cur = {...r, rows:data.rows, name};
+    $('r-name').textContent = `${id} ${name}` + (isETF(id) ? '（ETF）' : '');
+    $('r-price').textContent = r.last.toLocaleString('en-US', {maximumFractionDigits:2});
+    const ch = r.last - r.prev, cp = ch / r.prev;
+    $('r-chg').innerHTML = `${data.rows[data.rows.length-1].d} 收盤　比前一天 <span style="color:var(${ch>=0?'--up':'--down'})">${ch>=0?'▲ 漲':'▼ 跌'} ${Math.abs(ch).toFixed(2)}（${(Math.abs(cp)*100).toFixed(2)}%）</span>`;
+    $('r-summary').innerHTML = `<span class="grade">${ico(g.s)} 體檢分數 ${r.score} 分：${g.w}</span><br>${g.line}`;
+    $('r-checks').innerHTML = r.checks.map(x => `<li>${ico(x.s)}<span class="t">${esc(x.k)}｜${esc(x.t)}<span class="badge">${LABEL[x.s]}</span></span>
+      <span class="d">${esc(x.d)}</span>${x.why ? `<details><summary>這是什麼意思？</summary>${esc(x.why)}</details>` : ''}</li>`).join('');
+    $('result').classList.remove('hide'); hov = null; draw();
+    say('');
+  } catch(e){ say(e.message, true); }
+  finally { $('go').disabled = false; }
+}
+function say(t, err){ $('msg').textContent = t; $('msg').classList.toggle('err', !!err); }
+
+/* ---------- 圖 ---------- */
+const PAD = {l:6, r:56, t:10, b:22};
+function draw(){
+  if (!cur) return;
+  const cv = $('chart'), dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr);
+  const g = cv.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0);
+  const all = cur.rows, cs = all.map(r => r.c);
+  const ma = cs.map((_,i) => i < 239 ? null : cs.slice(i-239, i+1).reduce((a,b)=>a+b,0)/240);
+  const s = Math.max(0, all.length-245), n = all.length - s;
+  let min = Infinity, max = -Infinity;
+  for (let i = s; i < all.length; i++){ for (const v of [cs[i], ma[i]]) if (v != null){ min = Math.min(min,v); max = Math.max(max,v); } }
+  const pd = (max-min)*0.08 || 1; min -= pd; max += pd;
+  const pw = w-PAD.l-PAD.r, ph = h-PAD.t-PAD.b;
+  const X = i => PAD.l + (i-s)/(n-1)*pw, Y = v => PAD.t + (max-v)/(max-min)*ph;
+  g.font = '11px system-ui,sans-serif'; g.textBaseline = 'middle';
+  const span = max-min, raw = span/4, mag = 10**Math.floor(Math.log10(raw)), step = [1,2,2.5,5,10].map(x=>x*mag).find(x=>x>=raw);
+  for (let v = Math.ceil(min/step)*step; v <= max; v += step){
+    const y = Math.round(Y(v))+0.5; g.strokeStyle = css('--grid'); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(PAD.l,y); g.lineTo(PAD.l+pw,y); g.stroke();
+    g.fillStyle = css('--muted'); g.textAlign = 'left'; g.fillText(v.toLocaleString('en-US',{maximumFractionDigits:2}), PAD.l+pw+6, y);
+  }
+  g.textAlign = 'center'; let pk = '', lx = -99;
+  for (let i = s; i < all.length; i++){
+    const k = all[i].d.slice(0,7);
+    if (k !== pk && i > s && X(i)-lx > 44 && X(i) < PAD.l+pw-14){ g.fillText(+k.slice(5)+'月', X(i), h-9); lx = X(i); }
+    pk = k;
+  }
+  const line = (arr, color) => { g.strokeStyle = color; g.lineWidth = 2; g.lineJoin = 'round'; g.beginPath(); let on = false;
+    for (let i = s; i < all.length; i++){ if (arr[i]==null){ on=false; continue; } on ? g.lineTo(X(i),Y(arr[i])) : g.moveTo(X(i),Y(arr[i])); on = true; } g.stroke(); };
+  line(ma, css('--s2')); line(cs, css('--s1'));
+  const i = hov ?? all.length-1;
+  if (hov != null){ g.strokeStyle = css('--muted'); g.lineWidth = 1; g.setLineDash([3,3]); g.beginPath(); g.moveTo(Math.round(X(i))+.5, PAD.t); g.lineTo(Math.round(X(i))+.5, PAD.t+ph); g.stroke(); g.setLineDash([]); }
+  g.fillStyle = css('--s1'); g.strokeStyle = css('--surface'); g.lineWidth = 2;
+  g.beginPath(); g.arc(X(i), Y(cs[i]), 4.5, 0, Math.PI*2); g.fill(); g.stroke();
+  if (hov != null) $('r-hover').textContent = `${all[i].d}　收盤 ${cs[i].toLocaleString('en-US',{maximumFractionDigits:2})}` + (ma[i] ? `　年線 ${ma[i].toFixed(2)}` : '');
+  cur.X = {s, n, pw};
+}
+function onMove(e){
+  if (!cur || !cur.X) return;
+  const b = $('chart').getBoundingClientRect(), {s, n, pw} = cur.X;
+  const i = s + Math.max(0, Math.min(n-1, Math.round((e.clientX-b.left-PAD.l)/pw*(n-1))));
+  if (i !== hov){ hov = i; draw(); }
+}
+$('chart').addEventListener('pointermove', onMove);
+$('chart').addEventListener('pointerdown', onMove);
+$('chart').addEventListener('pointerleave', () => { hov = null; draw(); $('r-hover').textContent = '在圖上移動或點一下，可以看當天價格。'; });
+addEventListener('resize', draw);
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change', draw);
+
+/* ---------- 排行 ---------- */
+let ranked = [], filter = 'all';
+$('scan').addEventListener('click', async () => {
+  $('scan').disabled = true; $('prog').classList.remove('hide'); ranked = [];
+  let done = 0, fail = 0; const q = LIST.slice();
+  const bar = $('prog').firstElementChild;
+  const worker = async () => {
+    while (q.length){
+      const [id, name] = q.shift();
+      try { const d = await getStock(id); if (d.rows.length >= 30) ranked.push({...examine(id, d), name}); else fail++; }
+      catch(e){ fail++; if (/次數/.test(e.message)) { q.length = 0; $('scan-msg').textContent = e.message; } }
+      done++; bar.style.width = (done/LIST.length*100) + '%';
+      if (!/次數/.test($('scan-msg').textContent)) $('scan-msg').textContent = `已完成 ${done} / ${LIST.length}`;
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  ranked.sort((a,b) => b.score - a.score || a.vol - b.vol);
+  $('prog').classList.add('hide'); $('scan').disabled = false; $('scan').textContent = '重新體檢';
+  if (!/次數/.test($('scan-msg').textContent))
+    $('scan-msg').textContent = ranked.length ? `完成，共 ${ranked.length} 檔` + (fail ? `（${fail} 檔查詢失敗）` : '') : '全部查詢失敗，請稍後再試';
+  $('filters').classList.toggle('hide', !ranked.length);
+  renderRank();
+});
+$('filters').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  filter = b.dataset.f;
+  for (const x of $('filters').children) x.setAttribute('aria-pressed', x === b);
+  renderRank();
+});
+function renderRank(){
+  const list = ranked.filter(r => filter === 'all' || (filter === 'etf') === isETF(r.id));
+  $('rank').innerHTML = list.map((r, k) => {
+    const g = gradeOf(r.score);
+    const mini = r.checks.filter(x => x.s !== 'na').map(x => `<span>${ico(x.s)}${esc(x.k)}</span>`).join('');
+    return `<li><div class="rk"><span class="no">${k+1}</span>
+      <span class="nm">${r.id} ${esc(r.name)}${isETF(r.id) ? '<span class="badge">ETF・分散風險</span>' : ''}<small>年${r.ret>=0?'漲':'跌'} ${(Math.abs(r.ret)*100).toFixed(0)}%</small></span>
+      <span class="meter" aria-hidden="true"><span style="width:${r.score}%"></span></span>
+      <span class="score">${r.score} 分</span>
+      <span class="badge">${ico(g.s)} ${g.w}</span>
+      <button data-id="${r.id}">看詳細</button></div>
+      <div class="mini">${mini}</div></li>`;
+  }).join('');
+}
+$('rank').addEventListener('click', e => {
+  const b = e.target.closest('button[data-id]'); if (!b) return;
+  setTab('check'); check(b.dataset.id); scrollTo({top:0, behavior:'smooth'});
+});
+
+/* ---------- 分頁 ---------- */
+function setTab(t){
+  for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', b.dataset.tab === t);
+  for (const s of ['check','rank','learn']) $('tab-'+s).classList.toggle('hide', s !== t);
+  if (t === 'check') draw();
+}
+document.querySelector('.tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setTab(b.dataset.tab); });
+
+check();
+</script>
+</body>
+</html>
