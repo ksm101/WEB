@@ -193,6 +193,10 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 #act{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:2;height:46px;padding:0 24px;border:0;border-radius:23px;background:var(--ember);color:var(--ink);font-weight:700;font-size:15px;white-space:nowrap}
 #talk,#portbox{position:absolute;left:var(--gl);right:var(--gr);bottom:12px;z-index:3;display:flex;flex-direction:column;box-sizing:border-box;border:1.5px solid var(--brass);border-radius:8px;background:rgba(10,22,27,.94)}
 #talk{gap:6px;min-height:104px;padding:12px 14px 8px;cursor:pointer}
+#talk-art{position:absolute;z-index:2;right:var(--gr);bottom:96px;max-width:64%;max-height:54%;pointer-events:none;filter:drop-shadow(0 8px 20px rgba(0,0,0,.65));animation:artin .22s ease-out}
+#talk-art.px{image-rendering:pixelated}
+@keyframes artin{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){#talk-art{animation:none}}
 #talk b{font-family:var(--f-display);font-weight:900;font-size:15px;letter-spacing:.1em}
 #talk p{margin:0;font-size:16px;line-height:1.75;text-wrap:pretty}
 #talk.narr p{color:var(--mute)}
@@ -324,6 +328,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     <div id="banner" class="off" aria-live="polite"></div>
     <div id="queue" hidden><button id="q-open" type="button"></button><button class="mini go" id="q-go" type="button" hidden></button></div>
     <button id="act" type="button" hidden></button>
+    <img id="talk-art" alt="" hidden>
     <div id="talk" hidden>
       <b id="talk-who"></b><p id="talk-text" aria-live="polite"></p>
       <div class="row"><span id="talk-count"></span><button class="mini" id="talk-skip" type="button">跳過</button></div>
@@ -766,7 +771,7 @@ function enterRun() {
   FX.fx = []; FX.texts = []; FX.shake = 0; FX.red = 0; FX.stop = 0; stick.x = stick.y = 0;
   hideScreens();
   $('#app').dataset.mode = inField() ? 'field' : mode; talk.lines = null; talk.done = null; talk.focus = null;
-  $('#talk').hidden = true; $('#portbox').hidden = true; $('#act').hidden = true;
+  $('#talk').hidden = true; $('#talk-art').hidden = true; $('#portbox').hidden = true; $('#act').hidden = true;
   resize(); buildHud();
 }
 function startSolo(cls, d) {
@@ -904,9 +909,12 @@ function nextSay() {
   const [who, text] = talk.lines[talk.i++], c = Story.CAST[who], w = $('#talk-who');
   $('#talk').classList.toggle('narr', !c); w.hidden = !c; w.textContent = c ? c.name : ''; if (c) w.style.color = C[c.color];
   $('#talk-text').textContent = text; $('#talk-count').textContent = `${talk.i} / ${talk.lines.length}　點一下繼續`;
+  { const art = $('#talk-art'), im = c ? PORTRAIT[who] : null;      // whoever has a portrait is shown large beside their words
+    if (im && art.dataset.who !== who) { art.hidden = true; art.src = im.src; art.classList.toggle('px', im.naturalWidth <= 200); art.dataset.who = who; void art.offsetWidth; }
+    art.hidden = !im; if (!im) art.dataset.who = ''; }
   talk.focus = FD.npcs.find(n => n.id === who) || null;
 }
-function endSay() { const done = talk.done; talk.lines = null; talk.done = null; talk.focus = null; $('#talk').hidden = true; if (done) done(); }
+function endSay() { const done = talk.done; talk.lines = null; talk.done = null; talk.focus = null; $('#talk').hidden = true; $('#talk-art').hidden = true; $('#talk-art').dataset.who = ''; if (done) done(); }
 function talkTo(id) {
   const main = S.questList(save, Date.now(), online).items.find(x => x.group === 'main'), sc = main && Story.SCENES[main.id];
   if (main && main.ready && sc && sc.at === id) return claimMain(main.id);      // this is who the finished quest goes back to
@@ -1221,11 +1229,12 @@ function drawZone(z) {
  * Whoever art/manifest.js lists is drawn from strips of frames (art/<id>/<anim>_<dir>.png); everyone else stays a shape.
  * A strip that is missing falls back: an action to idle, a direction to down. The number of frames is read off the
  * picture's width, so the list only has to say which strips there are. */
-const ART = {}, ART_FPS = { idle: 5, walk: 10, attack: 12, hurt: 8 };
+const ART = {}, PORTRAIT = {}, ART_FPS = { idle: 5, walk: 10, attack: 12, hurt: 8 };      // PORTRAIT: the large picture shown while someone speaks
 for (const id of Object.keys(window.ART_MANIFEST || {})) {
   const d = window.ART_MANIFEST[id] || {}, set = { cell: d.cell > 0 ? d.cell : 32, scale: d.scale > 0 ? d.scale : 1, foot: d.foot >= 0 ? d.foot : 4, img: {} };
   for (const an of d.anims || ['idle']) for (const dir of d.dirs || ['down']) { const im = new Image(); im.onload = () => { set.img[an + '_' + dir] = im; }; im.src = `art/${id}/${an}_${dir}.png`; }
   ART[id] = set;
+  if (d.portrait) { const im = new Image(); im.onload = () => { PORTRAIT[id] = im; }; im.src = `art/${id}/portrait.png`; }
 }
 const spriteOf = id => { const s = ART[id]; return s && (s.img.idle_down || s.img.idle_side) ? s : null; };
 /* One pixel of a picture covers a whole number of screen pixels, whatever the zoom, so it stays crisp: this is how

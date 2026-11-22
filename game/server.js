@@ -29,7 +29,7 @@ const FILES = {
   '/editor.js': ['editor.js', 'text/javascript; charset=utf-8'],
   '/art/manifest.js': ['art/manifest.js', 'text/javascript; charset=utf-8']
 };
-const ART_FILE = /^\/art\/[a-z0-9]{1,12}\/[a-z]{1,10}_(down|side|up)\.png$/;      // the strips of frames, and nothing else in there
+const ART_FILE = /^\/art\/[a-z0-9]{1,12}\/([a-z]{1,10}_(down|side|up)|portrait)\.png$/;      // the strips of frames and the portraits, and nothing else in there
 
 const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : a; };
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';
@@ -112,7 +112,7 @@ function start(opts) {
     const f = FILES[url] || (ART_FILE.test(url) ? [url.slice(1), 'image/png'] : null);
     if (!f || req.method !== 'GET') { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('not found'); }
     fs.readFile(path.join(__dirname, f[0]), (err, buf) => {
-      if (err) { res.writeHead(500); return res.end('error'); }
+      if (err) { res.writeHead(err.code === 'ENOENT' ? 404 : 500); return res.end(err.code === 'ENOENT' ? 'not found' : 'error'); }
       res.writeHead(200, { 'Content-Type': f[1], 'Cache-Control': 'no-cache' }); res.end(buf);
     });
   });

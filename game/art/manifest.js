@@ -4,6 +4,8 @@
  * cell: the width and height of one frame in pixels. scale: world units per pixel (1 unless it should look bigger).
  * foot: how many pixels above the bottom edge of the frame the feet stand.
  * anims: the strips there are; each is art/<id>/<anim>_<dir>.png, frames left to right. dirs: down, side (facing right), up.
+ * portrait: true when there is art/<id>/portrait.png, the large picture shown while that person speaks. Someone who
+ *     only has a portrait (the warden speaks as `mog`) is listed as  mog: { portrait: true, anims: [] }
  * Example:
  *   dps: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle', 'walk', 'attack', 'hurt'] }
  */
