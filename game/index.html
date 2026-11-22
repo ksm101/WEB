@@ -885,7 +885,7 @@ function fieldView(dt) {
   sheetView(); const g = camGoal(), k = 1 - Math.exp(-dt * 8); cam.x += (g.x - cam.x) * k; cam.y += (g.y - cam.y) * k;
 }
 /* one sentence about a piece of gear that just arrived */
-function gotText(g) { return `${S.itemText(g.it)}，${g.up ? '比身上的好，已經換上' : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`; }
+function gotText(g) { return `${S.itemText(g.it, save.cls)}，${g.up ? '比身上的好，已經換上' : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`; }
 function showYield(mats, done, xp, coin, item) {
   const me = V && V.me; if (!me) return; let i = 0;
   if (xp > 0) addText(me.x, me.y - 46 - 15 * i++, `經驗 +${xp}`, C.foam, 11, 1.4);       // start above your own nameplate
@@ -1846,6 +1846,11 @@ function openHero(tab) {
 function closeHero() { $('#hero').hidden = true; for (const k of ['equip', 'bag', 'talents', 'loadout']) $('#' + k).hidden = true; }
 const openBag = () => openHero('bag'), openLoadout = () => { lo.sel = 0; openHero('loadout'); }, openTalents = () => openHero('talents');
 const MOD_NAME = { hp: '生命', dmg: '造成的傷害', heal: '治療量', taken: '受到的傷害', speed: '移動速度', threat: '仇恨', ult: '大招充能', cdr: '技能冷卻' };
+/* How an item reads for the character looking at it: what it is, whether their class can hold it, and how it compares. */
+const itemIs = it => S.itemKind(it, save.cls);
+const notMine = it => { const k = S.HELD[it.n] && S.WKINDS[S.HELD[it.n]]; return !!k && (it.s === 'w' || it.s === 'o') && k.cls !== save.cls; };
+const oneHanded = it => { const k = S.HELD[it.n] && S.WKINDS[S.HELD[it.n]]; return !!k && k.hand === 'one'; };
+function versus(it) { if (notMine(it)) return `${CLASSES[save.cls].name}不能用`; const t = S.slotFor(save, it), k = t.s || it.s, d = it.il - save.gear[k]; return `比身上的${d > 0 ? '高 ' + d : d < 0 ? '低 ' + -d : '一樣'}`; }
 function renderEquip() {
   if ($('#equip').hidden) return;
   const body = $('#equip-body'), d = CLASSES[save.cls], m = S.modsFor(save, save.cls), pow = S.charPower(save); body.textContent = '';
@@ -1855,8 +1860,12 @@ function renderEquip() {
   const plus = Object.keys(MOD_NAME).filter(k => Math.abs(m[k] - 1) > 1e-9).map(k => `${MOD_NAME[k]} ${m[k] > 1 ? '+' : ''}${Math.round((m[k] - 1) * 100)}%`);
   body.appendChild(el('p', 'gear', plus.length ? '天賦和套裝的加成：' + plus.join('、') : '還沒有天賦或套裝的加成。'));
   const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', '身上穿的'), ul);
-  for (const k of S.SLOTS) { const best = save.bag.reduce((b, it, i) => it.s === k && it.il > save.gear[k] && (b < 0 || it.il > save.bag[b].il) ? i : b, -1);
-    ul.appendChild(itemRow(S.wornItem(save, k), `${S.SLOT_NAME[k]}・穿著`, best >= 0 ? [[`換上背包的 ${save.bag[best].il}`, () => itemDo('equip', best), 'go', 'equip-best-' + k]] : [], 'worn')); }
+  const held = S.hands(save);
+  for (const k of S.SLOTS) {
+    if (k === 'o' && held.two) { const li = el('li', 'worn'); li.append(el('b', '', '副手'), el('small', '', '主手的雙手武器佔著兩隻手')); li.id = 'worn-o'; ul.appendChild(li); continue; }
+    const best = save.bag.reduce((b, it, i) => it.s === k && !notMine(it) && S.slotFor(save, it).s === k && !(k === 'w' && !!S.slotFor(save, it).two !== held.two) && it.il > save.gear[k] && (b < 0 || it.il > save.bag[b].il) ? i : b, -1), worn = S.wornItem(save, k);
+    ul.appendChild(itemRow(worn, k === 'w' || k === 'o' ? `${S.SLOT_NAME[k]}・${S.itemKind({ s: k, n: save.eq[k].n }, save.cls)}` : `${S.SLOT_NAME[k]}・穿著`, best >= 0 ? [[`換上背包的 ${save.bag[best].il}`, () => itemDo('equip', best), 'go', 'equip-best-' + k]] : [], 'worn')); }
+  if (!held.two && held.o && S.WKINDS[held.o].hand === 'one') body.appendChild(el('p', 'gear', '雙持中：兩隻手各拿一把單手武器。'));
   const sets = el('ul', 'sets');
   for (const st of S.setList(save)) { const li = el('li'); li.append(el('b', st.have >= 2 ? 'on' : '', `${st.name}套裝 ${st.have}/3`), '　');
     st.pieces.forEach((pc, i) => li.append(el('span', pc.on ? 'on' : '', pc.n), i < 2 ? '、' : '')); li.append(el('br'), el('span', st.have >= 2 ? 'on' : '', `兩件：${st.two}`), '　', el('span', st.have >= 3 ? 'on' : '', `三件：${st.three}`)); sets.appendChild(li); }
@@ -1910,7 +1919,7 @@ function renderShop() {
     body.appendChild(g);
   }
   if (save.bag.length) { const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', '賣裝備'), ul);
-    save.bag.forEach((it, i) => ul.appendChild(itemRow(it, `${S.SLOT_NAME[it.s]}・收 ${S.itemPrice(it)} 鐘幣`, [['賣掉', () => itemDo('sell', i), '', 'shop-item-' + i]])));
+    save.bag.forEach((it, i) => ul.appendChild(itemRow(it, `${itemIs(it)}・收 ${S.itemPrice(it)} 鐘幣`, [['賣掉', () => itemDo('sell', i), '', 'shop-item-' + i]])));
     body.appendChild(g); }
 }
 
@@ -1924,7 +1933,7 @@ function openMail() {
   if (online && net.authed) { send({ t: 'mail' }); send({ t: 'social' }); }
   renderMail();
 }
-const goodsLine = g => [g.coin ? `鐘幣 ${g.coin}` : '', g.key ? `${S.MATS[g.key]} ×${g.qty}` : '', g.item ? S.itemText(g.item) : ''].filter(Boolean).join('、');
+const goodsLine = g => [g.coin ? `鐘幣 ${g.coin}` : '', g.key ? `${S.MATS[g.key]} ×${g.qty}` : '', g.item ? S.itemText(g.item, save.cls) : ''].filter(Boolean).join('、');
 const ago = at => { const m = Math.max(0, Math.floor((Date.now() - at) / 60000)); return m < 1 ? '剛剛' : m < 60 ? `${m} 分鐘前` : m < 1440 ? `${Math.floor(m / 60)} 小時前` : `${Math.floor(m / 1440)} 天前`; };
 /* a labelled input or select that writes straight into a form object, so a redraw does not lose what was typed */
 function field(form, key, label, kind, opts) {
@@ -1979,7 +1988,7 @@ function renderAh() {
   const coin = el('div', 'coinline'); coin.append(el('span', '', '你的鐘幣'), el('b', '', save.coin)); body.appendChild(coin);
   const tabs = el('div', 'tabs'); for (const [k, t] of [['buy', '買'], ['sell', '賣'], ['mine', `我上架的 ${all.filter(x => x.mine).length}`]]) { const b = el('button', 'mini' + (af.tab === k ? ' on' : ''), t); b.type = 'button'; b.id = 'ah-tab-' + k; b.addEventListener('click', () => { af.tab = k; renderAh(); }); tabs.appendChild(b); }
   body.appendChild(tabs);
-  const row = (x, acts) => { const it = x.item || { s: '', il: x.qty, q: 0, n: S.MATS[x.key] }, li = itemRow(it, x.item ? `${S.SLOT_NAME[it.s]}・比身上的${it.il > save.gear[it.s] ? '高 ' + (it.il - save.gear[it.s]) : it.il < save.gear[it.s] ? '低 ' + (save.gear[it.s] - it.il) : '一樣'}` : '材料・數量', acts);
+  const row = (x, acts) => { const it = x.item || { s: '', il: x.qty, q: 0, n: S.MATS[x.key] }, li = itemRow(it, x.item ? `${itemIs(it)}・${versus(it)}` : '材料・數量', acts);
     li.querySelector('.info').appendChild(el('small', 'q2', `${x.price} 鐘幣　${x.mine ? '' : x.name + '　'}${hrs(x.left)}`)); return li; };
   if (af.tab === 'sell') {
     const one = el('div', 'fields one'), two = el('div', 'fields'), opts = save.bag.map((it, i) => ['i' + i, `${it.n} ${it.il}${it.q ? '・' + S.QUALITY[it.q] : ''}`]).concat(Object.keys(S.MATS).filter(k => save.inv[k] > 0).map(k => ['m' + k, `${S.MATS[k]}（有 ${save.inv[k]}）`]));
@@ -2039,8 +2048,9 @@ function renderBag() {
   for (const [k, v] of [[S.MATS.scrap, inv.scrap], [S.MATS.salt, inv.salt], [S.MATS.herb, inv.herb], [S.MATS.shard, inv.shard], ['潮息藥水', `${inv.potion} / ${S.POTION_CAP}`], ['鐘幣', save.coin]]) { const d = el('div'); d.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(d); }
   body.append(dl, el('p', 'lore', `鏽鐵屑、鹽晶、潮草可以在鏽灘採到。沉鐘碎片只有塔裡有，三分鐘內通關一定掉。淬鍊的上限跟著層數走，第 ${save.lvl} 層是裝等 ${S.gearCap(save.lvl)}。`));
   { const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', `背包裡的裝備　${save.bag.length} / ${S.BAG_CAP}`));
-    save.bag.forEach((it, i) => { const d = it.il - save.gear[it.s];
-      ul.appendChild(itemRow(it, `${S.SLOT_NAME[it.s]}・比身上的${d > 0 ? '高 ' + d : d < 0 ? '低 ' + -d : '一樣'}`, [['換上', () => itemDo('equip', i), d > 0 ? 'go' : '', 'bag-equip-' + i]])); });
+    save.bag.forEach((it, i) => { const mine = !notMine(it), t = mine ? S.slotFor(save, it) : {}, d = t.s ? it.il - save.gear[t.s] : 0;
+      const acts = !mine ? [] : oneHanded(it) ? [['主手', () => itemDo('equip', i), d > 0 ? 'go' : '', 'bag-equip-' + i], ['副手', () => itemDo('equip', i, 'o'), '', 'bag-off-' + i]] : [['換上', () => itemDo('equip', i), d > 0 ? 'go' : '', 'bag-equip-' + i]];
+      ul.appendChild(itemRow(it, `${itemIs(it)}・${versus(it)}`, acts)); });
     if (save.bag.length) g.appendChild(ul); else g.appendChild(el('p', 'note', '還沒有多的裝備。塔裡的怪和莫葛會掉，鏽灘的怪偶爾也會。不要的可以拿去營地找老錨賣掉。'));
     body.appendChild(g); }
   for (const [title, kind] of [['鍛造　直接做一件', 'forge'], ['淬鍊　把身上的往上推', 'temper'], ['消耗品', 'potion']]) {
@@ -2063,10 +2073,10 @@ function itemRow(it, sub, acts, cls) {
   for (const [label, fn, kind, id] of acts || []) { const b = el('button', 'mini' + (kind === 'go' ? ' go' : ''), label); b.type = 'button'; if (id) b.id = id; b.disabled = online && !net.authed; b.addEventListener('click', () => { b.disabled = true; fn(b); }); right.appendChild(b); }
   li.append(el('span', 'il' + (it.q ? ' q' + it.q : ''), it.il), info); if (acts && acts.length) li.appendChild(right); return li;
 }
-function itemDo(op, i) {
+function itemDo(op, i, hand) {
   if (mode === 'online' && V && !inField() && !V.result) return toast('副本裡不能換裝備。', [], 2500);
-  if (online) return send({ t: 'item', op, i });
-  const r = op === 'sell' ? S.sellItem(save, i) : S.equipItem(save, i); writeSave(); refitMe(); toast(r.msg, [], r.ok ? 2600 : 4000); renderEquip(); renderBag(); renderShop(); renderMenu();
+  if (online) return send(hand ? { t: 'item', op, i, hand } : { t: 'item', op, i });
+  const r = op === 'sell' ? S.sellItem(save, i) : S.equipItem(save, i, hand); writeSave(); refitMe(); toast(r.msg, [], r.ok ? 2600 : 4000); renderEquip(); renderBag(); renderShop(); renderMenu();
 }
 function doCraft(id) {
   if (online) return send({ t: 'craft', id });        // the server owns the bag
@@ -2131,7 +2141,7 @@ function renderPile() {
   if (open) { const n = el('p', 'note', pileNote()); n.id = 'pile-note'; g.append(n); }
   const ul = el('ul', 'items');
   pile.items.forEach((it, i) => {
-    const out = pile.out[i], better = it.il > save.gear[it.s], li = itemRow(it, `${S.SLOT_NAME[it.s]}・${better ? '比你身上的好' : '不比你身上的好'}`, [], 'pile'), acts = el('div', 'acts');
+    const out = pile.out[i], better = !notMine(it) && it.il > save.gear[S.slotFor(save, it).s || it.s], li = itemRow(it, `${itemIs(it)}・${notMine(it) ? CLASSES[save.cls].name + '不能用' : better ? '比你身上的好' : '不比你身上的好'}`, [], 'pile'), acts = el('div', 'acts');
     if (out) { const w = pile.members[out.win], rolls = (out.rolls || []).map(x => `${pile.members[x[0]].name} ${x[1] === 'need' ? '需求' : '貪婪'} ${x[2]}`).join('、');
       acts.append(el('small', out.win === pile.you ? 'q2' : '', (w ? `${out.win === pile.you ? '你' : w.name}拿到了` : '沒有人要') + (rolls ? `（${rolls}）` : '') + (out.give ? `　${out.give.up ? '已經換上' : out.give.sold ? `背包滿了，賣了 ${out.give.sold} 鐘幣` : '放進背包'}` : ''))); }
     else if (pile.mode === 'leader') { if (boss) pile.members.forEach((x, k) => { const b = el('button', 'mini', '給 ' + (k === pile.you ? '自己' : x.name)); b.type = 'button'; b.id = `assign-${i}-${k}`; b.addEventListener('click', () => { b.disabled = true; send({ t: 'assign', L: pile.id, i, to: k }); }); acts.appendChild(b); }); else acts.append(el('small', '', '等隊長決定')); }
@@ -2160,7 +2170,7 @@ function showResult(r, s, loot, lvl, more) {
   body.append(head, time, dl);
   if (more.note) body.appendChild(el('p', 'note warn', more.note));
   if (loot && loot.length) { const ul = el('ul', 'items'); ul.id = 'my-loot';
-    for (const g of loot) ul.appendChild(itemRow(g.it, `${S.SLOT_NAME[g.it.s]}・${g.up ? `比身上的 ${g.old} 好，已經換上` : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`, [], g.up ? 'worn' : ''));
+    for (const g of loot) ul.appendChild(itemRow(g.it, `${itemIs(g.it)}・${g.up ? `比身上的 ${g.old} 好，已經換上` : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`, [], g.up ? 'worn' : ''));
     body.appendChild(ul); }
   pile = more.pile ? Object.assign({ out: {}, mine: {}, until: performance.now() + more.pile.left * 1000 }, more.pile) : null;
   if (pile) { const g = el('div', 'group'); g.id = 'pile'; body.appendChild(g); renderPile(); }

@@ -100,7 +100,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   // accounts
   const A = await named(port, '小明', 'dps'), B = await named(port, '<b>壞</b>名字超級長', 'heal');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);
-  { const { q, loadout, talents, eq, bag, dl, ...rest } = A.me.profile; assert.deepStrictEqual(dl, {}); assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(talents, {}); assert.deepStrictEqual(bag, []); assert.deepStrictEqual(eq.w, { n: '', q: 0 }); assert.deepStrictEqual(rest, { name: '小明', cls: 'dps', lvl: 1, cl: 1, xp: 0, gear: { w: 10, a: 10, t: 10 }, best: {}, runs: 0, coin: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
+  { const { q, loadout, talents, eq, bag, dl, ...rest } = A.me.profile; assert.deepStrictEqual(dl, {}); assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(talents, {}); assert.deepStrictEqual(bag, []); assert.deepStrictEqual(eq.w, { n: '', q: 0 }); assert.deepStrictEqual(rest, { name: '小明', cls: 'dps', lvl: 1, cl: 1, xp: 0, gear: { w: 10, o: 10, a: 10, t: 10 }, best: {}, runs: 0, coin: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
   assert.strictEqual(B.me.profile.name, 'b壞/b名字超級');
   const forged = client(port, { id: A.me.id, token: 'x'.repeat(32) }); await forged.ready;
   assert.notStrictEqual(forged.me.id, A.me.id, 'a wrong token must not open someone else\'s account'); forged.ws.close();
@@ -173,7 +173,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     B2.send({ t: 'roll', L: pl.id, i: 0, k: 'greed' });
     const [la, lb2] = await Promise.all([A.wait('loot', m => m.i === 0), B2.wait('loot', m => m.i === 0)]);
     assert.strictEqual(la.win, 1, 'need beats greed'); assert.strictEqual(la.rolls.length, 2); assert.ok(la.rolls.every(x => x[2] >= 1 && x[2] <= 100)); assert.strictEqual(lb2.give, undefined); assert.strictEqual(lb2.profile, undefined);
-    assert.strictEqual(la.give.up, true); assert.strictEqual(la.profile.gear[pl.items[0].s], pl.items[0].il, 'the winner wears it'); assert.strictEqual(la.profile.eq[pl.items[0].s].n, pl.items[0].n);
+    { const got = pl.items[0]; if (la.give.up) assert.ok(Sim.SLOTS.some(k => la.profile.eq[k].n === got.n && la.profile.gear[k] === got.il), 'the winner wears it'); else assert.ok(la.profile.bag.some(x => x.n === got.n && x.il === got.il), 'what the winner cannot hold, or would be worse off with, goes to the bag'); }
     // listen before rolling: the results for several pieces can arrive together, and only the latest message of a kind is kept
     const w1 = A.wait('loot', m => m.i === 1), w2 = pl.items.length > 2 ? B2.wait('loot', m => m.i === 2) : null;
     for (let i = 1; i < pl.items.length; i++) { A.send({ t: 'roll', L: pl.id, i, k: 'pass' }); B2.send({ t: 'roll', L: pl.id, i, k: i === 1 ? 'pass' : 'greed' }); }
@@ -383,7 +383,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   { const p = Sim.fixProfile(Sim.newProfile()), lamp = Sim.SETS.lamp.pieces;
     assert.strictEqual(Sim.giveItem(p, { s: 'w', il: 20, q: 0, n: lamp.w }).up, true); assert.strictEqual(Sim.giveItem(p, { s: 'a', il: 20, q: 0, n: lamp.a }).up, true);
     assert.strictEqual(Sim.modsFor(p, 'dps').speed, 1.05, 'two pieces of a set give its first bonus'); assert.strictEqual(Sim.modsFor(p, 'dps').dmg, 1);
-    const g = Sim.giveItem(p, { s: 'w', il: 30, q: 0, n: '拆船鉤' }); assert.strictEqual(g.up, false, 'a better plain piece does not break a set by itself'); assert.strictEqual(p.bag.length, 1); assert.strictEqual(p.gear.w, 20);
+    const g = Sim.giveItem(p, { s: 'w', il: 30, q: 0, n: '鏽潮錨刃' }); assert.strictEqual(g.up, false, 'a better plain piece does not break a set by itself'); assert.strictEqual(p.bag.length, 1); assert.strictEqual(p.gear.w, 20);
     Sim.giveItem(p, { s: 't', il: 12, q: 1, n: lamp.t }); assert.ok(Math.abs(Sim.modsFor(p, 'dps').dmg - 1.08) < 1e-9, 'three pieces give both'); assert.strictEqual(Sim.setList(p).find(x => x.id === 'lamp').have, 3);
     assert.strictEqual(Sim.equipItem(p, 0).ok, true); assert.strictEqual(p.gear.w, 30); assert.strictEqual(p.bag[0].n, lamp.w, 'the piece taken off goes to the bag'); assert.strictEqual(Sim.modsFor(p, 'dps').dmg, 1);
     const coin0 = p.coin; for (let i = 0; i < Sim.BAG_CAP + 3; i++) Sim.giveItem(p, { s: 'a', il: 11, q: 0, n: '鹽殼護肩' }); assert.strictEqual(p.bag.length, Sim.BAG_CAP); assert.ok(p.coin > coin0, 'what does not fit is sold');
@@ -391,8 +391,8 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     let drops = 0; for (let i = 0; i < 4000; i++) { const q = Sim.fixProfile(Sim.newProfile()); q.cl = 8; if (Sim.fieldGain(q, 'kill', 'crab', 0).item) drops++; } assert.ok(drops > 100 && drops < 320, `field creatures drop gear now and then (${drops}/4000)`);
   }
   const P = await named(port, '隊長', 'tank'), Q = await named(port, '隊員', 'dps');
-  srv.store.get(Q.me.id).chars[0].bag = [{ s: 'w', il: 40, q: 2, n: '潮鳴之舌' }, { s: 'a', il: 12, q: 0, n: '鹽殼護肩' }];
-  Q.send({ t: 'item', op: 'equip', i: 0 }); let ia = await Q.wait('ack', m => m.what === 'item'); assert.strictEqual(ia.ok, true); assert.strictEqual(ia.profile.gear.w, 40); assert.strictEqual(ia.profile.eq.w.n, '潮鳴之舌'); assert.strictEqual(ia.profile.bag.length, 1);
+  srv.store.get(Q.me.id).chars[0].bag = [{ s: 'w', il: 40, q: 2, n: '浮木長弓' }, { s: 'a', il: 12, q: 0, n: '鹽殼護肩' }];
+  Q.send({ t: 'item', op: 'equip', i: 0 }); let ia = await Q.wait('ack', m => m.what === 'item'); assert.strictEqual(ia.ok, true); assert.strictEqual(ia.profile.gear.w, 40); assert.strictEqual(ia.profile.eq.w.n, '浮木長弓'); assert.strictEqual(ia.profile.bag.length, 1);
   Q.send({ t: 'item', op: 'sell', i: 0 }); ia = await Q.wait('ack', m => m.what === 'item' && m.profile.bag.length === 0); assert.strictEqual(ia.profile.coin, Sim.itemPrice({ il: 12, q: 0 }));
   Q.send({ t: 'item', op: 'sell', i: 0 }); ia = await Q.wait('ack', m => m.what === 'item' && !m.ok); assert.strictEqual(ia.ok, false);
   P.join('tank', 'LEAD'); let ll = await P.wait('lobby', m => m.code === 'LEAD'); assert.strictEqual(ll.leader, 0); assert.strictEqual(ll.mode, 'roll');
@@ -407,12 +407,48 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.ok(lq.profile.bag.concat(Sim.SLOTS.map(k => Sim.wornItem(lq.profile, k))).some(it => it.n === endP.pile.items[0].n && it.il === endP.pile.items[0].il));
   const l2 = await P.wait('loot', m => m.i === 1, 4000); assert.ok(l2.win === 0 || l2.win === 1, 'what the leader leaves undecided is rolled for when the time runs out'); assert.strictEqual(l2.rolls.length, 2);
   await sleep(100); assert.strictEqual(srv.loots.size, 0); P.ws.close(); Q.ws.close();
-  ok('gear: sets, bag and selling follow the rules; a leader can hand out the drops, and leftovers are rolled for');
+  // the two hands: one-handed in either, two-handed in both, and things made for the off hand only
+  { const mk = cls => Sim.fixProfile(Object.assign(Sim.newProfile(), { cls })), it = (n, il, s) => ({ s: s || 'w', il, q: 0, n }), bagAt = (p, n) => p.bag.findIndex(x => x.n === n);
+    const T0 = mk('tank'); assert.deepStrictEqual(Sim.hands(T0), { w: 'sword', o: 'shield', two: false }, 'a shield guard starts with sword and shield'); assert.deepStrictEqual(Sim.hands(mk('dps')), { w: 'bow', o: null, two: true }, 'an archer starts with a bow in both hands');
+    assert.strictEqual(Sim.ilvlOf({ w: 30, o: 10, a: 20, t: 20 }), 20); assert.strictEqual(Sim.ilvlOf({ w: 30, a: 20, t: 20 }), 25, 'an older save counts its weapon for both hands');
+    assert.strictEqual(Sim.giveItem(T0, it('鏽潮錨刃', 20)).up, true); assert.strictEqual(Sim.giveItem(T0, it('鉚釘圓盾', 18, 'o')).up, true); assert.deepStrictEqual([T0.gear.w, T0.gear.o, T0.eq.o.n], [20, 18, '鉚釘圓盾']);
+    // a second sword: by itself it would replace the first; asked into the off hand it is held beside it
+    Sim.giveItem(T0, it('鏽潮錨刃', 19)); assert.strictEqual(bagAt(T0, '鏽潮錨刃'), 0, 'not better than the one in the main hand'); let r = Sim.equipItem(T0, 0, 'o'); assert.strictEqual(r.ok, true);
+    assert.deepStrictEqual([T0.eq.w.n, T0.eq.o.n, T0.gear.o], ['鏽潮錨刃', '鏽潮錨刃', 19], 'two swords'); assert.deepStrictEqual(Sim.hands(T0), { w: 'sword', o: 'sword', two: false }); assert.strictEqual(T0.bag[0].n, '鉚釘圓盾', 'the shield came off into the bag');
+    assert.deepStrictEqual(Sim.fixItem(Sim.wornItem(T0, 'o')), { s: 'w', il: 19, q: 0, n: '鏽潮錨刃' }, 'a sword in the off hand is still a weapon');
+    // things that only go in one hand
+    T0.bag.push(it('船骨巨錘', 30), it('拆船鉤', 25, 'o'), it('浮木長弓', 40)); assert.strictEqual(Sim.equipItem(T0, bagAt(T0, '船骨巨錘'), 'o').ok, false, 'a two-handed weapon cannot go in the off hand');
+    assert.strictEqual(Sim.equipItem(T0, bagAt(T0, '鉚釘圓盾')).ok, true); assert.strictEqual(T0.eq.o.n, '鉚釘圓盾', 'a shield goes to the off hand whichever hand is asked for');
+    r = Sim.equipItem(T0, bagAt(T0, '浮木長弓')); assert.strictEqual(r.ok, false); assert.match(r.msg, /用不了/, 'a shield guard cannot use a bow');
+    r = Sim.equipItem(T0, bagAt(T0, '拆船鉤'), 'o'); assert.strictEqual(r.ok, true); assert.strictEqual(Sim.hands(T0).o, 'hook', 'a weapon made for the off hand');
+    // two hands: both things come off, the off hand follows the weapon, and nothing else fits there
+    const n0 = T0.bag.length; r = Sim.equipItem(T0, bagAt(T0, '船骨巨錘')); assert.strictEqual(r.ok, true); assert.deepStrictEqual([T0.gear.w, T0.gear.o, T0.eq.o.n], [30, 30, '']); assert.strictEqual(T0.bag.length, n0 + 1, 'the sword and the hook are both back in the bag');
+    assert.strictEqual(Sim.ilvlOf(T0.gear), Math.round((30 + 30 + 10 + 10) / 4)); r = Sim.equipItem(T0, bagAt(T0, '拆船鉤')); assert.strictEqual(r.ok, false); assert.match(r.msg, /雙手/);
+    assert.strictEqual(Sim.recipeInfo(T0, Sim.RECIPES.find(x => x.id === 'forge-o')).can, false, 'no off hand to forge for'); T0.inv.shard = 9; T0.inv.scrap = 99; T0.lvl = 9; assert.strictEqual(Sim.craft(T0, 'temper-w').ok, true); assert.deepStrictEqual([T0.gear.w, T0.gear.o], [32, 32], 'tempering it counts for both hands');
+    r = Sim.equipItem(T0, T0.bag.findIndex(x => x.n === '鏽潮錨刃' && x.il === 20)); assert.strictEqual(r.ok, true); assert.deepStrictEqual([T0.gear.w, T0.gear.o, T0.eq.o.n], [20, 10, ''], 'back to one hand: the other is empty');
+    // being better off: a two-handed weapon is weighed against both hands
+    const T1 = mk('tank'); T1.gear.w = 30; T1.gear.o = 30; T1.eq.w = { n: '鏽潮錨刃', q: 0 }; T1.eq.o = { n: '鉚釘圓盾', q: 0 };
+    assert.strictEqual(Sim.giveItem(T1, it('船骨巨錘', 29)).up, false); assert.strictEqual(Sim.giveItem(T1, it('船骨巨錘', 31)).up, true); assert.strictEqual(T1.bag.filter(x => ['鏽潮錨刃', '鉚釘圓盾'].includes(x.n)).length, 2);
+    assert.strictEqual(Sim.giveItem(T1, it('鏽潮錨刃', 50)).up, false, 'one hand at 50 and an empty one is not better than both at 31'); assert.strictEqual(Sim.giveItem(T1, it('鏽潮錨刃', 53)).up, true);
+    assert.strictEqual(Sim.giveItem(T1, it('浮木長弓', 99)).up, false, 'what the class cannot hold is never put on'); T1.bag = [];
+    // a full bag: nothing is lost when two things have to come off
+    const T2 = mk('tank'); T2.gear.w = 20; T2.gear.o = 20; T2.eq.w = { n: '鏽潮錨刃', q: 0 }; T2.eq.o = { n: '鉚釘圓盾', q: 0 }; T2.bag = [it('船骨巨錘', 40)]; while (T2.bag.length < Sim.BAG_CAP) T2.bag.push({ s: 'a', il: 11, q: 0, n: '鹽殼護肩' });
+    r = Sim.equipItem(T2, 0); assert.strictEqual(r.ok, false); assert.match(r.msg, /放不下/); assert.strictEqual(T2.eq.w.n, '鏽潮錨刃'); T2.bag.pop(); assert.strictEqual(Sim.equipItem(T2, 0).ok, true); assert.strictEqual(T2.bag.length, Sim.BAG_CAP);
+    // what is saved is checked: a weapon of another class, or a two-handed one in the off hand, does not stay on
+    const bad = Sim.fixProfile({ cls: 'heal', gear: { w: 40, o: 40, a: 10, t: 10 }, eq: { w: { n: '鏽潮錨刃', q: 0 }, o: { n: '船骨巨錘', q: 0 } } }); assert.deepStrictEqual([bad.eq.w.n, bad.eq.o.n], ['', '']); assert.deepStrictEqual(Sim.hands(bad), { w: 'staff', o: null, two: true });
+    // drops lean towards what the finder can hold
+    let own = 0; for (let i = 0; i < 600; i++) { const d = Sim.rollItem(20, 'w', 0, 'dps'); if (Sim.WKINDS[Sim.HELD[d.n]].cls === 'dps') own++; } assert.ok(own > 420 && own < 540, `most weapons found suit the finder (${own}/600)`);
+    assert.strictEqual(Sim.itemText(it('船骨巨錘', 30), 'tank'), '船骨巨錘（雙手巨錘・裝等 30）'); assert.strictEqual(Sim.itemText({ s: 'w', il: 12, q: 0, n: '工坊武器' }, 'dps'), '工坊武器（雙手弓・裝等 12）'); }
+  // the server takes the hand that is asked for, and refuses what the class cannot hold
+  { const H = await named(port, '換手', 'tank'), cq = srv.store.get(H.me.id).chars[0]; cq.gear = { w: 20, o: 10, a: 10, t: 10 }; cq.eq = { w: { n: '鏽潮錨刃', q: 0 }, o: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } }; cq.bag = [{ s: 'w', il: 18, q: 0, n: '沉鐘之舌' }, { s: 'w', il: 60, q: 0, n: '潮汐長杖' }];
+    H.send({ t: 'item', op: 'equip', i: 0, hand: 'o' }); let ih = await H.wait('ack', m => m.what === 'item'); assert.strictEqual(ih.ok, true); assert.deepStrictEqual([ih.profile.eq.w.n, ih.profile.eq.o.n, ih.profile.gear.o], ['鏽潮錨刃', '沉鐘之舌', 18]);
+    H.send({ t: 'item', op: 'equip', i: 0 }); ih = await H.wait('ack', m => m.what === 'item' && !m.ok); assert.match(ih.msg, /用不了/); assert.strictEqual(ih.profile.gear.w, 20); H.ws.close(); }
+  ok('gear: sets, bag, selling and the two hands follow the rules; a leader can hand out the drops, and leftovers are rolled for');
 
   // mail between friends, and the auction house
   { const M1 = await named(port, '寄信人', 'dps'), M2 = await named(port, '收信人', 'heal'), c1 = srv.store.get(M1.me.id).chars[0], c2 = srv.store.get(M2.me.id).chars[0];
     const act = async (c, o, what) => { const before = c.last.ack; c.send(o); return c.wait('ack', m => m !== before && m.what === what); };
-    Object.assign(c1, { coin: 200 }); c1.inv.scrap = 10; c1.bag = [{ s: 'w', il: 30, q: 1, n: '霧燈之芯' }];
+    Object.assign(c1, { coin: 200 }); c1.inv.scrap = 10; c1.bag = [{ s: 'w', il: 30, q: 1, n: '霧燈長弓' }];
     let r = await act(M1, { t: 'mail-send', to: M2.me.id, text: 'hi' }, 'mail'); assert.strictEqual(r.ok, false, 'letters only go to friends'); assert.match(r.msg, /好友/);
     M1.send({ t: 'friend', id: M2.me.id }); await M1.wait('social'); M2.send({ t: 'friend', id: M1.me.id }); await M2.wait('social', m => m.friends.some(f => f.mutual));
     r = await act(M1, { t: 'mail-send', to: M2.me.id, text: '' }, 'mail'); assert.strictEqual(r.ok, false, 'an empty letter is refused');
@@ -422,20 +458,20 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     r = await act(M1, { t: 'mail-send', to: M2.me.id, text: '<b>給你</b>' + '長'.repeat(200), coin: 50, key: 'scrap', qty: 4, item: 0 }, 'mail');
     assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.coin, 145, 'coins sent plus postage leave the sender'); assert.strictEqual(r.profile.inv.scrap, 6); assert.strictEqual(r.profile.bag.length, 0);
     let box = await M2.wait('mail', m => m.list.length === 1); const L = box.list[0];
-    assert.strictEqual(L.from, '寄信人'); assert.ok(!/[<>]/.test(L.text) && L.text.length <= 80); assert.strictEqual(L.read, 0); assert.deepStrictEqual([L.coin, L.key, L.qty, L.item.n], [50, 'scrap', 4, '霧燈之芯']);
+    assert.strictEqual(L.from, '寄信人'); assert.ok(!/[<>]/.test(L.text) && L.text.length <= 80); assert.strictEqual(L.read, 0); assert.deepStrictEqual([L.coin, L.key, L.qty, L.item.n], [50, 'scrap', 4, '霧燈長弓']);
     M2.send({ t: 'mail-del', id: L.id }); await M2.wait('note', m => /先領出來/.test(m.msg));
-    r = await act(M2, { t: 'mail-take', id: L.id }, 'mail'); assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.coin, 50); assert.strictEqual(r.profile.inv.scrap, 4); assert.strictEqual(r.profile.bag[0].n, '霧燈之芯');
+    r = await act(M2, { t: 'mail-take', id: L.id }, 'mail'); assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.coin, 50); assert.strictEqual(r.profile.inv.scrap, 4); assert.strictEqual(r.profile.bag[0].n, '霧燈長弓');
     r = await act(M2, { t: 'mail-take', id: L.id }, 'mail'); assert.strictEqual(r.profile.coin, 50, 'a letter pays out once');
     M2.send({ t: 'mail-del', id: L.id }); box = await M2.wait('mail', m => m.list.length === 0);
     ok('mail: friends only, postage and attachments leave the sender, the letter pays out once, text is cleaned');
 
     r = await act(M2, { t: 'ah', op: 'sell', item: 0, price: 0 }, 'ah'); assert.strictEqual(r.ok, false); r = await act(M2, { t: 'ah', op: 'sell', item: 3, price: 10 }, 'ah'); assert.strictEqual(r.ok, false);
     r = await act(M2, { t: 'ah', op: 'sell', item: 0, price: 120 }, 'ah'); assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.bag.length, 0, 'listed goods leave the bag');
-    let ah = await M2.wait('ah', m => m.list.length === 1); const lid = ah.list[0].id; assert.strictEqual(ah.list[0].mine, true); assert.strictEqual(ah.list[0].item.n, '霧燈之芯'); assert.strictEqual(ah.list[0].name, '收信人');
+    let ah = await M2.wait('ah', m => m.list.length === 1); const lid = ah.list[0].id; assert.strictEqual(ah.list[0].mine, true); assert.strictEqual(ah.list[0].item.n, '霧燈長弓'); assert.strictEqual(ah.list[0].name, '收信人');
     r = await act(M2, { t: 'ah', op: 'buy', id: lid }, 'ah'); assert.strictEqual(r.ok, false, 'you cannot buy your own listing');
     M1.send({ t: 'ah', op: 'list' }); ah = await M1.wait('ah', m => m.list.length === 1); assert.strictEqual(ah.list[0].mine, false);
     M1.send({ t: 'ah', op: 'cancel', id: lid }); await sleep(80); assert.strictEqual(srv.market.size, 1, 'only the seller can take a listing down');
-    r = await act(M1, { t: 'ah', op: 'buy', id: lid }, 'ah'); assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.coin, 25); assert.strictEqual(r.profile.bag[0].n, '霧燈之芯'); assert.strictEqual(srv.market.size, 0);
+    r = await act(M1, { t: 'ah', op: 'buy', id: lid }, 'ah'); assert.strictEqual(r.ok, true); assert.strictEqual(r.profile.coin, 25); assert.strictEqual(r.profile.bag[0].n, '霧燈長弓'); assert.strictEqual(srv.market.size, 0);
     r = await act(M1, { t: 'ah', op: 'buy', id: lid }, 'ah'); assert.strictEqual(r.ok, false, 'a thing sells once');
     box = await M2.wait('mail', m => m.list.length === 1 && m.list[0].sys === 1); assert.strictEqual(box.list[0].coin, 114, 'the seller is paid by mail, less 5%');
     r = await act(M2, { t: 'mail-take', id: box.list[0].id }, 'mail'); assert.strictEqual(r.profile.coin, 164);

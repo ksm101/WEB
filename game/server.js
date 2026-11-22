@@ -56,8 +56,9 @@ function normGoods(b) {
 /* Rebuild a character from a backup or an older file, keeping only fields of the expected shape. */
 function normChar(b) {
   const g = b.gear || {}, v = b.inv || {};
+  // a backup from before there was an off hand carries none: the rules then give it one as good as its weapon
   const c = { name: cleanName(b.name), cls: SEATS.includes(b.cls) ? b.cls : 'dps', made: clampInt(b.made, 0, 9e15), lvl: clampInt(b.lvl, 1, 50), cl: clampInt(b.cl, 1, Sim.MAX_LEVEL), xp: clampInt(b.xp, 0, 1e9),
-    gear: { w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) }, best: {}, runs: clampInt(b.runs, 0, 1e9),
+    gear: Object.assign({ w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) }, g.o >= 10 ? { o: clampInt(g.o, 10, 999) } : null), best: {}, runs: clampInt(b.runs, 0, 1e9),
     inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) }, q: b.q, loadout: b.loadout, coin: clampInt(b.coin, 0, 9999999), talents: b.talents, eq: b.eq, bag: b.bag, dl: b.dl };
   if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const n = Number(b.best[k]); if (/^([a-z][a-z0-9]{1,11}:)?\d+$/.test(k) && Number.isFinite(n)) c.best[k] = n; }
   return Sim.fixProfile(c);
@@ -618,7 +619,7 @@ function start(opts) {
         case 'talent': return ack(ws, 'talent', Sim.learnTalent(pc(ws.acc), pc(ws.acc).cls, String(m.id)));
         case 'talent-reset': return ack(ws, 'talent', Sim.resetTalents(pc(ws.acc)));
         case 'shop': return ack(ws, 'shop', m.op === 'sell' ? Sim.shopSell(pc(ws.acc), String(m.key), m.n) : Sim.shopBuy(pc(ws.acc), String(m.key), m.n));
-        case 'item': { if (seats.has(ws.acc.id)) return send(ws, { t: 'note', msg: '副本裡不能換裝備。' }); return ack(ws, 'item', m.op === 'sell' ? Sim.sellItem(pc(ws.acc), m.i) : Sim.equipItem(pc(ws.acc), m.i)); }
+        case 'item': { if (seats.has(ws.acc.id)) return send(ws, { t: 'note', msg: '副本裡不能換裝備。' }); return ack(ws, 'item', m.op === 'sell' ? Sim.sellItem(pc(ws.acc), m.i) : Sim.equipItem(pc(ws.acc), m.i, m.hand === 'o' ? 'o' : '')); }
         case 'roll': case 'assign': return onLoot(ws, m);
         case 'mail': case 'mail-read': case 'mail-del': case 'mail-take': case 'mail-send': return onMail(ws, m);
         case 'ah': return onAuction(ws, m);
