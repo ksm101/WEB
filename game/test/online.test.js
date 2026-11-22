@@ -44,7 +44,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.match((await get(port, '/')).body, /<title>燼潮/); assert.match((await get(port, '/sim.js')).body, /createRun/); assert.match((await get(port, '/story.js')).body, /SCENES/);
   for (const p of ['/server.js', '/store.js', '/data/accounts.json', '/data/secret', '/../package.json', '/art/README.md', '/art/../server.js', '/art/x/../../server.js', '/art/dps/walk_side.js']) assert.strictEqual((await get(port, p)).status, 404, p);
   assert.match((await get(port, '/art/manifest.js')).body, /ART_MANIFEST/, 'the list of pixel art is served');
-  assert.strictEqual((await get(port, '/art/kol/idle_down.png')).status, 200, 'a strip of frames is served'); for (const p of ['/art/nobody/portrait.png', '/art/kol/portrait.txt', '/art/kol/portrait.png/..']) assert.strictEqual((await get(port, p)).status, 404, p);
+  assert.strictEqual((await get(port, '/art/kol/idle_down.png')).status, 200, 'a strip of frames is served'); for (const p of ['/art/nobody/portrait.png', '/art/kol/portrait.txt', '/art/kol/portrait.png/..', '/art/weapon/nothing.png', '/art/weapon/../../server.js']) assert.strictEqual((await get(port, p)).status, 404, p);
   ok('serves the page, sim.js and /health; server code and account data are not reachable');
 
   // story content: one scene per main quest, in the same order, every speaker known, lines short enough for a phone
@@ -419,7 +419,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     // things that only go in one hand
     T0.bag.push(it('船骨巨錘', 30), it('拆船鉤', 25, 'o'), it('浮木長弓', 40)); assert.strictEqual(Sim.equipItem(T0, bagAt(T0, '船骨巨錘'), 'o').ok, false, 'a two-handed weapon cannot go in the off hand');
     assert.strictEqual(Sim.equipItem(T0, bagAt(T0, '鉚釘圓盾')).ok, true); assert.strictEqual(T0.eq.o.n, '鉚釘圓盾', 'a shield goes to the off hand whichever hand is asked for');
-    r = Sim.equipItem(T0, bagAt(T0, '浮木長弓')); assert.strictEqual(r.ok, false); assert.match(r.msg, /用不了/, 'a shield guard cannot use a bow');
+    r = Sim.equipItem(T0, bagAt(T0, '浮木長弓')); assert.strictEqual(r.ok, false); assert.match(r.msg, /用不了/, 'a shield guard cannot use a bow'); assert.strictEqual(Sim.wants(T0, it('浮木長弓', 99)), false, 'so cannot roll need for one'); assert.strictEqual(Sim.wants(T0, it('鏽潮錨刃', 99)), true);
     r = Sim.equipItem(T0, bagAt(T0, '拆船鉤'), 'o'); assert.strictEqual(r.ok, true); assert.strictEqual(Sim.hands(T0).o, 'hook', 'a weapon made for the off hand');
     // two hands: both things come off, the off hand follows the weapon, and nothing else fits there
     const n0 = T0.bag.length; r = Sim.equipItem(T0, bagAt(T0, '船骨巨錘')); assert.strictEqual(r.ok, true); assert.deepStrictEqual([T0.gear.w, T0.gear.o, T0.eq.o.n], [30, 30, '']); assert.strictEqual(T0.bag.length, n0 + 1, 'the sword and the hook are both back in the bag');

@@ -202,7 +202,7 @@ function scaleMob(e, lvl, size) { const k = e.maxHp ? e.hp / e.maxHp : 1; e.lvl 
 const present = G => G.actors.filter(a => !a.out);
 function partyLevel(G) { const ps = present(G); return ps.length ? Math.max(1, Math.round(ps.reduce((n, a) => n + a.lvl, 0) / ps.length)) : 1; }
 /* Gear, talents or skills changed while out in the world: new strength, the same share of health. Cooldowns stay with their slots. */
-function refit(a, lvl, pow, mods, skills) { const k = a.maxHp ? a.hp / a.maxHp : 1; a.lvl = lvl; a.pow = pow; if (mods) a.mods = mods; if (skills) a.skills = skillSet(a.cls, skills); a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.alive ? Math.max(1, R(a.maxHp * k)) : 0; }
+function refit(a, lvl, pow, mods, skills, held) { const k = a.maxHp ? a.hp / a.maxHp : 1; a.lvl = lvl; a.pow = pow; if (mods) a.mods = mods; if (skills) a.skills = skillSet(a.cls, skills); if (held) a.held = heldFix(held, a.cls); a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.alive ? Math.max(1, R(a.maxHp * k)) : 0; }
 function setLevel(a, lvl, pow) { a.lvl = lvl; a.pow = pow; a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.maxHp; }   // levelling up refills your health
 
 /* Every map of the world. The shore is the one with the camp, the people and the tide surge; maps made in the editor
@@ -237,7 +237,7 @@ function mkActor(cls, name, spot, pow, mods) {
   const d = CLASSES[cls], md = mods || NO_MODS;
   return { cls, def: d, name, x: spot[0], y: spot[1], r: 12, pow, mods: md, maxHp: R(d.hp * pow * md.hp), hp: R(d.hp * pow * md.hp), alive: true, human: false, pid: null, idx: 0,
     target: null, atkT: rand(0, .5), cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rollT: 0, rvx: 0, rvy: 0, face: -Math.PI / 2, idleT: 0, potions: 0,
-    skills: d.skills, hotT: 0, hotPer: 0,
+    skills: d.skills, held: heldFix(null, cls), hotT: 0, hotPer: 0,
     ctrl: { mx: 0, my: 0, cast: [false, false, false, false], aim: [null, null, null, null], healOn: null, pot: false },
     input: { mx: 0, my: 0, cast: [false, false, false, false], aim: [null, null, null, null], heal: -1, tg: 0, pot: false },
     stats: { dmg: 0, heal: 0, kicks: 0, hits: 0, pots: 0 },
@@ -257,7 +257,7 @@ function createRun(opts) {
     const at = lay ? [clamp(D.F.spawn[0] + (SPOTS[i][0] - 180) * .5, 20, D.F.w - 20), clamp(D.F.spawn[1] + (SPOTS[i][1] - 340) * .5, 20, D.F.h - 20)] : SPOTS[i];      // in a layout the party starts around its entrance
     const a = mkActor(c, p ? p.name : (c === 'dps' ? BOT_NAMES.dps[dpsN++] : BOT_NAMES[c]), at, p ? p.pow : botPow, p ? p.mods : null);
     a.lvl = p && p.lvl > 0 ? p.lvl : G.elvl;   // a player shows their own level; a bot shows the level the floor is meant for
-    a.idx = i; a.human = !!p; a.pid = p ? p.id : null; a.potions = p && p.potions > 0 ? 1 : 0; if (p && p.skills) a.skills = skillSet(c, p.skills); G.actors.push(a);   // one potion per run
+    a.idx = i; a.human = !!p; a.pid = p ? p.id : null; a.potions = p && p.potions > 0 ? 1 : 0; if (p && p.skills) a.skills = skillSet(c, p.skills); if (p && p.held) a.held = heldFix(p.held, c); G.actors.push(a);   // one potion per run
   });
   if (lay) populate(G);
   return G;
@@ -334,7 +334,7 @@ function spawnMob(G, pk, home) {
 }
 function fieldSeat(F, p, idx, at) {
   const a = mkActor(p.cls, p.name, at ? [clamp(at[0], 20, F.w - 20), clamp(at[1], 20, F.h - 20)] : [clamp(F.spawn[0] + (idx % 4 - 1.5) * 26, 20, F.w - 20), clamp(F.spawn[1] + (idx % 2) * 18, 20, F.h - 20)], p.pow, p.mods);
-  a.lvl = p.lvl > 0 ? p.lvl : 1; if (p.skills) a.skills = skillSet(p.cls, p.skills);
+  a.lvl = p.lvl > 0 ? p.lvl : 1; if (p.skills) a.skills = skillSet(p.cls, p.skills); if (p.held) a.held = heldFix(p.held, p.cls);
   a.idx = idx; a.human = true; a.out = false; a.pid = p.id; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; a.seen = new Set(); return a;
 }
 /* opts: { lvl, players: [{ cls, name, pow, id, lvl, skills }] } (or a single `player`), cap (seats, 4 unless said), event ({ x, y, r }
@@ -965,6 +965,8 @@ const offable = n => { const d = named(n); return !!d && (d.hand === 'off' || d.
 const usable = (p, n) => { const d = named(n); return !d || !CLASSES[p.cls] || d.cls === p.cls; };      // a profile with no class on it (a test) can use anything
 /* What p holds: the kind in each hand. o is null when the main hand's weapon takes both. */
 function hands(p) { const w = kindOf(p.eq.w.n, 'w', p.cls), two = WKINDS[w].hand === 'two'; return { w, o: two ? null : kindOf(p.eq.o.n, 'o', p.cls), two }; }
+const heldOf = p => { const h = hands(p); return [h.w, h.o || '']; };
+const heldFix = (v, cls) => { const w = Array.isArray(v) && WKINDS[v[0]] && WKINDS[v[0]].hand !== 'off' ? v[0] : baseKind(cls, 'w'), two = WKINDS[w].hand === 'two'; return [w, two ? '' : Array.isArray(v) && WKINDS[v[1]] && (WKINDS[v[1]].hand === 'off' || WKINDS[v[1]].hand === 'one') ? v[1] : Array.isArray(v) ? '' : baseKind(cls, 'o')]; };
 function settle(p) { if (hands(p).two) { p.gear.o = p.gear.w; p.eq.o = { n: '', q: 0 }; } }      // both hands are on the one weapon
 const itemKind = (it, cls) => { if (it.s !== 'w' && it.s !== 'o') return LOOT[it.s][0]; const d = named(it.n) || (CLASSES[cls] ? WKINDS[baseKind(cls, it.s)] : null); return d ? HAND_NAME[d.hand] + d.name : LOOT[it.s][0]; };
 /* Where an item would go on p, { s } (with hand 'o' it is the off hand that is asked for), or { msg } saying why not. */
@@ -1016,6 +1018,8 @@ function modsFor(p, cls) {
 function setList(p) { const n = setCount(p); return Object.keys(SETS).map(id => { const d = SETS[id]; return { id, name: d.name, have: n[id] || 0, pieces: SET_SLOTS.map(k => ({ s: k, n: d.pieces[k], on: !!p.eq && SLOTS.some(h => p.eq[h].n === d.pieces[k]) })), two: d.two[2], three: d.three[2] }; }); }
 /* Put an item in the bag. With no room left it is sold on the spot: returns the coins it became, 0 when it was kept. */
 function stow(p, it) { if (p.bag.length < TUNE.bagCap) { p.bag.push(it); return 0; } return addCoin(p, itemPrice(it)); }
+/* Would this be an upgrade p can hold? What rolling 'need' asks. */
+function wants(p, it) { const t = slotFor(p, it); return !!t.s && it.il > p.gear[t.s]; }
 /* Put it on in slot k and hand back what came off. A weapon for both hands sends the off hand's thing back too; going
  * from one for both hands to one for one hand leaves the other hand with nothing in it. */
 function wear(p, it, k) {
@@ -1448,6 +1452,6 @@ return { QUEST_TYPES, packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_
   MATS, RECIPES, get POTION_CAP() { return TUNE.potionCap; }, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id),
   TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, get RESPEC_COST() { return TUNE.respecCost; }, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
-  SLOTS, SET_SLOTS, SLOT_NAME: { w: '主手', o: '副手', a: '護甲', t: '飾品' }, WKINDS, HAND_NAME, HELD, hands, slotFor, itemKind, kindOf, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
+  SLOTS, SET_SLOTS, SLOT_NAME: { w: '主手', o: '副手', a: '護甲', t: '飾品' }, WKINDS, HAND_NAME, HELD, hands, heldOf, heldFix, slotFor, wants, itemKind, kindOf, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
   runDrops, bossDrops, refit, get TOWER_LEVEL() { return DUNGEONS.tower.min; }, PORTAL };
 });

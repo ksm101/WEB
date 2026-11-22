@@ -29,7 +29,7 @@ const FILES = {
   '/editor.js': ['editor.js', 'text/javascript; charset=utf-8'],
   '/art/manifest.js': ['art/manifest.js', 'text/javascript; charset=utf-8']
 };
-const ART_FILE = /^\/art\/[a-z0-9]{1,12}\/([a-z]{1,10}_(down|side|up)|portrait)\.png$/;      // the strips of frames and the portraits, and nothing else in there
+const ART_FILE = /^\/art\/(?:[a-z0-9]{1,12}\/(?:[a-z]{1,10}_(?:down|side|up)|portrait)|weapon\/[a-z]{1,10})\.png$/;      // the strips of frames and the portraits, and nothing else in there
 
 const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : a; };
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';
@@ -128,7 +128,7 @@ function start(opts) {
   const ack = (ws, what, r) => { if (r.ok) store.put(ws.acc); send(ws, { t: 'ack', what, ok: r.ok, msg: r.msg, profile: profileOf(ws.acc) }); if (r.ok) { later(ws); refit(ws); } };
   const humans = room => room.slots.filter(Boolean);
   /* gear or talents changed while standing in a field the server runs: the body there follows */
-  const refit = ws => { const info = ws && ws.info, room = info && info.room, c = ws && ws.acc && pc(ws.acc); if (!room || room.kind !== 'field' || !c) return; Sim.refit(room.G.actors[info.idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls), Sim.loadoutOf(c, c.cls)); fieldRoster(room); };
+  const refit = ws => { const info = ws && ws.info, room = info && info.room, c = ws && ws.acc && pc(ws.acc); if (!room || room.kind !== 'field' || !c) return; Sim.refit(room.G.actors[info.idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls), Sim.loadoutOf(c, c.cls), Sim.heldOf(c)); fieldRoster(room); };
   const sendMe = (ws, extra) => { const r = ws.acc; send(ws, Object.assign({ t: 'me', id: r.id, token: store.token(r.id), bk: store.pack(r), profile: profileOf(r), chars: rosterOf(r), cur: r.cur, unread: r.mail.filter(x => !x.read).length, ev: { now: Date.now(), period: evPeriod, dur: evDur } }, extra)); };
 
   /* ---------- accounts ---------- */
@@ -329,7 +329,7 @@ function start(opts) {
       if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('q:' + (++publicN), '', true, did); }
       idx = freeSeat(room);
     }
-    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: Sim.floorOf(c, room.did), cl: c.cl, pow: Sim.charPower(c), mods: Sim.modsFor(c, cls), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), ws, ready: false };   // level and power come from the account, never from the client
+    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: Sim.floorOf(c, room.did), cl: c.cl, pow: Sim.charPower(c), mods: Sim.modsFor(c, cls), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), held: Sim.heldOf(c), ws, ready: false };   // level and power come from the account, never from the client
     ws.lobby = { room, idx }; if (room.leader < 0 || !room.slots[room.leader]) room.leader = idx;      // whoever is first leads
     if (code) for (const fr of rooms.values()) if (fr.kind === 'field' && fr.party === code) for (const o of fr.slots) if (o && o.ws && o.ws !== ws) send(o.ws, { t: 'invited', from: { id: rec.id, name: c.name }, code, gate: true });      // the rest of the party is still out in the field, on whatever map: tell them
     const wr = ws.info && ws.info.room;      // still inside a tower they just cleared together: ask the others along
@@ -342,13 +342,13 @@ function start(opts) {
     const G = room.G;
     room.slots.forEach((s, i) => {
       if (!s || (only != null && only !== i)) return;
-      send(s.ws, { t: 'start', you: i, d: G.did, lvl: G.lvl, elvl: G.elvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, lvl: a.lvl, human: a.human, maxHp: a.maxHp, potions: a.potions, spd: a.mods.speed, skills: a.skills.map(k => k.id) })) });
+      send(s.ws, { t: 'start', you: i, d: G.did, lvl: G.lvl, elvl: G.elvl, roster: G.actors.map(a => ({ cls: a.cls, name: a.name, lvl: a.lvl, human: a.human, maxHp: a.maxHp, potions: a.potions, spd: a.mods.speed, skills: a.skills.map(k => k.id), held: a.held })) });
     });
   }
   function startRoom(room) {
     const lvl = Math.min.apply(null, humans(room).map(s => s.lvl));
     if (!Sim.DUNGEONS[room.did]) room.did = 'tower';      // the dungeon was removed while they waited
-    room.G = Sim.createRun({ dungeon: room.did, lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.cl, pow: s.pow, mods: s.mods, id: s.id, potions: s.potions, skills: s.skills })) });
+    room.G = Sim.createRun({ dungeon: room.did, lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.cl, pow: s.pow, mods: s.mods, id: s.id, potions: s.potions, skills: s.skills, held: s.held })) });
     // seats and actors share the same order, so slot i drives actor i
     room.slots.forEach((s, i) => { if (s) { if (room.G.actors[i].pid !== s.id) throw new Error('seat mismatch'); seats.set(s.id, { room, idx: i }); if (s.ws) { leaveWorld(s.ws); s.ws.lobby = null; s.ws.info = { room, idx: i }; } } });      // the group is taken out of wherever each of them stood
     room.state = 'run'; room.acc = 0; room.n = 0; room.clock = 0; room.goneSince = 0; room.last = Date.now();
@@ -431,7 +431,7 @@ function start(opts) {
     if (m.t === 'assign') { if (L.mode === 'leader' && me === L.leader && Number.isInteger(m.to) && L.members[m.to]) award(L, m.i, m.to, []); return; }
     if (L.mode !== 'roll' || e.picks[me] || !['need', 'greed', 'pass'].includes(m.k)) return;
     const c = lootChar(L.members[me]);
-    e.picks[me] = m.k === 'need' && !(c && e.it.il > c.gear[e.it.s]) ? 'greed' : m.k;      // need is only for an upgrade
+    e.picks[me] = m.k === 'need' && !(c && Sim.wants(c, e.it)) ? 'greed' : m.k;      // need is only for an upgrade the class can hold
     settle(L, false);
   }
 
@@ -455,12 +455,12 @@ function start(opts) {
 
   /* A party's field. It runs on the server like a dungeon, has no timer and no bots, and people can walk in and out
    * while it is going: joining needs only the party's code. */
-  const fieldRosterOf = room => room.G.actors.map(a => a.out ? null : { cls: a.cls, name: a.name, lvl: a.lvl, human: true, maxHp: a.maxHp, potions: 0, spd: a.mods.speed, skills: a.skills.map(k => k.id) });
+  const fieldRosterOf = room => room.G.actors.map(a => a.out ? null : { cls: a.cls, name: a.name, lvl: a.lvl, human: true, maxHp: a.maxHp, potions: 0, spd: a.mods.speed, skills: a.skills.map(k => k.id), held: a.held });
   function fieldRoster(room) { const roster = fieldRosterOf(room); for (const s of room.slots) if (s) send(s.ws, { t: 'roster', roster }); }
   function onFieldJoin(ws, m) {
     const rec = ws.acc, c = pc(rec); leaveWorld(ws);
     let code = cleanCode(m.room); if (!code) do { code = crypto.randomBytes(2).toString('hex').toUpperCase(); } while (rooms.has('f:' + code));
-    const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsFor(c, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
+    const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsFor(c, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls), held: Sim.heldOf(c) };
     const at = Number.isFinite(m.x) && Number.isFinite(m.y) ? [m.x, m.y] : null;      // coming back from a surge: stand where you were
     const map = mapOf(m.map), key = 'f:' + code + (map === 'shore' ? '' : '@' + map);      // a party has one field for each map its people are on
     let room = rooms.get(key), idx = 0;
@@ -484,7 +484,7 @@ function start(opts) {
     if (!room && rooms.size >= MAX_ROOMS) return refuse('伺服器滿了，晚點再試。');
     const sp = en.spot, far = sp.r + 160;
     const at = [Math.max(sp.x - far, Math.min(sp.x + far, Number.isFinite(m.x) ? m.x : sp.x)), Math.max(sp.y - far, Math.min(sp.y + far, Number.isFinite(m.y) ? m.y : sp.y + sp.r))];   // where they walked in, kept near the surge
-    const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsFor(c, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls) };
+    const p = { cls: c.cls, name: c.name, pow: Sim.charPower(c), mods: Sim.modsFor(c, c.cls), id: rec.id, lvl: c.cl, skills: Sim.loadoutOf(c, c.cls), held: Sim.heldOf(c) };
     if (!room) { room = { key, code: '', kind: 'field', event: true, cycle: en.cycle, endsAt: en.endsAt, done: false, closeAt: 0, pub: true, state: 'run', slots: [], G: Sim.createField({ lvl: 1, grace: 12, cap: 8, event: sp, players: [] }), acc: 0, n: 0, clock: 0, last: now, goneSince: 0 }; rooms.set(key, room); }
     leaveWorld(ws);
     const idx = Sim.addFieldActor(room.G, p, at); if (idx < 0) return refuse('這場漲潮人滿了。');
@@ -513,7 +513,7 @@ function start(opts) {
       const gain = Sim.fieldGain(c, what, key, pk, G.map); if (!gain) return;
       Sim.questEvent(c, { type: what, map: G.map, tag: what === 'kill' ? Sim.packTag(G.map, pk) : '', kind: what === 'kill' ? key : '', node: what === 'gather' ? key : '' }, now); store.put(rec);
       if (gain.ups) { Sim.setLevel(G.actors[idx], c.cl, Sim.charPower(c)); grew = true; }
-      else if (gain.item && gain.item.up) { Sim.refit(G.actors[idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls)); grew = true; }
+      else if (gain.item && gain.item.up) { Sim.refit(G.actors[idx], c.cl, Sim.charPower(c), Sim.modsFor(c, c.cls), null, Sim.heldOf(c)); grew = true; }
       send(s.ws, { t: 'fy', ok: true, mats: gain.mats, xp: gain.xp, coin: gain.coin, item: gain.item, profile: charProfile(c) }); later(s.ws);
     };
     for (const o of events) {

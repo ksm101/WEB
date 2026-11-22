@@ -12,7 +12,7 @@ const clone = v => JSON.parse(JSON.stringify(v)), same = (a, b) => JSON.stringif
 const get = (o, path) => path.reduce((x, k) => x == null ? undefined : x[k], o);
 const put = (o, path, v) => { path.slice(0, -1).reduce((x, k) => x[k], o)[path[path.length - 1]] = v; };
 const MODL = { hp: '生命', dmg: '造成的傷害', heal: '治療量', taken: '受到的傷害', speed: '移動速度', threat: '仇恨', ult: '大招充能', cdr: '所有技能冷卻' };
-const SLOTL = { w: '武器', a: '護甲', t: '飾品' }, NODEL = { herb: '潮草', wreck: '殘骸（鏽鐵屑）', salt: '鹽晶' }, TEXTL = { name: '名字', desc: '說明文字', title: '標題', goal: '目標文字', seal: '技能鍵上的字' };
+const SLOTL = { w: '主手武器', o: '副手', a: '護甲', t: '飾品' }, NODEL = { herb: '潮草', wreck: '殘骸（鏽鐵屑）', salt: '鹽晶' }, TEXTL = { name: '名字', desc: '說明文字', title: '標題', goal: '目標文字', seal: '技能鍵上的字' };
 const TABS = [['tune', '規則'], ['classes', '職業'], ['skills', '技能'], ['talents', '天賦'], ['enemies', '怪物'], ['dungeons', '副本'], ['drop', '掉落'], ['sets', '套裝'], ['plain', '裝備名'], ['shop', '商人'], ['recipes', '配方'], ['quests', '任務'], ['map', '地圖']];
 let doc = null, base = null, root = null, tab = 'tune', opened = {}, sel = null, tool = 'move', sayT = 0, mapId = 'shore';
 
@@ -44,6 +44,7 @@ function pickField(label, path, options, num) {
   const sl = el('select'), v = get(doc, path); for (const [val, text] of options) { const o = el('option', '', text); o.value = val; sl.appendChild(o); } sl.value = v;
   sl.addEventListener('change', () => setAt(path, num ? +sl.value : sl.value)); return field(label, sl, !same(get(base, path), v));
 }
+const kindLabel = k => { const d = S.WKINDS[k]; return `${S.HAND_NAME[d.hand]}${d.name}（${doc.classes[d.cls] ? doc.classes[d.cls].name : d.cls}）`; };
 /* a choice that is not stored as one field: it writes the object back whole */
 function choice(label0, value, options, write) { const sl = el('select'); for (const [v, t] of options) { const o = el('option', '', t); o.value = v; sl.appendChild(o); } sl.value = value; sl.addEventListener('change', () => { write(sl.value); commit(); }); return field(label0, sl); }
 /* every editable field of one object, in the order the object has them */
@@ -175,25 +176,29 @@ const VIEW = {
   drop(body) { body.append(note('機率填 0 到 1，例如 0.05 是 5%。塔內小怪的掉裝機率在「規則」那一頁。'), form(['drop'])); },
   sets(body) {
     const ul = list(), ids = Object.keys(doc.sets), mods = S.MOD_KEYS.map(k => [k, MODL[k]]);
+    const kinds = Object.keys(S.WKINDS).filter(k => S.WKINDS[k].hand !== 'off').map(k => [k, kindLabel(k)]);
     for (const id of ids) { const st = doc.sets[id];
       ul.appendChild(card('set:' + id, st.name + '套裝', `兩件：${st.two[2]}　三件：${st.three[2]}`, b => {
         const f = el('div', 'fields'), p = ['sets', id];
         f.append(textField('套裝名字', p.concat('name'), 6), textField('武器的名字', p.concat('pieces', 'w'), 8), textField('護甲的名字', p.concat('pieces', 'a'), 8), textField('飾品的名字', p.concat('pieces', 't'), 8));
+        f.appendChild(choice('武器是哪一種', doc.held[st.pieces.w] || 'sword', kinds, v => { doc.held[st.pieces.w] = v; }));
         for (const [key, label] of [['two', '穿兩件'], ['three', '穿三件']]) f.append(pickField(label + '：加成種類', p.concat(key, 0), mods), numField(label + '：加多少（0.05 是 5%）', p.concat(key, 1), ['', -1, 1, .01]), textField(label + '：顯示的文字', p.concat(key, 2), 20));
         b.append(f, note('改掉或刪掉名字後，玩家身上叫舊名字的裝備會消失。'), btn('刪除這套', 'mini', () => { delete doc.sets[id]; commit(); }));
       }, !same(st, base.sets[id])));
     }
-    body.append(note('每套三件：武器、護甲、飾品各一。件的名字不能和別的裝備重複。'), ul, btn('新增套裝', 'mini go', () => {
+    body.append(note('每套三件：武器、護甲、飾品各一。件的名字不能和別的裝備重複。武器的種類決定哪個職業能拿、要一隻手還是兩隻手。改武器名字後，種類要重新選一次。'), ul, btn('新增套裝', 'mini go', () => {
       let n = 1; while (doc.sets['set' + n]) n++; const id = 'set' + n; doc.sets[id] = { name: '新套裝' + n, pieces: { w: `新套${n}之刃`, a: `新套${n}之甲`, t: `新套${n}之環` }, two: ['hp', .05, '生命 +5%'], three: ['dmg', .05, '造成的傷害 +5%'] };
       opened['set:' + id] = true; commit(); if (!doc.sets[id]) say('這套沒有加進去：名字和別的裝備重複了。'); }));
   },
   plain(body) {
-    body.appendChild(note('不屬於套裝的裝備名字。掉落時會從該部位的名字裡隨機挑一個。刪掉名字後，玩家身上叫那個名字的裝備會消失。'));
+    body.appendChild(note('不屬於套裝的裝備名字。掉落時會從該部位的名字裡隨機挑一個。刪掉名字後，玩家身上叫那個名字的裝備會消失。主手和副手的每個名字都要選一個種類：種類決定哪個職業能拿、怎麼拿（單手的可以雙持，雙手的佔兩隻手，副手的只能放副手）、打起來是什麼動作。'));
     for (const k of Object.keys(SLOTL)) {
-      const g = group(SLOTL[k]), arr = doc.plain[k];
-      arr.forEach((n, i) => { const row = el('div', 'ed-row'), inp = el('input'); inp.type = 'text'; inp.maxLength = 8; inp.value = n; inp.addEventListener('change', () => { const before = arr.length; arr[i] = inp.value; commit(); if (doc.plain[k].length < before) say('名字是空的或重複了，這一筆被拿掉了。'); });
-        row.append(inp, btn('刪', 'mini', () => { if (arr.length < 2) return say('每個部位至少要留一個名字。'); arr.splice(i, 1); commit(); })); g.appendChild(row); });
-      g.appendChild(btn('新增名字', 'mini go', () => { let n = 1; while (arr.includes(`新${SLOTL[k]}${n}`)) n++; arr.push(`新${SLOTL[k]}${n}`); commit(); }));
+      const g = group(SLOTL[k]), arr = doc.plain[k], hand = k === 'w' || k === 'o', kinds = hand ? Object.keys(S.WKINDS).filter(id => (k === 'o') === (S.WKINDS[id].hand === 'off')).map(id => [id, kindLabel(id)]) : [];
+      arr.forEach((n, i) => { const row = el('div', hand ? 'ed-row kinds' : 'ed-row'), inp = el('input'); inp.type = 'text'; inp.maxLength = 8; inp.value = n;
+        inp.addEventListener('change', () => { const before = arr.length, kd = doc.held[n]; arr[i] = inp.value; if (hand && kd && inp.value && !arr.includes(n)) { doc.held[inp.value] = kd; delete doc.held[n]; } commit(); if (doc.plain[k].length < before) say('名字是空的或重複了，這一筆被拿掉了。'); });
+        row.append(inp); if (hand) { const sl = el('select'); for (const [v, t] of kinds) { const o = el('option', '', t); o.value = v; sl.appendChild(o); } sl.value = doc.held[n] || kinds[0][0]; sl.addEventListener('change', () => { doc.held[n] = sl.value; commit(); }); row.appendChild(sl); }
+        row.append(btn('刪', 'mini', () => { if (arr.length < 2) return say('每個部位至少要留一個名字。'); arr.splice(i, 1); commit(); })); g.appendChild(row); });
+      g.appendChild(btn('新增名字', 'mini go', () => { const stem = k === 'w' ? '新武器' : k === 'o' ? '新副手' : '新' + SLOTL[k]; let n = 1; while (arr.includes(stem + n)) n++; arr.push(stem + n); commit(); }));
       body.appendChild(g);
     }
   },
@@ -414,7 +419,7 @@ function build() {
 .ed-head b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .ed-head small{grid-column:1;font-size:12px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ed-head i{grid-row:1 / span 2;grid-column:2;align-self:center;font-style:normal;font-size:12px;color:var(--brass)}
 .ed-body{display:flex;flex-direction:column;gap:10px;padding:2px 12px 12px}
-.ed-row{display:grid;grid-template-columns:minmax(0,1fr) 72px auto;gap:6px;align-items:center} .ed-row input,.ed-row select{font:inherit;font-size:16px;color:var(--foam);background:var(--deep);border:1.5px solid var(--line);border-radius:8px;height:40px;padding:0 8px;min-width:0}
+.ed-row{display:grid;grid-template-columns:minmax(0,1fr) 72px auto;gap:6px;align-items:center} .ed-row.kinds{grid-template-columns:minmax(0,1fr) minmax(0,1.25fr) auto} .ed-row input,.ed-row select{font:inherit;font-size:16px;color:var(--foam);background:var(--deep);border:1.5px solid var(--line);border-radius:8px;height:40px;padding:0 8px;min-width:0}
 .ed-row input[type=text]{grid-column:1 / span 2}
 .ed-btns{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between}
 .ed-wave{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;background:var(--deep)}

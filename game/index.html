@@ -620,7 +620,7 @@ function reachMark(tag) {
   const done = newlyDone(() => S.questEvent(save, { type: 'reach', tag }, Date.now())); writeSave(); if (done.length) toast(`任務完成：${done.join('、')}。`, [], 3500); renderQuests();
 }
 /* Gear or talents changed: in a field this device runs, the body out there follows. (A party's field is refitted by the server.) */
-function refitMe() { if (mode === 'field' && V && V.me && V.me.def) { S.refit(V.me, save.cl, S.charPower(save), S.modsFor(save, save.cls), S.loadoutOf(save, save.cls)); buildHud(); } }
+function refitMe() { if (mode === 'field' && V && V.me && V.me.def) { S.refit(V.me, save.cl, S.charPower(save), S.modsFor(save, save.cls), S.loadoutOf(save, save.cls), S.heldOf(save)); buildHud(); } }
 /* Announce a level-up once, wherever the experience came from, and make it count straight away in the field. */
 let shownCl = 0;
 function levelCheck(quiet) {
@@ -750,14 +750,14 @@ function handleEvent(o) {
       break; }
     case 'down': { const a = V.actors[o.i]; if (a === me) banner('你倒下了，等隊友救援', 2600); else addText(a.x, a.y - 30, a.name + ' 倒地', C.danger, 12, 1.4); break; }
     case 'dmg': { const by = V.actors[o.by], e = o.id != null ? V.enemies.find(x => x.id === o.id) : null, ix = e ? e.x : o.x, iy = e ? e.y : o.y + 18, mine = o.by === meIdx;
-      if (by) { if (!(by._atk > 0)) by._atk = .34; const d = Math.hypot(ix - by.x, iy - by.y) || 1, ux = (ix - by.x) / d, uy = (iy - by.y) / d, far = by.def.range > 60;
+      if (by) { if (!(by._atk > 0)) by._atk = .34; strikeAnim(by); const d = Math.hypot(ix - by.x, iy - by.y) || 1, ux = (ix - by.x) / d, uy = (iy - by.y) / d, far = by.def.range > 60;
         lunge(by, ux, uy, far ? -3 : 5); if (e) kick(e, ux, uy, (o.big ? 9 : 5) * (e.boss ? .35 : 1));
         spark(ix - ux * (e ? e.r * .6 : 6), iy - uy * (e ? e.r * .6 : 6) - 4, ux, uy, C[by.def.color], (o.big ? 9 : 4) + (mine ? 2 : 0)); }
       if (o.dead) puff(ix, iy, e ? e.r : 12);
       if (mine) { addText(o.x, o.y, o.v, o.big ? C.ember : C.foam, o.big ? 19 : 13, o.big ? 1 : .8, true); sfx(o.dead ? 'kill' : o.big ? 'crit' : 'hit');
         if (o.big || o.dead) { FX.shake = Math.max(FX.shake, o.big ? .16 : .1); hitStop(o.big ? .05 : .035); } }
       break; }
-    case 'heal': { const a = V.actors[o.i]; addText(a.x, a.y - 18, '+' + o.v, C.heal, a === me || o.by === meIdx ? 12 : 10); break; }
+    case 'heal': { const a = V.actors[o.i], by = V.actors[o.by]; addText(a.x, a.y - 18, '+' + o.v, C.heal, a === me || o.by === meIdx ? 12 : 10); if (by && by !== a && !(by._wt < .3)) strikeAnim(by); break; }
     case 'fail': if (o.i === meIdx) addText(me.x, me.y - 30, o.s, C.mute, 11, 1); break;
   }
 }
@@ -780,7 +780,7 @@ function startSolo(cls, d) {
   markOrigin(); if (net.authed && mode === 'online') send({ t: 'leave' }); else leaveQueue();
   clearQueue(); closePort(); $('#endchip').hidden = true;
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
-  G = S.createRun({ dungeon: did, lvl: floorNow(did), auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsFor(save, cls) }] });
+  G = S.createRun({ dungeon: did, lvl: floorNow(did), auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsFor(save, cls), held: S.heldOf(save) }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
   if (net.authed) send({ t: 'solo0', lvl: floorNow(did), cls, d: did });
   if (G.layout) FD = G.F;      // a laid-out dungeon is a map of its own
@@ -837,7 +837,7 @@ function camGoal() {
 }
 function startField(then, pos, map) {
   FD = S.MAPS[map] || S.FIELD; mode = 'field'; save.cls = chosen in CLASSES ? chosen : 'dps'; writeSave();
-  G = S.createField({ map: FD.id, lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', skills: S.loadoutOf(save, save.cls), mods: S.modsFor(save, save.cls) } });
+  G = S.createField({ map: FD.id, lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', skills: S.loadoutOf(save, save.cls), mods: S.modsFor(save, save.cls), held: S.heldOf(save) } });
   V = G; V.me = G.actors[0]; meIdx = 0;
   if (online && net.authed) send({ t: 'field0', map: FD.id });
   if (pos) { V.me.x = pos[0]; V.me.y = pos[1]; }      // stepping back out of a surge: same place, no fanfare
@@ -1072,7 +1072,7 @@ function onMsg(m) {
       m.roster.forEach((r, i) => {
         const old = V.actors[i];
         if (!r) { if (old) old.out = true; else V.actors[i] = seatView(null, i, V.lvl, FD.spawn); }
-        else if (old && !old.ghost && !old.out && old.name === r.name && old.cls === r.cls) { old.lvl = r.lvl; old.maxHp = r.maxHp; if (r.spd > 0) old.spd = r.spd; if (Array.isArray(r.skills) && r.skills.length === 4 && r.skills.every(id => S.SKILLS[id])) old.skills = r.skills.map(id => S.SKILLS[id]); }
+        else if (old && !old.ghost && !old.out && old.name === r.name && old.cls === r.cls) { old.lvl = r.lvl; old.maxHp = r.maxHp; if (r.spd > 0) old.spd = r.spd; old.held = S.heldFix(r.held, r.cls); if (Array.isArray(r.skills) && r.skills.length === 4 && r.skills.every(id => S.SKILLS[id])) old.skills = r.skills.map(id => S.SKILLS[id]); }
         else if (i !== meIdx) { if (old && old.out && !r) return; if (!old || old.ghost || old.out) banner(`${r.name} 加入了隊伍`, 1800); V.actors[i] = seatView(r, i, V.lvl, old ? [old.sx, old.sy] : FD.spawn); }
       });
       buildHud();
@@ -1086,7 +1086,7 @@ function seatView(r, i, lvl, at) {
   const cls = r ? r.cls : 'dps';
   return { spd: r && r.spd > 0 ? r.spd : 1, idx: i, cls, def: CLASSES[cls], name: r ? String(r.name) : '', lvl: r && r.lvl > 0 ? r.lvl : lvl, human: !!(r && r.human), out: !r, ghost: !r, x: at[0], y: at[1], sx: at[0], sy: at[1],
     skills: r && Array.isArray(r.skills) && r.skills.length === 4 && r.skills.every(id => S.SKILLS[id]) ? r.skills.map(id => S.SKILLS[id]) : CLASSES[cls].skills,
-    r: 12, hp: r ? r.maxHp : 1, maxHp: r ? r.maxHp : 1, alive: !!r, potions: r ? r.potions || 0 : 0, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null, gather: null };
+    held: S.heldFix(r ? r.held : null, cls), r: 12, hp: r ? r.maxHp : 1, maxHp: r ? r.maxHp : 1, alive: !!r, potions: r ? r.potions || 0 : 0, cds: [0, 0, 0, 0], ult: 0, wallT: 0, shield: 0, iframe: 0, rolling: false, face: -Math.PI / 2, target: null, gather: null };
 }
 function beginOnline(m) {
   const back = net.back, field = !!m.field, here = net.travel || (field && inField() && V.me && V.map === (S.MAPS[m.map] ? m.map : 'shore') ? [V.me.x, V.me.y] : null); net.travel = null; net.back = false; net.evJoin = 0;      // here: already standing in the field, so nobody jumps to the camp
@@ -1233,7 +1233,8 @@ function drawZone(z) {
  * picture's width, so the list only has to say which strips there are. */
 const ART = {}, PORTRAIT = {}, ART_FPS = { idle: 5, walk: 10, attack: 12, hurt: 8 };      // PORTRAIT: the large picture shown while someone speaks
 for (const id of Object.keys(window.ART_MANIFEST || {})) {
-  const d = window.ART_MANIFEST[id] || {}, set = { cell: d.cell > 0 ? d.cell : 32, scale: d.scale > 0 ? d.scale : 1, foot: d.foot >= 0 ? d.foot : 4, img: {} };
+  if (id[0] === '_') continue;
+  const d = window.ART_MANIFEST[id] || {}, set = { cell: d.cell > 0 ? d.cell : 32, scale: d.scale > 0 ? d.scale : 1, foot: d.foot >= 0 ? d.foot : 4, hands: !!d.hands, img: {} };
   for (const an of d.anims || ['idle']) for (const dir of d.dirs || ['down']) { const im = new Image(); im.onload = () => { set.img[an + '_' + dir] = im; }; im.src = `art/${id}/${an}_${dir}.png`; }
   ART[id] = set;
   if (d.portrait) { const im = new Image(); im.onload = () => { PORTRAIT[id] = im; }; im.src = `art/${id}/portrait.png`; }
@@ -1246,6 +1247,66 @@ const artPx = set => { const k = ctx.getTransform().a || 1; return Math.max(1, M
 const spriteTop = (set, r) => set ? (set.cell - set.foot) * artPx(set) / (ctx.getTransform().a || 1) - r * .7 - 2 : r;      // how far above its centre the picture reaches
 /* Draw o from its strips. It walks when it has moved, strikes for as long as `striking` says (or for a moment after
  * o._atk is set), and flinches when `hit`. Returns false when there was nothing to draw. */
+/* ---------- what is held ----------
+ * A body drawn with empty hands (hands: true in the art list) is given its weapons here. Each kind of weapon is one
+ * small picture pointing up, and its move is made by turning and sliding that picture: nothing is drawn frame by frame.
+ * Until there is a real picture (art/weapon/<kind>.png, listed under _weapons) a plain one drawn here stands in.
+ * Everything is drawn small on a scratch sheet and enlarged with the body, so its pixels are the body's size. */
+const WPN = {}, WC = { steel: '#c9d6d8', steelD: '#8fa3a8', hi: '#f4faf8', wood: '#8a5a34', woodD: '#5c3a20', page: '#efe6cf' };
+function wpnSheet(w, h, parts, gx, gy, len) {
+  const cv = document.createElement('canvas'); cv.width = w + 2; cv.height = h + 2; const g = cv.getContext('2d');
+  for (const [x, y, rw, rh, col] of parts) { g.fillStyle = col; g.fillRect(x + 1, y + 1, rw, rh); }
+  const d = g.getImageData(0, 0, cv.width, cv.height).data, W = cv.width, H = cv.height, edge = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { if (d[(y * W + x) * 4 + 3]) continue; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H && d[(ny * W + nx) * 4 + 3]) { edge.push([x, y]); break; } } }
+  g.fillStyle = C.ink; for (const [x, y] of edge) g.fillRect(x, y, 1, 1); return { cv, gx, gy, len };
+}
+function buildWeapons() {
+  WPN.sword = wpnSheet(7, 20, [[3, 0, 1, 1, WC.steel], [2, 1, 3, 12, WC.steel], [2, 1, 1, 12, WC.hi], [4, 2, 1, 11, WC.steelD], [0, 13, 7, 2, C.brass], [3, 15, 1, 4, WC.woodD], [2, 19, 3, 1, C.brass]], 4.5, 17, 16);
+  WPN.hammer = wpnSheet(9, 18, [[0, 0, 9, 6, WC.steelD], [0, 0, 9, 2, WC.steel], [3, 2, 3, 2, C.brass], [4, 6, 1, 10, WC.wood], [3, 16, 3, 2, WC.woodD]], 5.5, 15, 14);
+  WPN.maul = wpnSheet(13, 26, [[0, 0, 13, 8, WC.steelD], [0, 0, 13, 2, WC.steel], [0, 6, 13, 2, '#6b7b80'], [5, 2, 3, 4, C.brass], [6, 8, 1, 16, WC.wood], [5, 24, 3, 2, WC.woodD]], 7.5, 21, 20);
+  WPN.spear = wpnSheet(5, 28, [[2, 0, 1, 2, WC.hi], [1, 2, 3, 4, WC.steel], [3, 3, 1, 3, WC.steelD], [0, 6, 5, 1, C.brass], [2, 7, 1, 21, WC.wood]], 3.5, 19, 20);
+  WPN.hook = wpnSheet(7, 14, [[2, 0, 4, 1, WC.steel], [5, 1, 1, 4, WC.steel], [1, 1, 1, 2, WC.hi], [3, 1, 1, 8, WC.steelD], [2, 9, 3, 1, C.rust], [3, 10, 1, 4, WC.woodD]], 4.5, 12, 11);
+  WPN.xbow = wpnSheet(11, 12, [[0, 2, 11, 1, WC.wood], [0, 3, 1, 2, WC.wood], [10, 3, 1, 2, WC.wood], [1, 4, 9, 1, C.foam], [5, 0, 1, 11, WC.woodD], [4, 9, 3, 2, WC.wood], [5, 0, 1, 2, WC.steel]], 6.5, 10, 9);
+  WPN.staff = wpnSheet(7, 26, [[1, 0, 5, 5, C.heal], [2, 1, 2, 2, '#d9ffe9'], [0, 5, 7, 1, C.brass], [1, 6, 1, 2, C.brass], [5, 6, 1, 2, C.brass], [3, 6, 1, 20, WC.wood]], 4.5, 19, 20);
+  WPN.bell = wpnSheet(7, 13, [[2, 0, 3, 1, C.brass], [1, 1, 5, 4, C.brass], [0, 5, 7, 2, C.brass], [1, 1, 1, 4, '#fff3cf'], [3, 7, 1, 1, WC.steelD], [3, 8, 1, 5, WC.woodD]], 4.5, 11, 9);
+  WPN.shield = wpnSheet(9, 11, [[1, 0, 7, 1, C.brass], [0, 1, 9, 7, C.tank], [1, 8, 7, 2, C.tank], [3, 10, 3, 1, C.tank], [0, 1, 9, 1, C.brass], [0, 1, 1, 7, C.brass], [8, 1, 1, 7, C.brass], [3, 3, 3, 3, C.brass], [4, 4, 1, 1, '#fff3cf'], [1, 2, 2, 5, '#9cc4ff']], 5.5, 6.5, 0);
+  WPN.tome = wpnSheet(9, 8, [[0, 0, 9, 8, C.heal], [1, 1, 3, 6, WC.page], [5, 1, 3, 6, WC.page], [4, 0, 1, 8, C.brass], [2, 3, 1, 1, C.ink], [6, 3, 1, 1, C.ink], [2, 5, 1, 1, C.ink], [6, 5, 1, 1, C.ink]], 5.5, 5, 0);
+  WPN.quiver = wpnSheet(6, 12, [[0, 0, 1, 3, C.ember], [2, 0, 1, 3, C.ember], [4, 0, 1, 3, C.ember], [0, 3, 6, 9, WC.woodD], [0, 4, 6, 1, C.brass], [1, 6, 4, 5, WC.wood]], 4, 7, 0);
+  for (const k of (window.ART_MANIFEST && window.ART_MANIFEST._weapons) || []) if (S.WKINDS[k]) { const im = new Image(), hold = ['off', 'x'].includes(S.WKINDS[k].hand) && S.WKINDS[k].move !== 'swing';
+    im.onload = () => { WPN[k] = { cv: im, gx: im.width / 2, gy: hold ? im.height / 2 : im.height - 6, len: Math.max(0, im.height - 10), real: true }; }; im.src = `art/weapon/${k}.png`; }
+}
+buildWeapons();
+const HC = document.createElement('canvas'); HC.width = HC.height = 72; const hg = HC.getContext('2d'); hg.imageSmoothingEnabled = false;
+const eOut = p => 1 - Math.pow(1 - p, 3), mix = (a, b, p) => a + (b - a) * p;
+function strikeAnim(a) { if (!a.held) return; const d = S.WKINDS[a.held[1]]; a._wt = 0; a._wh = d && d.move !== 'guard' && d.move !== 'hold' ? 1 - (a._wh || 0) : 0; a._wf = -(a._wf || 1); }      // with a weapon in each hand they take turns
+/* Draw what `a` holds: pass 0 is what sits behind the body, pass 1 what sits in front. (X, Y) is where its feet are on the screen. */
+function drawHeld(a, set, pass, X, Y, q) {
+  const held = a.held; if (!held) return; const aim = a.face || 0, ux = Math.cos(aim), uy = Math.sin(aim), px = -uy, py = ux, t = a._wt == null ? 9 : a._wt, guard = a.wallT > 0 || a.shield > 0, k = set.cell / 32;
+  let drew = false; hg.setTransform(1, 0, 0, 1, 0, 0); hg.clearRect(0, 0, 72, 72);
+  for (let hand = 0; hand < 2; hand++) {
+    const id = held[hand], kd = S.WKINDS[id], w = WPN[id]; if (!kd || (!w && id !== 'bow')) continue;
+    const side = hand ? -1 : 1, live = t < .4 && (a._wh || 0) === hand, bob = reduced ? 0 : Math.sin(clock * 3 + hand) * .6;
+    let hx = ux * 5 + px * 3 * side, hy = uy * 3 + py * 2 * side, ang = aim, behind = uy < -.35, pull = 0, glow = 0, upright = false;
+    if (kd.move === 'guard') { upright = true; if (guard) { hx = ux * 7; hy = uy * 5; behind = uy < -.6; } else { hx = px * -6 * (Math.abs(ux) > .7 ? 0 : 1) - ux * 2; hy = 1; behind = uy < -.35 || Math.abs(ux) > .7; } }
+    else if (kd.move === 'hold') { upright = true; if (id === 'quiver') { hx = -ux * 4; hy = -uy * 3 - 2; behind = uy > -.2; } else { hx = px * -7 - ux; hy = bob - 1; behind = uy < -.35; } }
+    else if (kd.move === 'swing') { const arc = id === 'hook' ? 1.3 : 1.9, f = (a._wf || 1) * side; ang = live && t < .22 ? aim + mix(-arc, arc, eOut(clamp(t / .16, 0, 1))) * f : aim - .95 * side + bob * .05; if (live && t < .22) { hx += ux * 3; hy += uy * 3; } }
+    else if (kd.move === 'smash') { ang = live && t < .08 ? aim - mix(2.3, -.25, (t / .08) * (t / .08)) : live && t < .3 ? aim + .25 : aim - 1.2 * side + bob * .04; if (live && t < .3) { hx += ux * 4; hy += uy * 4; } }
+    else if (kd.move === 'thrust') { const d = live ? (t < .06 ? 12 * t / .06 : mix(12, 0, clamp((t - .06) / .26, 0, 1))) : 0; hx += ux * d; hy += uy * d + (live ? 0 : bob); }
+    else if (kd.move === 'shoot') { pull = live && t < .12 ? 5 * (1 - t / .12) : 0; hx = ux * 7 + px * 2 * side; hy = uy * 5 + py * side; if (live && t < .12) { hx -= ux * 2; hy -= uy * 2; } }
+    else if (kd.move === 'cast') { const up = -Math.PI / 2, p = live ? clamp(t / .35, 0, 1) : 1; ang = live ? mix(up + ux * .5, up + ux * .2, p) : up + ux * .2; glow = live ? 1 - p : 0; hx = (ux >= 0 ? 6 : -6) * side; hy = (live ? -3 * Math.sin(Math.PI * p) : bob); behind = false; }
+    if ((behind ? 0 : 1) !== pass) continue; drew = true;
+    hg.save(); hg.translate(36 + Math.round(hx * k), 36 + Math.round(hy * k));
+    if (id === 'bow' && !(w && w.real)) {      // the plain bow is drawn fresh, because its string moves
+      hg.rotate(aim); const pts = []; for (let i = -8; i <= 8; i++) pts.push([Math.round(-i * i * .075), i]);
+      hg.fillStyle = C.ink; for (const [x, y] of pts) hg.fillRect(x - 1, y - 1, 3, 3); hg.fillStyle = WC.wood; for (const [x, y] of pts) hg.fillRect(x, y, 1, 1); hg.fillStyle = C.ember; hg.fillRect(0, -1, 1, 3);
+      const ex = pts[0][0]; hg.strokeStyle = C.foam; hg.lineWidth = 1; hg.beginPath(); hg.moveTo(ex + .5, -8); hg.lineTo(ex - pull + .5, 0); hg.lineTo(ex + .5, 8); hg.stroke();
+    } else { if (!upright) hg.rotate(ang + Math.PI / 2); hg.drawImage(w.cv, -w.gx, -w.gy);
+      if (glow > 0) { hg.globalAlpha = .55 * glow; hg.fillStyle = C.heal; hg.beginPath(); hg.arc(0, -w.gy + 3, 3 + 5 * glow, 0, TAU); hg.fill(); hg.globalAlpha = 1; } }
+    hg.restore();
+    if (pass === 1 && kd.move === 'swing' && live && t < .2 && !reduced) { const arc = id === 'hook' ? 1.3 : 1.9, f = (a._wf || 1) * side; hg.globalAlpha = (1 - t / .2) * .85; hg.strokeStyle = C[a.def.color] || C.foam; hg.lineWidth = 3; hg.beginPath(); hg.arc(36, 36, (w.len + 5), aim - arc * f, aim + arc * f * .9, f < 0); hg.stroke(); hg.globalAlpha = 1; }
+  }
+  if (!drew) return; const c = ctx; c.save(); c.setTransform(q, 0, 0, q, X - 36 * q, Y - (36 + Math.round(11 * k)) * q); c.imageSmoothingEnabled = false; c.drawImage(HC, 0, 0); c.restore();
+}
 const WHITE = new Map();
 function whiteOf(img) { let w = WHITE.get(img); if (!w) { w = document.createElement('canvas'); w.width = img.width; w.height = img.height; const g = w.getContext('2d'); g.drawImage(img, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = '#fff'; g.fillRect(0, 0, w.width, w.height); WHITE.set(img, w); } return w; }
 function drawSprite(set, o, dt, striking, hit) {
@@ -1258,8 +1319,12 @@ function drawSprite(set, o, dt, striking, hit) {
   const img = set.img[name + '_' + dir] || set.img[name + '_down'] || set.img[name + '_side'] || set.img['idle_' + dir] || set.img.idle_down || set.img.idle_side; if (!img) return false;
   const n = Math.max(1, Math.round(img.width / set.cell)), t = Math.floor(o._at * (ART_FPS[name] || 8)), f = name === 'attack' ? Math.min(n - 1, t) : t % n, c = ctx, m = c.getTransform(), q = artPx(set);
   const sq = o._sq > 0 ? o._sq / .1 : 0, qx = q * (1 + .16 * sq), qy = q * (1 - .12 * sq), white = hit && !has('hurt');      // hit: flattened a little, and all white for an instant
-  c.save(); c.setTransform(dir === 'side' && fx < 0 ? -qx : qx, 0, 0, qy, Math.round(m.a * (o.x + (o._nx || 0)) + m.e), Math.round(m.d * (o.y + (o._ny || 0) + o.r * .7) + m.f) + set.foot * q); c.imageSmoothingEnabled = false;
-  c.drawImage(white ? whiteOf(img) : img, f * set.cell, 0, set.cell, img.height, -set.cell / 2, -img.height, set.cell, img.height); c.restore(); return true;
+  const X = Math.round(m.a * (o.x + (o._nx || 0)) + m.e), Y = Math.round(m.d * (o.y + (o._ny || 0) + o.r * .7) + m.f), armed = set.hands && !!o.held && o.alive !== false;
+  if (armed) { if (o._wt != null) o._wt += dt; drawHeld(o, set, 0, X, Y, q); }
+  c.save(); c.setTransform(dir === 'side' && fx < 0 ? -qx : qx, 0, 0, qy, X, Y + set.foot * q); c.imageSmoothingEnabled = false;
+  c.drawImage(white ? whiteOf(img) : img, f * set.cell, 0, set.cell, img.height, -set.cell / 2, -img.height, set.cell, img.height); c.restore();
+  if (armed) drawHeld(o, set, 1, X, Y, q);
+  return true;
 }
 function drawActor(a, dt) {
   const c = ctx, { x, y, r } = a, fl = flashing(a, dt), me = a === V.me, guard = a.wallT > 0 || a.shield > 0, art = spriteOf(a.cls), up = spriteTop(art, r);
@@ -2141,7 +2206,7 @@ function renderPile() {
   if (open) { const n = el('p', 'note', pileNote()); n.id = 'pile-note'; g.append(n); }
   const ul = el('ul', 'items');
   pile.items.forEach((it, i) => {
-    const out = pile.out[i], better = !notMine(it) && it.il > save.gear[S.slotFor(save, it).s || it.s], li = itemRow(it, `${itemIs(it)}・${notMine(it) ? CLASSES[save.cls].name + '不能用' : better ? '比你身上的好' : '不比你身上的好'}`, [], 'pile'), acts = el('div', 'acts');
+    const out = pile.out[i], better = S.wants(save, it), li = itemRow(it, `${itemIs(it)}・${notMine(it) ? CLASSES[save.cls].name + '不能用' : better ? '比你身上的好' : '不比你身上的好'}`, [], 'pile'), acts = el('div', 'acts');
     if (out) { const w = pile.members[out.win], rolls = (out.rolls || []).map(x => `${pile.members[x[0]].name} ${x[1] === 'need' ? '需求' : '貪婪'} ${x[2]}`).join('、');
       acts.append(el('small', out.win === pile.you ? 'q2' : '', (w ? `${out.win === pile.you ? '你' : w.name}拿到了` : '沒有人要') + (rolls ? `（${rolls}）` : '') + (out.give ? `　${out.give.up ? '已經換上' : out.give.sold ? `背包滿了，賣了 ${out.give.sold} 鐘幣` : '放進背包'}` : ''))); }
     else if (pile.mode === 'leader') { if (boss) pile.members.forEach((x, k) => { const b = el('button', 'mini', '給 ' + (k === pile.you ? '自己' : x.name)); b.type = 'button'; b.id = `assign-${i}-${k}`; b.addEventListener('click', () => { b.disabled = true; send({ t: 'assign', L: pile.id, i, to: k }); }); acts.appendChild(b); }); else acts.append(el('small', '', '等隊長決定')); }
