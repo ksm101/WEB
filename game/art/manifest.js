@@ -25,4 +25,5 @@ window.ART_MANIFEST = Object.assign({
   mira: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   jin: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   wu: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
+  _weapons: ['sword', 'hammer', 'maul', 'spear', 'hook', 'xbow', 'bow', 'staff', 'bell', 'shield', 'tome', 'quiver'],
 },window.ART_MANIFEST);
