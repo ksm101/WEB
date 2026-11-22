@@ -357,6 +357,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
         <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
         <button class="chip" id="mail-btn" type="button" hidden>信箱<b id="mail-badge" hidden></b></button>
         <button class="chip" id="ed-open" type="button">編輯器</button>
+        <button class="chip" id="snd-btn" type="button">音效 開</button>
       </div>
       <div class="lvrow"><b id="m-cl">Lv.1</b><span class="xpbar"><i id="m-xpbar"></i></span><small id="m-xp"></small></div>
       <div class="run"><b>沉鐘塔</b><span id="m-lvl">第 1 層</span><small id="m-best"></small></div>
@@ -672,10 +673,56 @@ function paintFloor() {
 let mode = null;      // 'solo' | 'field' | 'online'. Waiting for a tower group is not a mode: it happens while you stand in the field (net.queueing)
 let lastMode = 'solo';
 let G = null, V = null, meIdx = -1, clock = 0, online = false;
-const FX = { fx: [], texts: [], shake: 0 };
+const FX = { fx: [], texts: [], shake: 0, red: 0, stop: 0 };
 const stick = { x: 0, y: 0 }, input = { mx: 0, my: 0 }, keys = new Set();
 
-function addText(x, y, str, col, size, dur) { if (FX.texts.length > 70) FX.texts.shift(); FX.texts.push({ x: x + rand(-6, 6), y, str, col, size: size || 11, t: 0, dur: dur || .8 }); }
+function addText(x, y, str, col, size, dur, pop) { if (FX.texts.length > 70) FX.texts.shift(); FX.texts.push({ x: x + rand(-6, 6), y, str, col, size: size || 11, t: 0, dur: dur || .8, pop: !!pop }); }
+/* ---------- hit feel ----------
+ * None of this changes the fight: it is all drawn on top of it, from the same events alone or online.
+ * A body that is hit is knocked a little way back and squashed for a moment; one that strikes leans into the blow
+ * (or, shooting, rocks back); sparks fly where it lands; a big hit holds the world still for a few frames. */
+function kick(o, ux, uy, amt) { if (reduced) return; o._kx = (o._kx || 0) + ux * amt; o._ky = (o._ky || 0) + uy * amt; o._sq = .1; }
+function lunge(o, ux, uy, amt) { if (reduced) return; o._lt = .14; o._lx = ux * amt; o._ly = uy * amt; }
+/* Where a body is drawn this frame, away from where it really is. Called once a frame for each. */
+function nudge(o, dt) {
+  const k = Math.exp(-dt * 16); o._kx = (o._kx || 0) * k; o._ky = (o._ky || 0) * k; if (o._sq > 0) o._sq -= dt;
+  let x = o._kx, y = o._ky; if (o._lt > 0) { o._lt -= dt; const p = Math.sin(Math.PI * clamp(1 - o._lt / .14, 0, 1)); x += o._lx * p; y += o._ly * p; }
+  o._nx = x; o._ny = y; return o;
+}
+function spark(x, y, ux, uy, col, n) {
+  if (FX.fx.length > 160) return;
+  FX.fx.push({ type: 'star', x, y, col: C.foam, t: 0, dur: .09, r: 5 + n * .6 });
+  for (let i = 0; i < n; i++) { const a = Math.atan2(uy, ux) + rand(-1.1, 1.1), v = rand(70, 190); FX.fx.push({ type: 'bit', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, col: i % 3 ? col : C.foam, z: rand(1.6, 3.2), t: 0, dur: rand(.18, .34) }); }
+}
+function puff(x, y, r) { for (let i = 0; i < 10; i++) { const a = rand(0, TAU), v = rand(30, 110); FX.fx.push({ type: 'bit', x: x + Math.cos(a) * r * .4, y: y + Math.sin(a) * r * .4, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30, col: i % 2 ? C.mute : C.foam, z: rand(2, 4), t: 0, dur: rand(.3, .55) }); } }
+function hitStop(sec) { if (!reduced && !AUTO && SPEED <= 1) FX.stop = Math.max(FX.stop, sec); }
+const simDt = dt => FX.stop > 0 ? 0 : dt;      // only where the fight runs on this device; a server keeps its own time
+/* Sounds are made on the spot, there are no sound files: a burst of noise for the crack, a falling note for the weight. */
+const SND = { ctx: null, on: true, t: {}, out: null, noise: null };
+try { SND.on = localStorage.getItem('embertide.sound') !== '0'; } catch (e) {}
+function sndWake() {
+  if (!SND.on) return;
+  try {
+    if (!SND.ctx) { const A = window.AudioContext || window.webkitAudioContext; if (!A) return; const cx = SND.ctx = new A(), n = Math.floor(cx.sampleRate * .4), b = cx.createBuffer(1, n, cx.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1; SND.noise = b; SND.out = cx.createGain(); SND.out.gain.value = .5; SND.out.connect(cx.destination); }
+    if (SND.ctx.state === 'suspended') SND.ctx.resume();
+  } catch (e) {}
+}
+addEventListener('pointerdown', sndWake, { passive: true }); addEventListener('keydown', sndWake);
+function tone(type, f0, f1, dur, vol, t) { const cx = SND.ctx, o = cx.createOscillator(), g = cx.createGain(); o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur); o.connect(g); g.connect(SND.out); o.start(t); o.stop(t + dur + .02); }
+function hiss(freq, q, dur, vol, t, kind) { const cx = SND.ctx, n = cx.createBufferSource(), f = cx.createBiquadFilter(), g = cx.createGain(); n.buffer = SND.noise; f.type = kind || 'bandpass'; f.frequency.value = freq; f.Q.value = q; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur); n.connect(f); f.connect(g); g.connect(SND.out); n.start(t, Math.random() * .2, dur + .02); }
+function sfx(name) {
+  const cx = SND.ctx; if (!SND.on || !cx || cx.state !== 'running') return; const now = performance.now(); if (now - (SND.t[name] || 0) < 50) return; SND.t[name] = now;
+  try { const t = cx.currentTime;
+    if (name === 'hit') { hiss(2200, 1.2, .07, .24, t); tone('triangle', 230, 110, .07, .16, t); }
+    else if (name === 'crit') { hiss(3000, .9, .12, .3, t); tone('square', 330, 90, .14, .12, t); tone('sine', 120, 50, .18, .32, t); }
+    else if (name === 'kill') { tone('sine', 170, 45, .26, .34, t); hiss(900, .7, .2, .2, t); }
+    else if (name === 'hurt') { tone('sine', 130, 55, .14, .36, t); hiss(500, .8, .09, .22, t, 'lowpass'); }
+    else if (name === 'hurtBig') { tone('sawtooth', 110, 40, .25, .22, t); tone('sine', 80, 35, .3, .42, t); hiss(700, .6, .18, .28, t, 'lowpass'); }
+  } catch (e) {}
+}
+function buzz(ms) { if (SND.on && !reduced && navigator.vibrate) try { navigator.vibrate(ms); } catch (e) {} }
+function sndLabel() { const b = $('#snd-btn'); if (b) b.textContent = SND.on ? '音效 開' : '音效 關'; }
 function banner(msg, ms) { const b = $('#banner'); b.textContent = msg; b.classList.remove('off'); clearTimeout(banner.t); banner.t = setTimeout(() => b.classList.add('off'), ms || 1600); }
 function handleEvent(o) {
   if (!V) return; const me = V.me;
@@ -689,9 +736,22 @@ function handleEvent(o) {
     case 'cone': FX.fx.push({ type: 'cone', x: o.x, y: o.y, a: o.a, h: o.h, l: o.l, col: C[o.c], t: 0, dur: .32 }); break;
     case 'banner': banner(o.s, o.ms); break;
     case 'shake': FX.shake = Math.max(FX.shake, o.v); break;
-    case 'hurt': { const a = V.actors[o.i]; addText(a.x, a.y - 18, o.v, C.danger, a === me ? 14 : 10); if (a === me) { FX.shake = Math.max(FX.shake, o.av ? .35 : .15); lastHurt = performance.now(); } break; }
+    case 'hurt': { const a = V.actors[o.i]; addText(a.x, a.y - 18, o.v, C.danger, a === me ? 15 : 10, .8, a === me);
+      let src = null, bd = 1e9; for (const e of V.enemies) if (e.alive !== false && onWhom(e) === o.i) { const d = Math.hypot(e.x - a.x, e.y - a.y); if (d < bd) { bd = d; src = e; } }      // whoever is on them and nearest did it
+      const ux = src ? (a.x - src.x) / (bd || 1) : 0, uy = src ? (a.y - src.y) / (bd || 1) : 1;
+      kick(a, ux, uy, o.av ? 9 : 5); spark(a.x - ux * 6, a.y - uy * 6 - 4, ux, uy, C.danger, o.av ? 8 : 4);
+      if (src && bd < src.r + 90) { src._atk = .34; lunge(src, ux, uy, 6); }
+      if (a === me) { FX.shake = Math.max(FX.shake, o.av ? .35 : .15); FX.red = Math.max(FX.red, o.av ? 1 : .55); lastHurt = performance.now(); sfx(o.av ? 'hurtBig' : 'hurt'); buzz(o.av ? 40 : 15); if (o.av) hitStop(.05); }
+      break; }
     case 'down': { const a = V.actors[o.i]; if (a === me) banner('你倒下了，等隊友救援', 2600); else addText(a.x, a.y - 30, a.name + ' 倒地', C.danger, 12, 1.4); break; }
-    case 'dmg': { const by = V.actors[o.by]; if (by && !(by._atk > 0)) by._atk = .34; } if (o.by === meIdx) addText(o.x, o.y, o.v, o.big ? C.ember : C.foam, o.big ? 16 : 12); break;
+    case 'dmg': { const by = V.actors[o.by], e = o.id != null ? V.enemies.find(x => x.id === o.id) : null, ix = e ? e.x : o.x, iy = e ? e.y : o.y + 18, mine = o.by === meIdx;
+      if (by) { if (!(by._atk > 0)) by._atk = .34; const d = Math.hypot(ix - by.x, iy - by.y) || 1, ux = (ix - by.x) / d, uy = (iy - by.y) / d, far = by.def.range > 60;
+        lunge(by, ux, uy, far ? -3 : 5); if (e) kick(e, ux, uy, (o.big ? 9 : 5) * (e.boss ? .35 : 1));
+        spark(ix - ux * (e ? e.r * .6 : 6), iy - uy * (e ? e.r * .6 : 6) - 4, ux, uy, C[by.def.color], (o.big ? 9 : 4) + (mine ? 2 : 0)); }
+      if (o.dead) puff(ix, iy, e ? e.r : 12);
+      if (mine) { addText(o.x, o.y, o.v, o.big ? C.ember : C.foam, o.big ? 19 : 13, o.big ? 1 : .8, true); sfx(o.dead ? 'kill' : o.big ? 'crit' : 'hit');
+        if (o.big || o.dead) { FX.shake = Math.max(FX.shake, o.big ? .16 : .1); hitStop(o.big ? .05 : .035); } }
+      break; }
     case 'heal': { const a = V.actors[o.i]; addText(a.x, a.y - 18, '+' + o.v, C.heal, a === me || o.by === meIdx ? 12 : 10); break; }
     case 'fail': if (o.i === meIdx) addText(me.x, me.y - 30, o.s, C.mute, 11, 1); break;
   }
@@ -703,7 +763,7 @@ function act(o) {
   else if (mode === 'online') send(Object.assign({ t: 'a' }, o));
 }
 function enterRun() {
-  FX.fx = []; FX.texts = []; FX.shake = 0; stick.x = stick.y = 0;
+  FX.fx = []; FX.texts = []; FX.shake = 0; FX.red = 0; FX.stop = 0; stick.x = stick.y = 0;
   hideScreens();
   $('#app').dataset.mode = inField() ? 'field' : mode; talk.lines = null; talk.done = null; talk.focus = null;
   $('#talk').hidden = true; $('#portbox').hidden = true; $('#act').hidden = true;
@@ -786,7 +846,7 @@ function linkOffer() {
   toast(`朋友給了你房號 ${inviteRoom}`, [['去他們的野外', () => goField(inviteRoom)], ['一起進塔', () => goOnline(inviteRoom)], ['略過', null]], 20000);
 }
 function fieldFrame(dt) {
-  S.step(G, dt);
+  S.step(G, simDt(dt));
   const evs = G.events; G.events = [];
   for (const o of evs) { handleEvent(o); if (o.k === 'gathered') fieldReport('fg', { id: o.id }, 'gather', o.type); else if (o.k === 'kill') fieldReport('fk', { kind: o.kind, pk: o.pk }, 'kill', o.kind, o.pk); else if (o.k === 'reach' && o.by === meIdx) reachMark(o.tag); }
   fieldView(dt);
@@ -1175,6 +1235,8 @@ const artPx = set => { const k = ctx.getTransform().a || 1; return Math.max(1, M
 const spriteTop = (set, r) => set ? (set.cell - set.foot) * artPx(set) / (ctx.getTransform().a || 1) - r * .7 - 2 : r;      // how far above its centre the picture reaches
 /* Draw o from its strips. It walks when it has moved, strikes for as long as `striking` says (or for a moment after
  * o._atk is set), and flinches when `hit`. Returns false when there was nothing to draw. */
+const WHITE = new Map();
+function whiteOf(img) { let w = WHITE.get(img); if (!w) { w = document.createElement('canvas'); w.width = img.width; w.height = img.height; const g = w.getContext('2d'); g.drawImage(img, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = '#fff'; g.fillRect(0, 0, w.width, w.height); WHITE.set(img, w); } return w; }
 function drawSprite(set, o, dt, striking, hit) {
   const moved = o._sx !== undefined && dt > 0 ? Math.hypot(o.x - o._sx, o.y - o._sy) / dt : 0; o._sx = o.x; o._sy = o.y;
   o._mv = moved > 6 ? .15 : Math.max(0, (o._mv || 0) - dt); if (striking && !(o._atk > 0)) o._atk = .34; if (o._atk > 0) o._atk -= dt;
@@ -1184,8 +1246,9 @@ function drawSprite(set, o, dt, striking, hit) {
   const fx = Math.cos(o.face || 0), fy = Math.sin(o.face || 0), dir = Math.abs(fx) >= Math.abs(fy) ? 'side' : fy > 0 ? 'down' : 'up';
   const img = set.img[name + '_' + dir] || set.img[name + '_down'] || set.img[name + '_side'] || set.img['idle_' + dir] || set.img.idle_down || set.img.idle_side; if (!img) return false;
   const n = Math.max(1, Math.round(img.width / set.cell)), t = Math.floor(o._at * (ART_FPS[name] || 8)), f = name === 'attack' ? Math.min(n - 1, t) : t % n, c = ctx, m = c.getTransform(), q = artPx(set);
-  c.save(); c.setTransform(dir === 'side' && fx < 0 ? -q : q, 0, 0, q, Math.round(m.a * o.x + m.e), Math.round(m.d * (o.y + o.r * .7) + m.f) + set.foot * q); c.imageSmoothingEnabled = false;
-  c.drawImage(img, f * set.cell, 0, set.cell, img.height, -set.cell / 2, -img.height, set.cell, img.height); c.restore(); return true;
+  const sq = o._sq > 0 ? o._sq / .1 : 0, qx = q * (1 + .16 * sq), qy = q * (1 - .12 * sq), white = hit && !has('hurt');      // hit: flattened a little, and all white for an instant
+  c.save(); c.setTransform(dir === 'side' && fx < 0 ? -qx : qx, 0, 0, qy, Math.round(m.a * (o.x + (o._nx || 0)) + m.e), Math.round(m.d * (o.y + (o._ny || 0) + o.r * .7) + m.f) + set.foot * q); c.imageSmoothingEnabled = false;
+  c.drawImage(white ? whiteOf(img) : img, f * set.cell, 0, set.cell, img.height, -set.cell / 2, -img.height, set.cell, img.height); c.restore(); return true;
 }
 function drawActor(a, dt) {
   const c = ctx, { x, y, r } = a, fl = flashing(a, dt), me = a === V.me, guard = a.wallT > 0 || a.shield > 0, art = spriteOf(a.cls), up = spriteTop(art, r);
@@ -1194,6 +1257,7 @@ function drawActor(a, dt) {
   if (guard) { c.strokeStyle = C.tank; c.globalAlpha = .8; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, r + 5, 0, TAU); c.stroke(); c.globalAlpha = 1; }
   if (me) { c.strokeStyle = C.brass; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r + (guard ? 9 : 4.5), 0, TAU); c.stroke(); }
   c.globalAlpha = a.iframe > 0 ? .5 : 1;
+  nudge(a, dt);
   if (!art || !drawSprite(art, a, dt, false, fl)) {
   c.fillStyle = fl ? C.foam : C[a.def.color]; c.strokeStyle = C.ink; c.lineWidth = 2;
   if (a.cls === 'tank') poly(x, y, r + 1, r - 1, 3, a.face); else if (a.cls === 'dps') poly(x, y, r + 3, r - 4, 2, a.face); else { c.beginPath(); c.arc(x, y, r, 0, TAU); }
@@ -1207,7 +1271,8 @@ function drawActor(a, dt) {
 }
 function drawEnemy(e, dt) {
   const c = ctx, { x, y, r } = e, fl = flashing(e, dt), art = spriteOf(e.kind) || spriteOf(S.baseOf(e.kind)), up = spriteTop(art, r);
-  const prey = art && onWhom(e) >= 0 ? V.actors[onWhom(e)] : null, striking = !!art && (e.def.caster ? !!e.cast : !!prey && Math.hypot(prey.x - x, prey.y - y) < e.def.range + r + 26);
+  const striking = !!art && !!e.def.caster && !!e.cast;      // a caster holds the pose while casting; a blow that lands starts the strike of whoever dealt it
+  nudge(e, dt);
   c.globalAlpha = e.spawnT > 0 ? clamp(1 - e.spawnT / .6, 0, 1) : 1; shadow(x, y, r);
   if (V.me && V.me.target === e) { c.save(); c.translate(x, y); c.rotate(clock * 1.5); c.setLineDash([6, 5]); c.strokeStyle = C.brass; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, r + 6, 0, TAU); c.stroke(); c.restore(); }
   c.lineWidth = 2;
@@ -1410,7 +1475,9 @@ function render(dt) {
   for (const s of V.shots) { c.strokeStyle = C[s.col]; c.lineWidth = s.big ? 4 : 2; c.lineCap = 'round'; c.beginPath(); c.moveTo(s.px, s.py); c.lineTo(s.x, s.y); c.stroke(); c.fillStyle = C.foam; c.beginPath(); c.arc(s.x, s.y, s.big ? 3 : 1.8, 0, TAU); c.fill(); }
   for (const f of FX.fx) {
     const p = f.t / f.dur; c.globalAlpha = 1 - p; c.strokeStyle = f.col;
-    if (f.type === 'ring') { c.lineWidth = 2.5; c.beginPath(); c.arc(f.x, f.y, f.r0 + (f.r1 - f.r0) * p, 0, TAU); c.stroke(); }
+    if (f.type === 'bit') { c.fillStyle = f.col; c.fillRect(f.x - f.z / 2, f.y - f.z / 2, f.z, f.z); }
+    else if (f.type === 'star') { c.globalAlpha = 1; c.fillStyle = f.col; const r = f.r * (.6 + .4 * p); c.fillRect(f.x - r, f.y - 1.2, r * 2, 2.4); c.fillRect(f.x - 1.2, f.y - r, 2.4, r * 2); c.fillRect(f.x - r * .45, f.y - r * .45, r * .9, r * .9); }
+    else if (f.type === 'ring') { c.lineWidth = 2.5; c.beginPath(); c.arc(f.x, f.y, f.r0 + (f.r1 - f.r0) * p, 0, TAU); c.stroke(); }
     else if (f.type === 'line') { c.globalAlpha = (1 - p) * .6; c.lineWidth = f.w * 2; c.lineCap = 'butt'; c.beginPath(); c.moveTo(f.x, f.y); c.lineTo(f.x2, f.y2); c.stroke(); c.lineCap = 'round'; }
     else if (f.type === 'cone') { c.globalAlpha = (1 - p) * .5; c.fillStyle = f.col; c.beginPath(); c.moveTo(f.x, f.y); c.arc(f.x, f.y, f.l, f.a - f.h, f.a + f.h); c.closePath(); c.fill(); }
     else { c.lineWidth = 3; c.beginPath(); c.moveTo(f.x, f.y); c.lineTo(f.x2, f.y2); c.stroke(); }
@@ -1418,15 +1485,20 @@ function render(dt) {
   c.globalAlpha = 1; c.textAlign = 'center';
   for (const t of FX.texts) {
     c.globalAlpha = clamp((t.dur - t.t) / .3, 0, 1);
-    c.font = typeof t.str === 'number' || /^[+\d]/.test(t.str) ? `700 ${t.size}px ${F.num}` : `900 ${t.size}px ${F.display}`;
+    const z = t.pop && !reduced ? Math.round(t.size * (1 + .8 * Math.max(0, 1 - t.t / .12))) : t.size;      // a number that matters lands big and settles
+    c.font = typeof t.str === 'number' || /^[+\d]/.test(t.str) ? `700 ${z}px ${F.num}` : `900 ${z}px ${F.display}`;
     c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText(t.str, t.x, t.y); c.fillStyle = t.col; c.fillText(t.str, t.x, t.y);
   }
   c.globalAlpha = 1;
   if (V.state === 'countdown' && V.cd > 0) { c.font = `700 96px ${F.num}`; c.fillStyle = C.brass; c.lineWidth = 6; c.strokeStyle = C.ink; const n = String(Math.ceil(V.cd)); const cx0 = scroll ? cam.x + stageW / fscale / 2 : W / 2, cy0 = scroll ? cam.y + stageH / fscale * .42 : H * .42; c.strokeText(n, cx0, cy0); c.fillText(n, cx0, cy0); }
   if (scroll) drawMinimap();
+  if (FX.red > 0 && !reduced) {      // you were hit: the edges of the view go red for a moment
+    c.setTransform(1, 0, 0, 1, 0, 0); const w = cv.width, h = stageH * dpr, g = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * .32, w / 2, h / 2, Math.max(w, h) * .62);
+    g.addColorStop(0, 'rgba(255,79,100,0)'); g.addColorStop(1, `rgba(255,79,100,${(.5 * FX.red).toFixed(3)})`); c.fillStyle = g; c.fillRect(0, 0, w, h); }
 }
 function updFx(dt) {
-  for (const f of FX.fx) f.t += dt; FX.fx = FX.fx.filter(f => f.t < f.dur);
+  for (const f of FX.fx) { f.t += dt; if (f.type === 'bit') { f.x += f.vx * dt; f.y += f.vy * dt; const k = Math.exp(-dt * 6); f.vx *= k; f.vy *= k; } } FX.fx = FX.fx.filter(f => f.t < f.dur);
+  FX.red = Math.max(0, FX.red - dt * 3); if (FX.stop > 0) FX.stop -= dt;
   for (const t of FX.texts) { t.t += dt; t.y -= 26 * dt; } FX.texts = FX.texts.filter(t => t.t < t.dur);
   FX.shake = Math.max(0, FX.shake - dt * 1.6);
 }
@@ -2177,6 +2249,8 @@ $('#hero-btn').addEventListener('click', () => { if (inField() && !talk.lines) o
 $('#hero-close').addEventListener('click', closeHero);
 for (const id of SHEETS) $('#' + id).addEventListener('click', ev => { if (ev.target === ev.currentTarget && inField()) closeSheet(id); });
 $('#hitwarn').addEventListener('click', () => closeSheet(openSheet()));
+$('#snd-btn').addEventListener('click', () => { SND.on = !SND.on; try { localStorage.setItem('embertide.sound', SND.on ? '1' : '0'); } catch (e) {} sndLabel(); if (SND.on) { sndWake(); setTimeout(() => sfx('hit'), 60); } });
+sndLabel();
 for (const k of HERO_TABS) $('#tab-' + k).addEventListener('click', () => openHero(k));
 $('#lo-open').addEventListener('click', openLoadout);
 $('#ta-open').addEventListener('click', openTalents);
@@ -2213,7 +2287,7 @@ function frame(ts) {
     pushMove(ts);
     if (mode === 'field') fieldFrame(dt);
     else if (mode === 'solo') {
-      if (SPEED > 1 && !G.result) { for (let i = 0; i < SPEED && !G.result; i++) S.step(G, 1 / 60); } else S.step(G, dt);
+      if (SPEED > 1 && !G.result) { for (let i = 0; i < SPEED && !G.result; i++) S.step(G, 1 / 60); } else S.step(G, simDt(dt));
       const evs = G.events; G.events = []; for (const o of evs) handleEvent(o);
       if (G.result && !G.result.shown) { G.result.shown = true; conclude(G.result, V.me.stats); }
       towerView(dt);
@@ -2230,7 +2304,7 @@ function boot(data) {
   if (QUICK && box.chars.length) showMenu(''); else showChars('');     // the game opens on the character screen
   probe(); requestAnimationFrame(frame);
 }
-window.__game = { get V() { return V; }, get G() { return G; }, get mode() { return mode; }, get save() { return save; }, box, net, talk, cam, startSolo, startField, showMenu, send, goOnline, goField, exitTower, openFinder, travel, get FD() { return FD; }, get did() { return did; } };
+window.__game = { FX, SND, get V() { return V; }, get G() { return G; }, get mode() { return mode; }, get save() { return save; }, box, net, talk, cam, startSolo, startField, showMenu, send, goOnline, goField, exitTower, openFinder, travel, get FD() { return FD; }, get did() { return did; } };
 const hot = window.claude && window.claude.hot;
 if (hot && hot.snapshot) hot.snapshot(() => ({ box }));
 if (hot && hot.ready) hot.ready(boot); else boot(hot && hot.data || {});

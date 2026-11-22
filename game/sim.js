@@ -387,7 +387,7 @@ function hurtEnemy(G, e, dmg, src, big, noUlt) {
   e.hp -= dmg; src.stats.dmg += dmg;
   e.threat.set(src, (e.threat.get(src) || 0) + dmg * src.def.threat * src.mods.threat);
   if (!noUlt) src.ult = Math.min(100, src.ult + dmg / (src.pow * src.def.ultK) * src.mods.ult);
-  ev(G, { k: 'dmg', x: R(e.x), y: R(e.y - e.r - 6), v: R(dmg), big: big ? 1 : 0, by: src.idx });
+  ev(G, { k: 'dmg', x: R(e.x), y: R(e.y - e.r - 6), v: R(dmg), big: big ? 1 : 0, by: src.idx, id: e.id, dead: e.hp <= 0 ? 1 : 0 });
   if (e.hp <= 0) {
     e.hp = 0; e.alive = false; ring(G, e.x, e.y, e.r * .5, e.r * 2.2, e.boss ? 'brass' : 'rust', .45);
     if (G.mode === 'field') { if (!e.evm) G.respawns.push({ pk: e.pk, home: e.spot || e.home, at: G.t + ((G.F.packs[e.pk] || {}).respawn || TUNE.mobRespawn) }); ev(G, { k: 'kill', kind: e.kind, pk: e.pk, by: src.idx, who: present(G).filter(a => a === src || (a.alive && dist(a, e) < 420)).map(a => a.idx) }); }   // everyone nearby gets credit
