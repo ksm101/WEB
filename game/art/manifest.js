@@ -14,7 +14,7 @@
 window.ART_MANIFEST = Object.assign({
   dps: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], hands: true },
   tank: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], hands: true },
-  heal: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
+  heal: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], hands: true },
   acolyte: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   grunt: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   caster: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
