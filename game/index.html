@@ -194,7 +194,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 #talk,#portbox{position:absolute;left:var(--gl);right:var(--gr);bottom:12px;z-index:3;display:flex;flex-direction:column;box-sizing:border-box;border:1.5px solid var(--brass);border-radius:8px;background:rgba(10,22,27,.94)}
 #talk{gap:6px;min-height:104px;padding:12px 14px 8px;cursor:pointer}
 #talk-art{position:absolute;z-index:2;right:var(--gr);bottom:96px;max-width:64%;max-height:54%;pointer-events:none;filter:drop-shadow(0 8px 20px rgba(0,0,0,.65));animation:artin .22s ease-out}
-#talk-art.px{image-rendering:pixelated}
+#talk-art.px{image-rendering:pixelated;max-width:none;max-height:none}
 @keyframes artin{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){#talk-art{animation:none}}
 #talk b{font-family:var(--f-display);font-weight:900;font-size:15px;letter-spacing:.1em}
@@ -910,7 +910,9 @@ function nextSay() {
   $('#talk').classList.toggle('narr', !c); w.hidden = !c; w.textContent = c ? c.name : ''; if (c) w.style.color = C[c.color];
   $('#talk-text').textContent = text; $('#talk-count').textContent = `${talk.i} / ${talk.lines.length}　點一下繼續`;
   { const art = $('#talk-art'), im = c ? PORTRAIT[who] : null;      // whoever has a portrait is shown large beside their words
-    if (im && art.dataset.who !== who) { art.hidden = true; art.src = im.src; art.classList.toggle('px', im.naturalWidth <= 200); art.dataset.who = who; void art.offsetWidth; }
+    if (im && art.dataset.who !== who) { art.hidden = true; art.src = im.src; art.dataset.who = who; const px = im.naturalWidth <= 320; art.classList.toggle('px', px); art.style.width = '';
+      if (px) { const box = art.parentElement.getBoundingClientRect(), d = window.devicePixelRatio || 1, k = Math.max(1, Math.round(Math.min(box.width * .64 / im.naturalWidth, box.height * .6 / im.naturalHeight) * d)); art.style.width = im.naturalWidth * k / d + 'px'; }      // pixel art is enlarged by a whole number, so every dot stays square
+      void art.offsetWidth; }
     art.hidden = !im; if (!im) art.dataset.who = ''; }
   talk.focus = FD.npcs.find(n => n.id === who) || null;
 }
