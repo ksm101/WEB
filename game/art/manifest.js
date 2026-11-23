@@ -34,4 +34,5 @@ window.ART_MANIFEST = Object.assign({
   _tiles: ['sand', 'path', 'water', 'hull', 'stone', 'flood', 'brick'],
   _deco: ['shell', 'driftwood', 'seaweed', 'bones', 'puddle', 'rustbit', 'rope', 'pebbles'],
   _props: { campfire: { w: 32, h: 32, frames: 4 }, rock: { w: 32, h: 32, frames: 3 }, rockbig: { w: 48, h: 48, frames: 2 }, herb: { w: 32, h: 32, frames: 1 }, wreck: { w: 32, h: 32, frames: 1 }, salt: { w: 32, h: 32, frames: 1 }, chest: { w: 32, h: 32, frames: 2 }, portal: { w: 48, h: 64, frames: 4 }, gate: { w: 64, h: 64, frames: 1 }, mailbox: { w: 32, h: 48, frames: 1 }, stall: { w: 48, h: 48, frames: 2 }, signpost: { w: 32, h: 48, frames: 1 }, marker: { w: 32, h: 48, frames: 1 } },
+  _icons: ['scrap', 'salt', 'shard', 'herb', 'potion', 'coin', 'armor', 'trinket', 'taunt', 'wall', 'bash', 'charge', 'quake', 'guard', 'tankUlt', 'anchor', 'mend', 'ring', 'seal', 'wave', 'pool', 'barrier', 'healUlt', 'surge', 'blast', 'roll', 'snipe', 'pierce', 'volley', 'mark', 'dpsUlt', 'sunshot'],
 },window.ART_MANIFEST);
