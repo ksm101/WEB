@@ -8,6 +8,8 @@
  * _weapons: the kinds of weapon that have a picture of their own at art/weapon/<kind>.png, e.g. _weapons: ['sword', 'shield'].
  * moods: other faces of the same portrait, each at art/<id>/portrait_<mood>.png, e.g. moods: ['surprised', 'angry'].
  *     A line of the story asks for one as its third item; without it, or when that face is missing, the plain one shows.
+ * _tiles, _props, _deco, _icons, _ui: the ground, the things that stand on it, the scatter, the icons and the menu
+ *     picture that have been drawn. art/README.md says what each is and how to list it.
  * portrait: true when there is art/<id>/portrait.png, the large picture shown while that person speaks. Someone who
  *     only has a portrait (the warden speaks as `mog`) is listed as  mog: { portrait: true, anims: [] }
  * Example:
