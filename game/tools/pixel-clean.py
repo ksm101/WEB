@@ -7,8 +7,9 @@
 What it does, in order:
   1. colours that differ by a hair become one colour (shrinking leaves many near-twins, which show as speckle)
   2. one-pixel gaps in dark lines are closed, so outlines are unbroken
-  3. short scraps of dark line (the remains of fine pen hatching) are taken out
-  4. single stray pixels take the colour around them
+  3. short scraps of dark line (the remains of fine pen hatching) are taken out, but never on skin, where a
+     short dark line is a mouth, a nose or a brow
+  4. a single stray pixel alone in a flat field takes that field's colour; in a busy place (an eye) it stays
   5. dark lines inside the figure take a deep shade of the colour beside them; only the outer edge stays ink
 It needs Pillow and nothing else."""
 import sys, os
@@ -19,6 +20,7 @@ INK = (10, 22, 27)
 N4 = ((1, 0), (-1, 0), (0, 1), (0, -1)); N8 = N4 + ((1, 1), (-1, -1), (1, -1), (-1, 1))
 dist = lambda a, b: abs(a[0] - b[0]) + abs(a[1] - b[1]) + abs(a[2] - b[2])
 lum = lambda c: c[0] * .3 + c[1] * .59 + c[2] * .11
+skin = lambda c: c[0] > 170 and c[0] >= c[1] >= c[2] and 14 <= c[0] - c[2] <= 110 and c[1] > 120      # light, warm, not grey and not white
 
 def clean(im):
     im = im.convert('RGBA'); W, H = im.size; src = im.load()
@@ -53,7 +55,7 @@ def clean(im):
                 v = at(xx, yy)
                 if v is not None and v != skip and (xx, yy) != (x, y): c[v] += 1
         return c
-    # 3. scraps of dark line: joined-up groups of fewer than 7 dark pixels go
+    # 3. scraps of dark line: joined-up groups of fewer than 7 dark pixels go, unless they lie on skin
     seen = [[False] * W for _ in range(H)]
     for y in range(H):
         for x in range(W):
@@ -65,18 +67,22 @@ def clean(im):
                     nx, ny = cx + dx, cy + dy
                     if 0 <= nx < W and 0 <= ny < H and not seen[ny][nx] and g[ny][nx] == dark: seen[ny][nx] = True; comp.append((nx, ny))
             if len(comp) < 7:
+                near = Counter()
+                for cx, cy in comp: near.update(around(cx, cy, 2, dark))
+                if not near or skin(near.most_common(1)[0][0]): continue      # a short dark line on skin is a mouth, a nose or a brow: it stays
                 for cx, cy in comp:
                     c = around(cx, cy, 2, dark)
                     if c: g[cy][cx] = c.most_common(1)[0][0]
-    # 4. stray single pixels (twice, since taking one out can leave another)
+    # 4. stray single pixels in flat fields (twice, since taking one out can leave another)
     for _ in range(2):
         for y in range(H):
             for x in range(W):
                 c = g[y][x]
                 if c is None or c == dark: continue
                 if all(at(x + dx, y + dy) != c for dx, dy in N4):
-                    n = around(x, y, 1, dark)
-                    if n: g[y][x] = n.most_common(1)[0][0]
+                    n = Counter(at(x + dx, y + dy) for dx, dy in N8)
+                    top, k = n.most_common(1)[0]
+                    if top is not None and top != dark and k >= 6: g[y][x] = top      # a speck alone in a flat field; anything in a busy place (an eye, a mouth) stays
     # 5. dark lines and dark masses inside the figure take a deep shade of the colour they belong to; only the
     #    outer edge stays ink. What a dark pixel belongs to is the commonest colour near it, and a pixel deep inside
     #    a dark mass takes it from the dark pixels around it, working inwards.
@@ -86,7 +92,7 @@ def clean(im):
             if g[y][x] == dark:
                 n = around(x, y, 2, dark)
                 if n: base[(x, y)] = n.most_common(1)[0][0]
-    todo = [(x, y) for y in range(H) for x in range(W) if g[y][x] == dark and (x, y) not in base]
+    todo = [(x, y) for y in range(H) for x in range(W) if g[y][x] == dark and (x, y) not in base]; deep = set(todo)
     while todo:
         got = {}
         for x, y in todo:
@@ -94,13 +100,17 @@ def clean(im):
             if c: got[(x, y)] = c.most_common(1)[0][0]
         if not got: break
         base.update(got); todo = [q for q in todo if q not in got]
-    shade = lambda b: (int(b[0] * .30 + 8), int(b[1] * .28 + 10), int(b[2] * .32 + 14))
+    # on skin a line is a lash, a brow or a mouth, and wants to stay strong: a dark warm brown. The heart of a dark
+    # mass is a shadow and stays close to black, only tinted.
+    def shade(b, heart):
+        if skin(b): return (38, 24, 30) if heart else (62, 36, 42)
+        k = .15 if heart else .30; return (int(b[0] * k + 8), int(b[1] * (k - .02) + 10), int(b[2] * (k + .02) + 14))
     out = [row[:] for row in g]
     for y in range(H):
         for x in range(W):
             if g[y][x] != dark: continue
             edge = any(at(x + dx, y + dy) is None for dx, dy in N8) or x in (0, W - 1) or y == 0
-            out[y][x] = INK if edge or (x, y) not in base else shade(base[(x, y)])
+            out[y][x] = INK if edge or (x, y) not in base else shade(base[(x, y)], (x, y) in deep)
     res = Image.new('RGBA', (W, H), (0, 0, 0, 0)); px = res.load()
     for y in range(H):
         for x in range(W):
