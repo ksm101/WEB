@@ -23,7 +23,7 @@ window.ART_MANIFEST = Object.assign({
   crab: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   brute: { cell: 48, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   boss: { cell: 64, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
-  kol: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true },
+  kol: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'serious'] },
   mira: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true },
   jin: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['angry', 'serious'] },
   wu: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'surprised', 'worried'] },
