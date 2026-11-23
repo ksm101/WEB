@@ -80,7 +80,7 @@ const SCENES = {
 };
 
 /* The faces a portrait can have besides the plain one. */
-const MOODS = { smile: '微笑', happy: '開心', angry: '生氣、不耐煩', sad: '難過', surprised: '驚訝、興奮', worried: '擔心', serious: '認真、凝重', shy: '害羞' };
+const MOODS = { smile: '微笑', happy: '開心', angry: '生氣、不耐煩', sad: '難過', surprised: '驚訝、興奮', worried: '擔心', serious: '認真、凝重', shy: '害羞', troubled: '傷腦筋' };
 
 /* What each of them says at the camp when they have nothing new for you: a line, or [line, face]. */
 const IDLE = {

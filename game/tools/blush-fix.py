@@ -1,6 +1,9 @@
 """Repaint a hatched or dithered blush as a solid one: a patch of pink with a paler rim and three short strokes.
-A sweat drop can be added too: pale blue with a darker edge, because white on fair skin cannot be seen.
-usage: blush_fix.py plain.png shy.png out.png [sweat_x sweat_y]"""
+A bead of sweat can be added too, at the place given: small and see-through, for the cheek. It is drawn in tones of
+the skin turned a little cool, with a soft edge and one white glint, because plain white on fair skin cannot be seen
+and a bright blue drop reads as a cartoon sign, not as sweat. Add the word big for that cartoon drop (the large one
+that sits on the head of someone at a loss).
+usage: blush-fix.py plain.png shy.png out.png [sweat_x sweat_y [big]]"""
 import sys
 from collections import Counter
 from PIL import Image
@@ -40,9 +43,13 @@ for comp in patches:
             if p in body: pb[p] = deep + (255,)
     print('patch', len(body), 'px at', (cx, cy))
 if len(sys.argv) >= 6:
-    DROP = ['..oo..', '..oo..', '.oLLo.', '.oLLo.', 'oLLLLo', 'oWLLLo', 'oWLLLo', 'oLLLLo', '.oooo.']; col = { 'o': (58, 104, 158), 'L': (176, 224, 246), 'W': (255, 255, 255) }
     sx, sy = int(sys.argv[4]), int(sys.argv[5])
-    for j, row in enumerate(DROP):
+    if sys.argv[6:7] == ['big']:
+        shape = ['..oo..', '..oo..', '.oLLo.', '.oLLo.', 'oLLLLo', 'oWLLLo', 'oWLLLo', 'oLLLLo', '.oooo.']; col = { 'o': (58, 104, 158), 'L': (176, 224, 246), 'W': (255, 255, 255) }
+    else:      # see-through: the skin shows in it, a shade cooler; a darker lip underneath gives it weight
+        cool = lambda k, b: (int(skin[0] * k), int(skin[1] * k), min(255, int(skin[2] * k + b)))
+        shape = ['.oo.', 'oWLo', 'oLLo', 'oLLo', 'oLLs', '.ss.']; col = { 'o': cool(.84, 16), 'L': cool(.955, 22), 'W': (255, 255, 255), 's': cool(.72, 22) }
+    for j, row in enumerate(shape):
         for i, ch in enumerate(row):
             if ch != '.': pb[sx + i, sy + j] = col[ch] + (255,)
 shy.save(sys.argv[3])
