@@ -29,7 +29,7 @@ const FILES = {
   '/editor.js': ['editor.js', 'text/javascript; charset=utf-8'],
   '/art/manifest.js': ['art/manifest.js', 'text/javascript; charset=utf-8']
 };
-const ART_FILE = /^\/art\/(?:[a-z0-9]{1,12}\/(?:[a-z]{1,10}_(?:down|side|up)|portrait)|weapon\/[a-z]{1,10})\.png$/;      // the strips of frames and the portraits, and nothing else in there
+const ART_FILE = /^\/art\/(?:[a-z0-9]{1,12}\/(?:[a-z]{1,10}_(?:down|side|up)|portrait(?:_[a-z]{1,10})?)|weapon\/[a-z]{1,10})\.png$/;      // the strips of frames and the portraits, and nothing else in there
 
 const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : a; };
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';

@@ -915,10 +915,11 @@ function say(lines, done) { talk.lines = lines; talk.i = 0; talk.done = done || 
 function nextSay() {
   if (!talk.lines) return;
   if (talk.i >= talk.lines.length) return endSay();
-  const [who, text] = talk.lines[talk.i++], c = Story.CAST[who], w = $('#talk-who');
+  const [who, text, mood] = talk.lines[talk.i++], c = Story.CAST[who], w = $('#talk-who');
   $('#talk').classList.toggle('narr', !c); w.hidden = !c; w.textContent = c ? c.name : ''; if (c) w.style.color = C[c.color];
   $('#talk-text').textContent = text; $('#talk-count').textContent = `${talk.i} / ${talk.lines.length}　點一下繼續`;
-  { const art = $('#talk-art'), im = c ? PORTRAIT[who] : null;      // whoever has a portrait is shown large beside their words
+  { const art = $('#talk-art'), im = c ? (mood && PORTRAIT[who + ':' + mood]) || PORTRAIT[who] : null;      // whoever has a portrait is shown large beside their words, with the face the line asks for when there is one
+    if (im && art.dataset.who === who && art.getAttribute('src') !== im.src) art.src = im.src;      // the same person with another face: it changes where it stands
     if (im && art.dataset.who !== who) { art.hidden = true; art.src = im.src; art.dataset.who = who; const px = im.naturalWidth <= 320; art.classList.toggle('px', px); art.style.width = '';
       if (px) { const box = art.parentElement.getBoundingClientRect(), d = window.devicePixelRatio || 1, k = Math.max(1, Math.round(Math.min(box.width * .64 / im.naturalWidth, box.height * .6 / im.naturalHeight) * d)); art.style.width = im.naturalWidth * k / d + 'px'; }      // pixel art is enlarged by a whole number, so every dot stays square
       void art.offsetWidth; }
@@ -929,7 +930,7 @@ function endSay() { const done = talk.done; talk.lines = null; talk.done = null;
 function talkTo(id) {
   const main = S.questList(save, Date.now(), online).items.find(x => x.group === 'main'), sc = main && Story.SCENES[main.id];
   if (main && main.ready && sc && sc.at === id) return claimMain(main.id);      // this is who the finished quest goes back to
-  const lines = [[id, pick(Story.IDLE[id] || ['……'])]];
+  const lines = [[id].concat(pick(Story.IDLE[id] || ['……']))];      // an idle line is a line, or [line, face]
   if (main && sc && sc.at === id) lines.push([id, `你手上那件事還沒完：${main.goal}。做完再來。`]);
   else if (main && main.ready && sc && Story.CAST[sc.at]) lines.push([id, `${Story.CAST[sc.at].name}在找你，像是有東西要給你。`]);
   say(lines);
@@ -1247,6 +1248,7 @@ for (const id of Object.keys(window.ART_MANIFEST || {})) {
   for (const an of d.anims || ['idle']) for (const dir of d.dirs || ['down']) { const im = new Image(); im.onload = () => { set.img[an + '_' + dir] = im; }; im.src = `art/${id}/${an}_${dir}.png`; }
   ART[id] = set;
   if (d.portrait) { const im = new Image(); im.onload = () => { PORTRAIT[id] = im; }; im.src = `art/${id}/portrait.png`; }
+  for (const mood of Array.isArray(d.moods) ? d.moods : []) if (/^[a-z]{1,10}$/.test(mood)) { const im = new Image(); im.onload = () => { PORTRAIT[id + ':' + mood] = im; }; im.src = `art/${id}/portrait_${mood}.png`; }      // the same person with another face
 }
 const spriteOf = id => { const s = ART[id]; return s && (s.img.idle_down || s.img.idle_side) ? s : null; };
 /* One pixel of a picture covers a whole number of screen pixels, whatever the zoom, so it stays crisp: this is how
@@ -1320,6 +1322,9 @@ function drawHeld(a, set, pass, X, Y, q) {
       const ex = pts[0][0]; hg.strokeStyle = C.foam; hg.lineWidth = 1; hg.beginPath(); hg.moveTo(ex + .5, -7); hg.lineTo(ex - pull + .5, 0); hg.lineTo(ex + .5, 7); hg.stroke();
       if (pull > 1.5) { hg.fillStyle = WC.wood; hg.fillRect(Math.round(ex - pull), 0, 9, 1); hg.fillStyle = WC.steel; hg.fillRect(Math.round(ex - pull) + 9, -1, 2, 3); hg.fillStyle = C.ember; hg.fillRect(Math.round(ex - pull) - 1, -1, 2, 3); }      // the arrow on the string
     } else { if (!upright) hg.rotate(ang + Math.PI / 2); hg.drawImage(w.cv, -w.gx, -w.gy);
+      if (id === 'bow') {      // a bow's picture has no string: it runs between the two tips on the bottom row, and is drawn back from the middle
+        const ty = w.cv.height - 1 - w.gy + .5, x0 = 1 - w.gx + .5, x1 = w.cv.width - 2 - w.gx + .5; hg.strokeStyle = C.foam; hg.lineWidth = 1; hg.beginPath(); hg.moveTo(x0, ty); hg.lineTo(0, ty + pull); hg.lineTo(x1, ty); hg.stroke();
+        if (pull > 1.5) { const ay = Math.round(ty + pull); hg.fillStyle = WC.wood; hg.fillRect(-.5, ay - 9, 1, 9); hg.fillStyle = WC.steel; hg.fillRect(-1.5, ay - 11, 3, 2); hg.fillStyle = C.ember; hg.fillRect(-1.5, ay - 1, 3, 2); } }
       if (glow > 0) { hg.globalAlpha = .55 * glow; hg.fillStyle = C.heal; hg.beginPath(); hg.arc(0, -w.gy + 3, 3 + 5 * glow, 0, TAU); hg.fill(); hg.globalAlpha = 1; } }
     hg.restore();
     if (pass === 1 && kd.move === 'swing' && live && t < .2 && !reduced) { const arc = id === 'hook' ? 1.3 : 1.9, f = (a._wf || 1) * side; hg.globalAlpha = (1 - t / .2) * .85; hg.strokeStyle = C[a.def.color] || C.foam; hg.lineWidth = 3; hg.beginPath(); hg.arc(36, 36, (w.len + 5), aim - arc * f, aim + arc * f * .9, f < 0); hg.stroke(); hg.globalAlpha = 1; }

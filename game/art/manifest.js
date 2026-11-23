@@ -6,6 +6,8 @@
  * anims: the strips there are; each is art/<id>/<anim>_<dir>.png, frames left to right. dirs: down, side (facing right), up.
  * hands: true when the body is drawn with empty hands: the game then draws what it holds beside it.
  * _weapons: the kinds of weapon that have a picture of their own at art/weapon/<kind>.png, e.g. _weapons: ['sword', 'shield'].
+ * moods: other faces of the same portrait, each at art/<id>/portrait_<mood>.png, e.g. moods: ['surprised', 'angry'].
+ *     A line of the story asks for one as its third item; without it, or when that face is missing, the plain one shows.
  * portrait: true when there is art/<id>/portrait.png, the large picture shown while that person speaks. Someone who
  *     only has a portrait (the warden speaks as `mog`) is listed as  mog: { portrait: true, anims: [] }
  * Example:
@@ -24,7 +26,7 @@ window.ART_MANIFEST = Object.assign({
   kol: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true },
   mira: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true },
   jin: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true },
-  wu: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true },
+  wu: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['surprised'] },
   mog: { portrait: true, anims: [] },
   _weapons: ['sword', 'hammer', 'maul', 'spear', 'hook', 'xbow', 'bow', 'staff', 'bell', 'shield', 'tome', 'quiver'],      // the bow has no string in its picture: the game draws the string
 },window.ART_MANIFEST);

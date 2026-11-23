@@ -44,7 +44,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   assert.match((await get(port, '/')).body, /<title>燼潮/); assert.match((await get(port, '/sim.js')).body, /createRun/); assert.match((await get(port, '/story.js')).body, /SCENES/);
   for (const p of ['/server.js', '/store.js', '/data/accounts.json', '/data/secret', '/../package.json', '/art/README.md', '/art/../server.js', '/art/x/../../server.js', '/art/dps/walk_side.js']) assert.strictEqual((await get(port, p)).status, 404, p);
   assert.match((await get(port, '/art/manifest.js')).body, /ART_MANIFEST/, 'the list of pixel art is served');
-  assert.strictEqual((await get(port, '/art/kol/idle_down.png')).status, 200, 'a strip of frames is served'); for (const p of ['/art/nobody/portrait.png', '/art/kol/portrait.txt', '/art/kol/portrait.png/..', '/art/weapon/nothing.png', '/art/weapon/../../server.js']) assert.strictEqual((await get(port, p)).status, 404, p);
+  assert.strictEqual((await get(port, '/art/kol/idle_down.png')).status, 200, 'a strip of frames is served'); assert.strictEqual((await get(port, '/art/wu/portrait_surprised.png')).status, 200, 'and another face of a portrait'); for (const p of ['/art/nobody/portrait.png', '/art/kol/portrait.txt', '/art/kol/portrait.png/..', '/art/weapon/nothing.png', '/art/weapon/../../server.js', '/art/wu/portrait_nothing.png', '/art/wu/portrait_.png', '/art/wu/portrait_a/b.png']) assert.strictEqual((await get(port, p)).status, 404, p);
   ok('serves the page, sim.js and /health; server code and account data are not reachable');
 
   // story content: one scene per main quest, in the same order, every speaker known, lines short enough for a phone
@@ -52,9 +52,9 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   for (const id of Story.ORDER) {
     const sc = Story.SCENES[id]; assert.ok(sc.title && sc.lines.length >= 3 && sc.lines.length <= 6, id);
     if (id !== 'prologue') assert.ok(Sim.FIELD.npcs.some(n => n.id === sc.at), `${id}: nobody at the camp hands this in`);
-    for (const [who, text] of sc.lines) { assert.ok(who === 'n' || Story.CAST[who], `${id}: unknown speaker ${who}`); assert.ok(text.length > 0 && text.length <= 48, `${id}: line too long (${text.length})`); }
+    for (const [who, text, face] of sc.lines) { assert.ok(who === 'n' || Story.CAST[who], `${id}: unknown speaker ${who}`); assert.ok(text.length > 0 && text.length <= 48, `${id}: line too long (${text.length})`); assert.ok(face === undefined || (who !== 'n' && Story.MOODS[face]), `${id}: unknown face ${face}`); }
   }
-  for (const n of Sim.FIELD.npcs) { assert.ok(Story.CAST[n.id] && Story.IDLE[n.id].length >= 2, n.id); for (const t of Story.IDLE[n.id]) assert.ok(t.length <= 48, t); }
+  for (const n of Sim.FIELD.npcs) { assert.ok(Story.CAST[n.id] && Story.IDLE[n.id].length >= 2, n.id); for (const t of Story.IDLE[n.id]) { const [line, face] = [].concat(t); assert.ok(typeof line === 'string' && line.length <= 48, line); assert.ok(face === undefined || Story.MOODS[face], `unknown face ${face}`); } }
   ok('story: a scene for the prologue and for every main quest, each handed in by someone at the camp, short lines');
 
   // levels: experience curve, level cap, creatures that follow the player inside a range, shrinking experience from weak ones
