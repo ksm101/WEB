@@ -11,6 +11,13 @@ What it does, in order:
      short dark line is a mouth, a nose or a brow
   4. a single stray pixel alone in a flat field takes that field's colour; in a busy place (an eye) it stays
   5. dark lines inside the figure take a deep shade of the colour beside them; only the outer edge stays ink
+
+  python3 tools/pixel-clean.py --rim art/mira/portrait.png               (only takes off a white rim, see below)
+
+--rim is for a picture whose cut-out left a white line round the figure (some models draw a white edge like a
+sticker's, and it stays behind when the background goes). It takes away white that is thin and open to the
+background, small white patches stranded at the edge, and any scrap that has come loose from the figure. Broad
+white that belongs to the figure, a white apron say, is left alone. It does none of the numbered steps above.
 It needs Pillow and nothing else."""
 import sys, os
 from collections import Counter
@@ -117,10 +124,87 @@ def clean(im):
             if out[y][x] is not None: px[x, y] = out[y][x] + (255,)
     return res
 
+def unrim(im):
+    im = im.convert('RGBA'); W, H = im.size; px = im.load()
+    solid = [[px[x, y][3] >= 128 for x in range(W)] for y in range(H)]
+    white = [[solid[y][x] and min(px[x, y][:3]) >= 246 for x in range(W)] for y in range(H)]
+    inside = lambda x, y: 0 <= x < W and 0 <= y < H
+    # white that is at least three pixels thick every way is body, not rim: wear the white down by one, grow it back
+    worn = [[white[y][x] and all(inside(x + dx, y + dy) and white[y + dy][x + dx] for dx, dy in N8) for x in range(W)] for y in range(H)]
+    broad = [[white[y][x] and (worn[y][x] or any(inside(x + dx, y + dy) and worn[y + dy][x + dx] for dx, dy in N8)) for x in range(W)] for y in range(H)]
+    # thin white open to the background goes, and so does whatever thin white hangs on to it
+    gone = set(); todo = [(x, y) for y in range(H) for x in range(W) if white[y][x] and not broad[y][x] and any(not inside(x + dx, y + dy) or not solid[y + dy][x + dx] for dx, dy in N8)]
+    while todo:
+        x, y = todo.pop()
+        if (x, y) in gone: continue
+        gone.add((x, y))
+        for dx, dy in N8:
+            nx, ny = x + dx, y + dy
+            if inside(nx, ny) and white[ny][nx] and not broad[ny][nx] and (nx, ny) not in gone: todo.append((nx, ny))
+    paint = {}
+    for _ in range(3):
+        for x, y in sorted(gone):
+            if (x, y) in paint: continue
+            near = Counter(paint.get((x + dx, y + dy)) or px[x + dx, y + dy][:3] for dx, dy in N8 if inside(x + dx, y + dy) and solid[y + dy][x + dx] and ((x + dx, y + dy) not in gone or (x + dx, y + dy) in paint))
+            if sum(near.values()) >= 5: paint[(x, y)] = near.most_common(1)[0][0]
+    for x, y in gone:
+        white[y][x] = False
+        if (x, y) not in paint: solid[y][x] = False
+    # a small patch of white left at the edge is background seen through a gap
+    seen = set()
+    for y in range(H):
+        for x in range(W):
+            if not white[y][x] or (x, y) in seen: continue
+            comp = [(x, y)]; seen.add((x, y)); i = 0; open_ = False
+            while i < len(comp):
+                cx, cy = comp[i]; i += 1
+                if not open_ and any(not inside(cx + dx, cy + dy) or not solid[cy + dy][cx + dx] for dx in range(-3, 4) for dy in range(-3, 4)): open_ = True      # the background is within three pixels
+                for dx, dy in N4:
+                    nx, ny = cx + dx, cy + dy
+                    if inside(nx, ny) and white[ny][nx] and (nx, ny) not in seen: seen.add((nx, ny)); comp.append((nx, ny))
+            if open_ and len(comp) < 70:
+                for cx, cy in comp: solid[cy][cx] = False; white[cy][cx] = False
+    # a hair-thin line standing beside the figure (one pixel wide, eight or more long, background on both sides)
+    for horiz in (False, True):
+        for a in range(W if not horiz else H):
+            run = []
+            for b in range((H if not horiz else W) + 1):
+                x, y = (a, b) if not horiz else (b, a); ok = False
+                if b < (H if not horiz else W) and solid[y][x]:
+                    s1 = (x - 1, y) if not horiz else (x, y - 1); s2 = (x + 1, y) if not horiz else (x, y + 1)
+                    ok = all(not inside(*q) or not solid[q[1]][q[0]] for q in (s1, s2))
+                if ok: run.append((x, y))
+                else:
+                    if len(run) >= 8:
+                        for qx, qy in run: solid[qy][qx] = False
+                    run = []
+    # whatever has come loose from the figure goes too
+    best = []; seen = set()
+    for y in range(H):
+        for x in range(W):
+            if not solid[y][x] or (x, y) in seen: continue
+            comp = [(x, y)]; seen.add((x, y)); i = 0
+            while i < len(comp):
+                cx, cy = comp[i]; i += 1
+                for dx, dy in N8:
+                    nx, ny = cx + dx, cy + dy
+                    if inside(nx, ny) and solid[ny][nx] and (nx, ny) not in seen: seen.add((nx, ny)); comp.append((nx, ny))
+            if len(comp) > len(best): best = comp
+    keep = set(best); res = Image.new('RGBA', (W, H), (0, 0, 0, 0)); out = res.load(); n = 0
+    for y in range(H):
+        for x in range(W):
+            if (x, y) in keep: out[x, y] = (paint.get((x, y)) or px[x, y][:3]) + (255,)
+            elif px[x, y][3] >= 128: n += 1
+    return res, n
+
 if __name__ == '__main__':
-    args = sys.argv[1:]; outdir = None
+    args = sys.argv[1:]; outdir = None; rim = False
+    if args[:1] == ['--rim']: rim = True; args = args[1:]
     if args[:1] == ['--out']: outdir = args[1]; args = args[2:]
     if not args: sys.exit(__doc__)
     for f in args:
+        if rim:
+            res, n = unrim(Image.open(f)); dst = os.path.join(outdir, os.path.basename(os.path.dirname(os.path.abspath(f))) + '-' + os.path.basename(f)) if outdir else f
+            res.save(dst); print(dst, n, 'pixels of rim and scraps taken off'); continue
         res = clean(Image.open(f)); dst = os.path.join(outdir, os.path.basename(os.path.dirname(os.path.abspath(f))) + '-' + os.path.basename(f)) if outdir else f
         res.save(dst); print(dst, len(set(res.getdata())) - 1, 'colours')
