@@ -131,6 +131,32 @@ game/art/manifest.js                 登記誰有圖
 - 縮好之後一定要跑清理程式：`python3 game/tools/pixel-clean.py game/art/<id>/portrait.png`。它會合併雙胞胎顏色、接上斷線、拿掉衣服和頭髮上短的黑色碎線、拿掉平塗區域裡的雜點，並把角色內部的黑線換成旁邊顏色的深色階（只有最外圈保留墨色）。皮膚上的短線不會被拿掉，因為那是嘴巴、鼻子和眉毛；臉上的線用深棕色，大塊陰影保持接近黑。目前的五張已經跑過。
 - **跑完一定要放大檢查臉**：嘴巴、鼻子、眉毛、眼睛的高光都還在。清理程式的第一版曾經把嘴巴當成碎線刪掉。
 - 清理只能修掉瑕疵，補不出明暗層次。想更接近參考圖，要從來源圖改起。
+- **第二版的畫法：照下面的提示詞重畫。** 使用者又給了一張全身的參考圖，我們要學的是它的上色和線條手法：
+  - 輪廓線有顏色（頭髮用深一階的髮色、皮膚用深膚色），幾乎不用純黑。
+  - 每種材質三到四階明暗，暗面是一整塊柔和的色塊，而且暗面會偏色（粉紅的陰影偏紅紫），不只是變暗。
+  - 頭髮有成條的亮帶和白色亮點；眼睛大，虹膜三階顏色加兩顆高光；臉頰有紅暈。
+  - 形狀大而圓、細節少；配色粉彩、明亮。
+  - **只學手法。服裝、體型和年紀照我們自己的角色設定**，不要學參考圖的穿著和身材；小霧是少年，畫成一般的少年。
+- 提示詞（接在每個角色自己的描述前面；實際寫法依本機模型調整）：
+  ```
+  pixel art, upper body, three-quarter view facing left,
+  thick colored outline, cel shading, three-tone shading, soft shadows,
+  shiny hair, hair highlights, large expressive eyes, eye highlights, blush,
+  pastel colors, bright palette, simple shapes, clean flat colors,
+  plain magenta background
+  ```
+- 負面提示詞：
+  ```
+  sketch, hatching, crosshatching, thin lines, black lineart, monochrome,
+  realistic, photo, 3d, painterly, texture, grain, noise, blur,
+  gradient background, detailed background, wrinkles, text, watermark
+  ```
+- 角色描述：`kol` 光頭灰鬍子的壯年造船匠，淺藍襯衫深藍背心，雙手抱胸；`mira` 棕髮側編辮的年輕女子，綠衣白圍裙，溫和的笑（上一版看起來太年長，這次要和遊戲裡的小人一樣年輕）；`jin` 紅髮雙馬尾的弓手，橘色圍巾、無袖紅背心、斜背包；`wu` 灰白短髮的少年學徒，黃色連帽雨衣；`mog` 鏽潮看守者，以前的敲鐘人，身體和沉鐘、船錨長在一起，鏽紅配黃銅，眼睛發橘光（上一版只是紅兜帽老人，這次要看得出鐘和錨）。
+- 提示詞以外同樣重要：
+  1. 用像素風的模型或 LoRA 直接畫，不要先畫一般插畫再縮小。上一版差在這裡。
+  2. 不要開高解析修復，它會加回細紋和雜點。
+  3. 顏色收斂到 32 色左右，同一種材質要留住三階，不要被壓成一階。
+  4. 畫完照上面的方式縮到 192 × 256、跑清理程式、放大檢查臉。
 - 使用者給過一張參考圖當作**畫風**的方向（粉紅頭髮角色的臉部特寫，大顆像素、細緻的高光）。只參考那種精緻度和上色方式，不要照著畫那個角色。
 - 登記：在 `manifest.js` 該角色那一行加上 `portrait: true`。只有立繪、沒有小人的角色（莫葛說話時的代號是 `mog`）另外加一行 `mog: { portrait: true, anims: [] },`。
 - 要做的：`kol` 柯爾、`mira` 蜜拉、`jin` 阿燼、`wu` 小霧、`mog` 莫葛。
