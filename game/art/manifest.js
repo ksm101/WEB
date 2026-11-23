@@ -26,5 +26,5 @@ window.ART_MANIFEST = Object.assign({
   jin: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true },
   wu: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true },
   mog: { portrait: true, anims: [] },
-  _weapons: ['sword', 'hammer', 'maul', 'spear', 'hook', 'xbow', 'staff', 'bell', 'shield', 'tome', 'quiver'],      // the bow is drawn by the game for now: see art/README.md
+  _weapons: ['sword', 'hammer', 'maul', 'spear', 'hook', 'xbow', 'bow', 'staff', 'bell', 'shield', 'tome', 'quiver'],      // the bow has no string in its picture: the game draws the string
 },window.ART_MANIFEST);
