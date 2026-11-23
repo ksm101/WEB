@@ -44,7 +44,7 @@ function pickField(label, path, options, num) {
   const sl = el('select'), v = get(doc, path); for (const [val, text] of options) { const o = el('option', '', text); o.value = val; sl.appendChild(o); } sl.value = v;
   sl.addEventListener('change', () => setAt(path, num ? +sl.value : sl.value)); return field(label, sl, !same(get(base, path), v));
 }
-const kindLabel = k => { const d = S.WKINDS[k]; return `${S.HAND_NAME[d.hand]}${d.name}（${doc.classes[d.cls] ? doc.classes[d.cls].name : d.cls}）`; };
+const kindLabel = k => { const d = S.WKINDS[k]; return `${S.HAND_NAME[d.hand]}${d.name}（${doc.classes[d.cls] ? doc.classes[d.cls].name : d.cls}較常撿到）`; };
 /* a choice that is not stored as one field: it writes the object back whole */
 function choice(label0, value, options, write) { const sl = el('select'); for (const [v, t] of options) { const o = el('option', '', t); o.value = v; sl.appendChild(o); } sl.value = value; sl.addEventListener('change', () => { write(sl.value); commit(); }); return field(label0, sl); }
 /* every editable field of one object, in the order the object has them */
@@ -186,12 +186,12 @@ const VIEW = {
         b.append(f, note('改掉或刪掉名字後，玩家身上叫舊名字的裝備會消失。'), btn('刪除這套', 'mini', () => { delete doc.sets[id]; commit(); }));
       }, !same(st, base.sets[id])));
     }
-    body.append(note('每套三件：武器、護甲、飾品各一。件的名字不能和別的裝備重複。武器的種類決定哪個職業能拿、要一隻手還是兩隻手。改武器名字後，種類要重新選一次。'), ul, btn('新增套裝', 'mini go', () => {
+    body.append(note('每套三件：武器、護甲、飾品各一。件的名字不能和別的裝備重複。武器的種類決定要一隻手還是兩隻手、是近身還是遠程。改武器名字後，種類要重新選一次。'), ul, btn('新增套裝', 'mini go', () => {
       let n = 1; while (doc.sets['set' + n]) n++; const id = 'set' + n; doc.sets[id] = { name: '新套裝' + n, pieces: { w: `新套${n}之刃`, a: `新套${n}之甲`, t: `新套${n}之環` }, two: ['hp', .05, '生命 +5%'], three: ['dmg', .05, '造成的傷害 +5%'] };
       opened['set:' + id] = true; commit(); if (!doc.sets[id]) say('這套沒有加進去：名字和別的裝備重複了。'); }));
   },
   plain(body) {
-    body.appendChild(note('不屬於套裝的裝備名字。掉落時會從該部位的名字裡隨機挑一個。刪掉名字後，玩家身上叫那個名字的裝備會消失。主手和副手的每個名字都要選一個種類：種類決定哪個職業能拿、怎麼拿（單手的可以雙持，雙手的佔兩隻手，副手的只能放副手）、打起來是什麼動作。'));
+    body.appendChild(note('不屬於套裝的裝備名字。掉落時會從該部位的名字裡隨機挑一個。刪掉名字後，玩家身上叫那個名字的裝備會消失。主手和副手的每個名字都要選一個種類：種類決定怎麼拿（單手的可以雙持，雙手的佔兩隻手，副手的只能放副手）、打起來是什麼動作、打得到多遠（弓、手弩、杖、手鐘是遠程，其他是近身）。每個職業都能拿每一種，括號裡的職業只是比較常撿到。'));
     for (const k of Object.keys(SLOTL)) {
       const g = group(SLOTL[k]), arr = doc.plain[k], hand = k === 'w' || k === 'o', kinds = hand ? Object.keys(S.WKINDS).filter(id => (k === 'o') === (S.WKINDS[id].hand === 'off')).map(id => [id, kindLabel(id)]) : [];
       arr.forEach((n, i) => { const row = el('div', hand ? 'ed-row kinds' : 'ed-row'), inp = el('input'); inp.type = 'text'; inp.maxLength = 8; inp.value = n;

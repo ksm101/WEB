@@ -419,7 +419,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     // things that only go in one hand
     T0.bag.push(it('船骨巨錘', 30), it('拆船鉤', 25, 'o'), it('浮木長弓', 40)); assert.strictEqual(Sim.equipItem(T0, bagAt(T0, '船骨巨錘'), 'o').ok, false, 'a two-handed weapon cannot go in the off hand');
     assert.strictEqual(Sim.equipItem(T0, bagAt(T0, '鉚釘圓盾')).ok, true); assert.strictEqual(T0.eq.o.n, '鉚釘圓盾', 'a shield goes to the off hand whichever hand is asked for');
-    r = Sim.equipItem(T0, bagAt(T0, '浮木長弓')); assert.strictEqual(r.ok, false); assert.match(r.msg, /用不了/, 'a shield guard cannot use a bow'); assert.strictEqual(Sim.wants(T0, it('浮木長弓', 99)), false, 'so cannot roll need for one'); assert.strictEqual(Sim.wants(T0, it('鏽潮錨刃', 99)), true);
+    assert.strictEqual(Sim.wants(T0, it('浮木長弓', 99)), true, 'any class may want any weapon'); assert.strictEqual(Sim.wants(T0, it('鏽潮錨刃', 5)), false);
     r = Sim.equipItem(T0, bagAt(T0, '拆船鉤'), 'o'); assert.strictEqual(r.ok, true); assert.strictEqual(Sim.hands(T0).o, 'hook', 'a weapon made for the off hand');
     // two hands: both things come off, the off hand follows the weapon, and nothing else fits there
     const n0 = T0.bag.length; r = Sim.equipItem(T0, bagAt(T0, '船骨巨錘')); assert.strictEqual(r.ok, true); assert.deepStrictEqual([T0.gear.w, T0.gear.o, T0.eq.o.n], [30, 30, '']); assert.strictEqual(T0.bag.length, n0 + 1, 'the sword and the hook are both back in the bag');
@@ -430,19 +430,27 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     const T1 = mk('tank'); T1.gear.w = 30; T1.gear.o = 30; T1.eq.w = { n: '鏽潮錨刃', q: 0 }; T1.eq.o = { n: '鉚釘圓盾', q: 0 };
     assert.strictEqual(Sim.giveItem(T1, it('船骨巨錘', 29)).up, false); assert.strictEqual(Sim.giveItem(T1, it('船骨巨錘', 31)).up, true); assert.strictEqual(T1.bag.filter(x => ['鏽潮錨刃', '鉚釘圓盾'].includes(x.n)).length, 2);
     assert.strictEqual(Sim.giveItem(T1, it('鏽潮錨刃', 50)).up, false, 'one hand at 50 and an empty one is not better than both at 31'); assert.strictEqual(Sim.giveItem(T1, it('鏽潮錨刃', 53)).up, true);
-    assert.strictEqual(Sim.giveItem(T1, it('浮木長弓', 99)).up, false, 'what the class cannot hold is never put on'); T1.bag = [];
+    assert.strictEqual(Sim.giveItem(T1, it('浮木長弓', 99)).up, true, 'a shield guard can take up a bow'); assert.deepStrictEqual(Sim.hands(T1), { w: 'bow', o: null, two: true }); T1.bag = [];
     // a full bag: nothing is lost when two things have to come off
     const T2 = mk('tank'); T2.gear.w = 20; T2.gear.o = 20; T2.eq.w = { n: '鏽潮錨刃', q: 0 }; T2.eq.o = { n: '鉚釘圓盾', q: 0 }; T2.bag = [it('船骨巨錘', 40)]; while (T2.bag.length < Sim.BAG_CAP) T2.bag.push({ s: 'a', il: 11, q: 0, n: '鹽殼護肩' });
     r = Sim.equipItem(T2, 0); assert.strictEqual(r.ok, false); assert.match(r.msg, /放不下/); assert.strictEqual(T2.eq.w.n, '鏽潮錨刃'); T2.bag.pop(); assert.strictEqual(Sim.equipItem(T2, 0).ok, true); assert.strictEqual(T2.bag.length, Sim.BAG_CAP);
-    // what is saved is checked: a weapon of another class, or a two-handed one in the off hand, does not stay on
-    const bad = Sim.fixProfile({ cls: 'heal', gear: { w: 40, o: 40, a: 10, t: 10 }, eq: { w: { n: '鏽潮錨刃', q: 0 }, o: { n: '船骨巨錘', q: 0 } } }); assert.deepStrictEqual([bad.eq.w.n, bad.eq.o.n], ['', '']); assert.deepStrictEqual(Sim.hands(bad), { w: 'staff', o: null, two: true });
+    // what is saved is checked: a two-handed weapon in the off hand does not stay on
+    const bad = Sim.fixProfile({ cls: 'heal', gear: { w: 40, o: 40, a: 10, t: 10 }, eq: { w: { n: '鏽潮錨刃', q: 0 }, o: { n: '船骨巨錘', q: 0 } } }); assert.deepStrictEqual([bad.eq.w.n, bad.eq.o.n], ['鏽潮錨刃', ''], 'a healer may hold a sword; a two-handed weapon saved in the off hand does not stay'); assert.deepStrictEqual(Sim.hands(bad), { w: 'sword', o: 'tome', two: false });
     // drops lean towards what the finder can hold
     let own = 0; for (let i = 0; i < 600; i++) { const d = Sim.rollItem(20, 'w', 0, 'dps'); if (Sim.WKINDS[Sim.HELD[d.n]].cls === 'dps') own++; } assert.ok(own > 420 && own < 540, `most weapons found suit the finder (${own}/600)`);
-    assert.strictEqual(Sim.itemText(it('船骨巨錘', 30), 'tank'), '船骨巨錘（雙手巨錘・裝等 30）'); assert.strictEqual(Sim.itemText({ s: 'w', il: 12, q: 0, n: '工坊武器' }, 'dps'), '工坊武器（雙手弓・裝等 12）'); }
-  // the server takes the hand that is asked for, and refuses what the class cannot hold
+// some skills need a certain thing in the hands, and how far a blow reaches follows the weapon
+    { const mkRun = held => { const G = Sim.createField({ lvl: 1, player: { cls: 'dps', name: 'x', pow: 1, id: 'a', lvl: 1, held } }); return [G, G.actors[0]]; };
+      let [G, a] = mkRun(['bow', '']); assert.strictEqual(Sim.reach(a), a.def.range); assert.strictEqual(Sim.canUse(Sim.SKILLS.blast, a.held), true);
+      [G, a] = mkRun(['sword', 'shield']); assert.strictEqual(Sim.reach(a), 14, 'an archer with a sword fights at arm\'s length'); assert.strictEqual(Sim.canUse(Sim.SKILLS.blast, a.held), false); assert.strictEqual(Sim.canUse(Sim.SKILLS.roll, a.held), true);
+      const e = G.enemies.find(x => x.alive); a.x = e.x + 30; a.y = e.y; a.target = e; a.input.cast[0] = true; a.input.aim[0] = null; const hp0 = e.hp; Sim.step(G, 1 / 30);
+      assert.ok(G.events.some(o => o.k === 'fail' && /弓或手弩/.test(o.s)), 'the arrow skill says what it needs'); assert.strictEqual(a.cds[0], 0, 'and is not spent'); assert.strictEqual(G.shots.length, 0);
+      let arrows = 0; for (let i = 0; i < 240 && e.alive && e.hp >= hp0; i++) { a.target = e; a.x = e.x + 30; a.y = e.y; a.hp = a.maxHp; Sim.step(G, 1 / 30); arrows += G.shots.length; } assert.ok(e.hp < hp0 && arrows === 0, 'the sword still lands blows, with no arrows in the air');
+      const tk = Sim.createField({ lvl: 1, player: { cls: 'tank', name: 't', pow: 1, id: 'b', lvl: 1, held: ['bow', ''] } }).actors[0]; assert.ok(Sim.reach(tk) >= 170, 'a shield guard with a bow shoots'); assert.strictEqual(Sim.canUse(Sim.SKILLS.wall, tk.held), false, 'but has no shield for the shield wall'); assert.strictEqual(Sim.needText(Sim.SKILLS.wall), '要拿著盾'); }
+        assert.strictEqual(Sim.itemText(it('船骨巨錘', 30), 'tank'), '船骨巨錘（雙手巨錘・裝等 30）'); assert.strictEqual(Sim.itemText({ s: 'w', il: 12, q: 0, n: '工坊武器' }, 'dps'), '工坊武器（雙手弓・裝等 12）'); }
+  // the server takes the hand that is asked for
   { const H = await named(port, '換手', 'tank'), cq = srv.store.get(H.me.id).chars[0]; cq.gear = { w: 20, o: 10, a: 10, t: 10 }; cq.eq = { w: { n: '鏽潮錨刃', q: 0 }, o: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } }; cq.bag = [{ s: 'w', il: 18, q: 0, n: '沉鐘之舌' }, { s: 'w', il: 60, q: 0, n: '潮汐長杖' }];
     H.send({ t: 'item', op: 'equip', i: 0, hand: 'o' }); let ih = await H.wait('ack', m => m.what === 'item'); assert.strictEqual(ih.ok, true); assert.deepStrictEqual([ih.profile.eq.w.n, ih.profile.eq.o.n, ih.profile.gear.o], ['鏽潮錨刃', '沉鐘之舌', 18]);
-    H.send({ t: 'item', op: 'equip', i: 0 }); ih = await H.wait('ack', m => m.what === 'item' && !m.ok); assert.match(ih.msg, /用不了/); assert.strictEqual(ih.profile.gear.w, 20); H.ws.close(); }
+    H.send({ t: 'item', op: 'equip', i: 0 }); ih = await H.wait('ack', m => m.what === 'item' && m.profile.eq.w.n === '潮汐長杖'); assert.strictEqual(ih.ok, true, 'a shield guard may take up a staff'); assert.deepStrictEqual([ih.profile.gear.w, ih.profile.gear.o, ih.profile.eq.o.n], [60, 60, ''], 'and it takes both hands'); H.ws.close(); }
   ok('gear: sets, bag, selling and the two hands follow the rules; a leader can hand out the drops, and leftovers are rolled for');
 
   // mail between friends, and the auction house

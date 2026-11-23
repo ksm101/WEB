@@ -25,8 +25,8 @@ const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 const SKILLS = {
   // 盾衛
   taunt: { seal: '嘲', name: '嘲諷擊', cd: 6, aim: 'enemy', range: 24, lv: 1, mul: 2.4, dur: 4, desc: '重擊目標，並強迫它攻擊你 4 秒' },
-  wall: { seal: '牆', name: '盾牆', cd: 14, aim: 'self', lv: 1, dur: 4, pct: .6, desc: '4 秒內受到的傷害降低 60%' },
-  bash: { seal: '斷', name: '盾擊', cd: 10, aim: 'enemy', range: 72, kick: true, fn: 'kick', lv: 1, mul: 1, stun: 1.2, desc: '打斷身邊敵人的金色讀條' },
+  wall: { needs: 'shield', seal: '牆', name: '盾牆', cd: 14, aim: 'self', lv: 1, dur: 4, pct: .6, desc: '4 秒內受到的傷害降低 60%' },
+  bash: { needs: 'shield', seal: '斷', name: '盾擊', cd: 10, aim: 'enemy', range: 72, kick: true, fn: 'kick', lv: 1, mul: 1, stun: 1.2, desc: '打斷身邊敵人的金色讀條' },
   charge: { seal: '衝', name: '衝鋒', cd: 9, aim: 'dir', range: 150, w: 16, lv: 3, mul: 2.2, stun: .9, desc: '朝指定方向衝出去，撞到的敵人受傷並暈眩' },
   quake: { seal: '震', name: '震地', cd: 8, aim: 'dir', range: 105, half: .7, lv: 5, mul: 2.6, dur: 3, desc: '砸向前方的扇形範圍，命中的敵人會轉向你' },
   guard: { seal: '護', name: '援護', cd: 12, aim: 'ally', range: 230, lv: 8, amt: 360, desc: '替一名隊友套上護盾' },
@@ -42,16 +42,20 @@ const SKILLS = {
   healUlt: { seal: '漲', name: '漲潮', ult: true, aim: 'self', lv: 1, pct: .5, desc: '全隊回復一半血量，並救起倒地的隊友' },
   surge: { seal: '逆', name: '逆潮', ult: true, aim: 'self', lv: 10, amt: 300, dur: 5, pct: .06, desc: '全隊獲得護盾，並在 5 秒內持續回血' },
   // 燼矢
-  blast: { seal: '爆', name: '爆燃箭', cd: 4, aim: 'enemy', range: 210, lv: 1, mul: 3.6, desc: '對目標造成大量傷害' },
+  blast: { needs: 'shot', seal: '爆', name: '爆燃箭', cd: 4, aim: 'enemy', range: 210, lv: 1, mul: 3.6, desc: '對目標造成大量傷害' },
   roll: { seal: '滾', name: '翻滾', cd: 6, aim: 'dir', range: 104, w: 10, lv: 1, desc: '朝指定方向翻滾，翻滾中不會受傷' },
-  snipe: { seal: '斷', name: '斷法箭', cd: 10, aim: 'enemy', range: 240, kick: true, fn: 'kick', lv: 1, mul: 1, stun: 1.2, desc: '打斷敵人的金色讀條' },
-  pierce: { seal: '穿', name: '穿刺箭', cd: 6, aim: 'dir', range: 250, w: 14, lv: 3, mul: 3.2, desc: '朝指定方向射出一箭，貫穿路上所有敵人' },
-  volley: { seal: '散', name: '散射', cd: 7, aim: 'dir', range: 160, half: .5, lv: 5, mul: 2.2, desc: '朝前方扇形範圍射出一排箭' },
+  snipe: { needs: 'shot', seal: '斷', name: '斷法箭', cd: 10, aim: 'enemy', range: 240, kick: true, fn: 'kick', lv: 1, mul: 1, stun: 1.2, desc: '打斷敵人的金色讀條' },
+  pierce: { needs: 'shot', seal: '穿', name: '穿刺箭', cd: 6, aim: 'dir', range: 250, w: 14, lv: 3, mul: 3.2, desc: '朝指定方向射出一箭，貫穿路上所有敵人' },
+  volley: { needs: 'shot', seal: '散', name: '散射', cd: 7, aim: 'dir', range: 160, half: .5, lv: 5, mul: 2.2, desc: '朝前方扇形範圍射出一排箭' },
   mark: { seal: '印', name: '獵印', cd: 14, aim: 'enemy', range: 210, lv: 8, dur: 6, pct: .25, desc: '標記一個敵人，6 秒內所有人對它的傷害提高 25%' },
-  dpsUlt: { seal: '雨', name: '燼雨', ult: true, aim: 'point', range: 210, rad: 72, lv: 1, mul: 1.6, dur: 4, desc: '在指定位置降下 4 秒火雨' },
-  sunshot: { seal: '日', name: '貫日', ult: true, aim: 'dir', range: 320, w: 30, lv: 10, mul: 14, desc: '朝指定方向射出一道貫穿全場的重箭' }
+  dpsUlt: { needs: 'shot', seal: '雨', name: '燼雨', ult: true, aim: 'point', range: 210, rad: 72, lv: 1, mul: 1.6, dur: 4, desc: '在指定位置降下 4 秒火雨' },
+  sunshot: { needs: 'shot', seal: '日', name: '貫日', ult: true, aim: 'dir', range: 320, w: 30, lv: 10, mul: 14, desc: '朝指定方向射出一道貫穿全場的重箭' }
 };
 for (const id of Object.keys(SKILLS)) SKILLS[id].id = id;
+/* A skill with `needs` can only be used with one of these kinds in either hand. */
+const NEEDS = { shot: { kinds: ['bow', 'xbow'], say: '弓或手弩' }, shield: { kinds: ['shield'], say: '盾' } };
+const canUse = (sk, held) => !sk.needs || !NEEDS[sk.needs] || NEEDS[sk.needs].kinds.some(k => held && held.includes(k));
+const needText = sk => (sk.needs && NEEDS[sk.needs] ? `要拿著${NEEDS[sk.needs].say}` : '');
 /* color values are token names; the client maps them to its palette. pool = the regular skills a class can pick
  * three of, ults = the ultimates it can pick one of. `skills` is the starting loadout, which is also what bots use. */
 const CLASSES = {
@@ -366,7 +370,9 @@ function nextWave(G) {
 }
 
 /* ---------- combat helpers ---------- */
-function inRange(a, t, extra) { return dist(a, t) <= a.def.range + a.r + t.r + (extra || 0); }
+/* How far a body's own blows reach: a bow or a staff across the field, anything else an arm's length, whatever the class. */
+const reach = a => { if (!a.held) return a.def.range; const k = WKINDS[a.held[0]], far = !!k && (k.move === 'shoot' || k.move === 'cast'); return far ? Math.max(a.def.range, 170) : Math.min(a.def.range, 14); };
+function inRange(a, t, extra) { return dist(a, t) <= reach(a) + a.r + t.r + (extra || 0); }
 function nearest(p, list) { let b = null, bd = 1e9; for (const o of list) { if (!o.alive) continue; const d = dist(p, o); if (d < bd) { bd = d; b = o; } } return b; }
 const bossMul = G => G.t > G.limit ? 1 + (G.t - G.limit) / 15 : 1;
 
@@ -545,6 +551,7 @@ const SK = {
 function tryCast(G, a, i, aim) {
   const sk = a.skills[i]; if (!a.alive || !sk) return false;
   if (sk.ult) { if (a.ult < 100) return false; } else if (a.cds[i] > 0) return false;
+  if (!canUse(sk, a.held)) return fail(G, a, needText(sk) + '才能用');
   if (SK[sk.fn || sk.id](G, a, aim || null, sk) === false) return false;
   if (sk.ult) a.ult = 0; else a.cds[i] = sk.cd * a.mods.cdr * (a.mods.cd[sk.id] || 1);
   return true;
@@ -605,7 +612,7 @@ function botThink(G, a, dt) {
     if (a.cls === 'tank') { if (!inRange(a, tg, -4)) { c.mx = dx; c.my = dy; } }
     else {
       const edge = d - a.r - tg.r;
-      if (edge > a.def.range * .92) { c.mx = dx; c.my = dy; } else if (edge < 70) { c.mx = -dx; c.my = -dy; }
+      if (edge > reach(a) * .92) { c.mx = dx; c.my = dy; } else if (edge < 70) { c.mx = -dx; c.my = -dy; }
       const b = G.boss;   // stay out of the boss's front
       if (b && b.alive && b.target && b.target !== a && dist(a, b) < 150) {
         const fa = Math.atan2(b.target.y - b.y, b.target.x - b.x), da = norm(Math.atan2(a.y - b.y, a.x - b.x) - fa);
@@ -674,7 +681,7 @@ function updActor(G, a, dt) {
   a.atkT -= dt; const t = a.target;
   if (t && a.atkT <= 0 && a.rollT <= 0 && inRange(a, t)) {
     a.atkT = a.def.aspd; const dmg = a.def.atk * a.pow * rand(.9, 1.1);
-    if (a.def.range < 60) { hurtEnemy(G, t, dmg, a); ring(G, t.x, t.y, 4, 14, a.def.color, .18); } else shoot(G, a, t, dmg);
+    if (reach(a) < 60) { hurtEnemy(G, t, dmg, a); ring(G, t.x, t.y, 4, 14, a.def.color, .18); } else shoot(G, a, t, dmg);
   }
 }
 function updEnemy(G, e, dt) {
@@ -940,7 +947,8 @@ const SLOTS = ['w', 'o', 'a', 't'], SET_SLOTS = ['w', 'a', 't'], QUALITY = ['普
 const PLAIN = { w: ['鏽潮錨刃', '沉鐘之舌', '船骨巨錘', '拆船長矛', '浮木長弓', '鉚釘手弩', '潮汐長杖', '貝殼手鐘'], o: ['拆船鉤', '鉚釘圓盾', '鹽皮箭袋', '潮語殘卷'],
   a: ['鹽殼護肩', '潮紋斗篷', '纜繩綁腿'], t: ['生鏽的羅盤', '舊船釘', '潮音貝'] };
 /* ---------- what is held in the hands ----------
- * Every weapon and off-hand thing is of a kind. The kind says how it is held, how its blow looks, and whose it is:
+ * Every weapon and off-hand thing is of a kind. The kind says how it is held, how its blow looks, whether its blow
+ * reaches across the field (shoot, cast) or only as far as the arm (the rest), and whose it usually is:
  *   one   in either hand, so two of them can be held at once
  *   two   takes both hands
  *   main  the main hand only
@@ -962,7 +970,7 @@ const named = n => (HELD[n] && WKINDS[HELD[n]] ? WKINDS[HELD[n]] : null);
 const baseKind = (cls, slot) => (BASE_KIND[cls] || BASE_KIND.tank)[slot === 'o' ? 'o' : 'w'];
 const kindOf = (n, slot, cls) => (named(n) ? HELD[n] : baseKind(cls, slot));
 const offable = n => { const d = named(n); return !!d && (d.hand === 'off' || d.hand === 'one'); };      // can sit in the off hand
-const usable = (p, n) => { const d = named(n); return !d || !CLASSES[p.cls] || d.cls === p.cls; };      // a profile with no class on it (a test) can use anything
+const usable = () => true;      // every class can hold every kind; a kind's `cls` only says whose it usually is, which is what drops lean towards
 /* What p holds: the kind in each hand. o is null when the main hand's weapon takes both. */
 function hands(p) { const w = kindOf(p.eq.w.n, 'w', p.cls), two = WKINDS[w].hand === 'two'; return { w, o: two ? null : kindOf(p.eq.o.n, 'o', p.cls), two }; }
 const heldOf = p => { const h = hands(p); return [h.w, h.o || '']; };
@@ -1019,7 +1027,7 @@ function setList(p) { const n = setCount(p); return Object.keys(SETS).map(id => 
 /* Put an item in the bag. With no room left it is sold on the spot: returns the coins it became, 0 when it was kept. */
 function stow(p, it) { if (p.bag.length < TUNE.bagCap) { p.bag.push(it); return 0; } return addCoin(p, itemPrice(it)); }
 /* Would this be an upgrade p can hold? What rolling 'need' asks. */
-function wants(p, it) { const t = slotFor(p, it); return !!t.s && it.il > p.gear[t.s]; }
+function wants(p, it) { const t = slotFor(p, it), k = t.s || (it.s === 'o' ? 'o' : 'w'); return it.il > p.gear[k]; }      // something for the off hand is weighed against the weapon when that takes both hands
 /* Put it on in slot k and hand back what came off. A weapon for both hands sends the off hand's thing back too; going
  * from one for both hands to one for one hand leaves the other hand with nothing in it. */
 function wear(p, it, k) {
@@ -1452,6 +1460,6 @@ return { QUEST_TYPES, packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_
   MATS, RECIPES, get POTION_CAP() { return TUNE.potionCap; }, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id),
   TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, get RESPEC_COST() { return TUNE.respecCost; }, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
-  SLOTS, SET_SLOTS, SLOT_NAME: { w: '主手', o: '副手', a: '護甲', t: '飾品' }, WKINDS, HAND_NAME, HELD, hands, heldOf, heldFix, slotFor, wants, itemKind, kindOf, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
+  SLOTS, SET_SLOTS, SLOT_NAME: { w: '主手', o: '副手', a: '護甲', t: '飾品' }, WKINDS, HAND_NAME, HELD, hands, heldOf, heldFix, slotFor, wants, itemKind, kindOf, reach, canUse, needText, NEEDS, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
   runDrops, bossDrops, refit, get TOWER_LEVEL() { return DUNGEONS.tower.min; }, PORTAL };
 });

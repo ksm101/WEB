@@ -98,6 +98,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-
 .sk.ult.ready b{color:var(--brass)}
 .sk:active{transform:scale(.94)}
 .sk.cool b,.sk.cool small{opacity:.25}
+.sk.lack{opacity:.4;filter:grayscale(1)}
 @keyframes pulse{to{box-shadow:0 0 0 9px rgba(227,189,106,.12)}}
 @media (prefers-reduced-motion:reduce){.sk.alert{animation:none}#banner{transition:none}}
 
@@ -721,6 +722,11 @@ function sfx(name) {
   try { const t = cx.currentTime;
     if (name === 'hit') { hiss(2200, 1.2, .07, .24, t); tone('triangle', 230, 110, .07, .16, t); }
     else if (name === 'crit') { hiss(3000, .9, .12, .3, t); tone('square', 330, 90, .14, .12, t); tone('sine', 120, 50, .18, .32, t); }
+    else if (name === 'twang') { tone('triangle', 540, 230, .11, .2, t); hiss(3000, 3, .1, .12, t); }
+    else if (name === 'twangBig') { tone('triangle', 420, 150, .18, .26, t); hiss(2200, 2, .2, .2, t); tone('sine', 160, 70, .16, .2, t); }
+    else if (name === 'cast') { tone('sine', 880, 860, .3, .1, t); tone('sine', 1320, 1300, .22, .06, t); }
+    else if (name === 'thunk') { tone('triangle', 320, 110, .08, .26, t); hiss(1700, 1.4, .06, .22, t); tone('sine', 140, 70, .09, .2, t); }
+    else if (name === 'boom') { tone('sine', 120, 38, .3, .42, t); hiss(600, .7, .22, .3, t, 'lowpass'); }
     else if (name === 'kill') { tone('sine', 170, 45, .26, .34, t); hiss(900, .7, .2, .2, t); }
     else if (name === 'hurt') { tone('sine', 130, 55, .14, .36, t); hiss(500, .8, .09, .22, t, 'lowpass'); }
     else if (name === 'hurtBig') { tone('sawtooth', 110, 40, .25, .22, t); tone('sine', 80, 35, .3, .42, t); hiss(700, .6, .18, .28, t, 'lowpass'); }
@@ -750,12 +756,15 @@ function handleEvent(o) {
       break; }
     case 'down': { const a = V.actors[o.i]; if (a === me) banner('你倒下了，等隊友救援', 2600); else addText(a.x, a.y - 30, a.name + ' 倒地', C.danger, 12, 1.4); break; }
     case 'dmg': { const by = V.actors[o.by], e = o.id != null ? V.enemies.find(x => x.id === o.id) : null, ix = e ? e.x : o.x, iy = e ? e.y : o.y + 18, mine = o.by === meIdx;
-      if (by) { if (!(by._atk > 0)) by._atk = .34; strikeAnim(by); const d = Math.hypot(ix - by.x, iy - by.y) || 1, ux = (ix - by.x) / d, uy = (iy - by.y) / d, far = by.def.range > 60;
-        lunge(by, ux, uy, far ? -3 : 5); if (e) kick(e, ux, uy, (o.big ? 9 : 5) * (e.boss ? .35 : 1));
+      const far = !!by && farKind(by), arrow = far && S.WKINDS[by.held[0]].move === 'shoot';
+      if (by) { const d = Math.hypot(ix - by.x, iy - by.y) || 1, ux = (ix - by.x) / d, uy = (iy - by.y) / d, loosed = clock - (by._shotAt == null ? -9 : by._shotAt) < .8;
+        if (!(far && loosed)) { if (!(by._atk > 0)) by._atk = .34; strikeAnim(by); lunge(by, ux, uy, far ? -3 : 5); }      // a shot already moved the bow when it left
+        if (e) kick(e, ux, uy, (o.big ? 10 : arrow ? 7 : 5) * (e.boss ? .35 : 1));
+        if (arrow && !reduced) FX.fx.push({ type: 'stuck', x: ix - ux * (e ? e.r * .5 : 5), y: iy - uy * (e ? e.r * .5 : 5) - 4, a: Math.atan2(uy, ux), col: C[by.def.color], t: 0, dur: .45 });
         spark(ix - ux * (e ? e.r * .6 : 6), iy - uy * (e ? e.r * .6 : 6) - 4, ux, uy, C[by.def.color], (o.big ? 9 : 4) + (mine ? 2 : 0)); }
       if (o.dead) puff(ix, iy, e ? e.r : 12);
-      if (mine) { addText(o.x, o.y, o.v, o.big ? C.ember : C.foam, o.big ? 19 : 13, o.big ? 1 : .8, true); sfx(o.dead ? 'kill' : o.big ? 'crit' : 'hit');
-        if (o.big || o.dead) { FX.shake = Math.max(FX.shake, o.big ? .16 : .1); hitStop(o.big ? .05 : .035); } }
+      if (mine) { addText(o.x, o.y, o.v, o.big ? C.ember : C.foam, o.big ? 19 : 13, o.big ? 1 : .8, true); sfx(o.dead ? 'kill' : o.big ? 'crit' : arrow ? 'thunk' : 'hit'); if (arrow && o.big) sfx('boom');
+        FX.shake = Math.max(FX.shake, o.big ? (arrow ? .26 : .16) : o.dead ? .1 : arrow ? .07 : 0); if (o.big || o.dead) hitStop(o.big ? (arrow ? .06 : .05) : .035); }
       break; }
     case 'heal': { const a = V.actors[o.i], by = V.actors[o.by]; addText(a.x, a.y - 18, '+' + o.v, C.heal, a === me || o.by === meIdx ? 12 : 10); if (by && by !== a && !(by._wt < .3)) strikeAnim(by); break; }
     case 'fail': if (o.i === meIdx) addText(me.x, me.y - 30, o.s, C.mute, 11, 1); break;
@@ -1148,7 +1157,7 @@ function buildView(now) {
   V.evs = s1.evs || null;
   if (s1.nd && V.nodes.length) s1.nd.forEach((mask, k) => { if (V.nodes[k]) V.nodes[k].ready = !(mask & (1 << meIdx)); });   // each person has their own gathering spots
   V.zones = s1.z.map(d => { const p = s0.z.find(q => q[0] === d[0]); return { friendly: !!d[1], heal: d[1] === 2, type: d[2] ? 'cone' : 'circle', x: d[3], y: d[4], r: d[5], ang: d[6], half: d[7], len: d[8], t: p ? L(p[9], d[9]) : d[9], dur: d[10], done: !!d[11] }; });
-  V.shots = s1.s.map(d => { const p = s0.s.find(q => q[0] === d[0]); const x = p ? L(p[1], d[1]) : d[1], y = p ? L(p[2], d[2]) : d[2]; return { x, y, px: p ? x - (d[1] - p[1]) * .25 : x, py: p ? y - (d[2] - p[2]) * .25 : y, big: !!d[3], col: V.actors[d[4]].def.color }; });
+  V.shots = s1.s.map(d => { const p = s0.s.find(q => q[0] === d[0]); const x = p ? L(p[1], d[1]) : d[1], y = p ? L(p[2], d[2]) : d[2]; return { id: d[0], by: d[4], x, y, px: p ? x - (d[1] - p[1]) * .25 : x, py: p ? y - (d[2] - p[2]) * .25 : y, big: !!d[3], col: V.actors[d[4]].def.color }; });
 }
 /* Your own character moves the moment you drag, without waiting for the server; it is then eased toward
  * where the server says you are. While you are moving, being a little ahead of the server is expected. */
@@ -1278,6 +1287,14 @@ function buildWeapons() {
 buildWeapons();
 const HC = document.createElement('canvas'); HC.width = HC.height = 72; const hg = HC.getContext('2d'); hg.imageSmoothingEnabled = false;
 const eOut = p => 1 - Math.pow(1 - p, 3), mix = (a, b, p) => a + (b - a) * p;
+const SHOT_SEEN = new Set();
+const farKind = a => { const k = a && a.held && S.WKINDS[a.held[0]]; return !!k && (k.move === 'shoot' || k.move === 'cast'); };
+function watchShots() {
+  if (!V) return; if (SHOT_SEEN.size > 600) SHOT_SEEN.clear();
+  for (const s of V.shots) { if (s.id == null || SHOT_SEEN.has(s.id)) continue; SHOT_SEEN.add(s.id); const a = s.src || V.actors[s.by]; if (!a) continue;
+    const d = Math.hypot(s.x - s.px, s.y - s.py) || 1, ux = (s.x - s.px) / d, uy = (s.y - s.py) / d; a._shotAt = clock; a._atk = .34; strikeAnim(a); lunge(a, Math.cos(a.face || 0), Math.sin(a.face || 0), s.big ? -5 : -3);
+    if (a === V.me) { sfx(S.WKINDS[a.held[0]].move === 'cast' ? 'cast' : s.big ? 'twangBig' : 'twang'); if (s.big) FX.shake = Math.max(FX.shake, .1); } }
+}
 function strikeAnim(a) { if (!a.held) return; const d = S.WKINDS[a.held[1]]; a._wt = 0; a._wh = d && d.move !== 'guard' && d.move !== 'hold' ? 1 - (a._wh || 0) : 0; a._wf = -(a._wf || 1); }      // with a weapon in each hand they take turns
 /* Draw what `a` holds: pass 0 is what sits behind the body, pass 1 what sits in front. (X, Y) is where its feet are on the screen. */
 function drawHeld(a, set, pass, X, Y, q) {
@@ -1292,14 +1309,16 @@ function drawHeld(a, set, pass, X, Y, q) {
     else if (kd.move === 'swing') { const arc = id === 'hook' ? 1.3 : 1.9, f = (a._wf || 1) * side; ang = live && t < .22 ? aim + mix(-arc, arc, eOut(clamp(t / .16, 0, 1))) * f : aim - .95 * side + bob * .05; if (live && t < .22) { hx += ux * 3; hy += uy * 3; } }
     else if (kd.move === 'smash') { ang = live && t < .08 ? aim - mix(2.3, -.25, (t / .08) * (t / .08)) : live && t < .3 ? aim + .25 : aim - 1.2 * side + bob * .04; if (live && t < .3) { hx += ux * 4; hy += uy * 4; } }
     else if (kd.move === 'thrust') { const d = live ? (t < .06 ? 12 * t / .06 : mix(12, 0, clamp((t - .06) / .26, 0, 1))) : 0; hx += ux * d; hy += uy * d + (live ? 0 : bob); }
-    else if (kd.move === 'shoot') { pull = live && t < .12 ? 5 * (1 - t / .12) : 0; hx = ux * 7 + px * 2 * side; hy = uy * 5 + py * side; if (live && t < .12) { hx -= ux * 2; hy -= uy * 2; } }
+    else if (kd.move === 'shoot') { const since = clock - (a._shotAt == null ? -9 : a._shotAt), every = a.def.aspd || .7;      // let go, then drawn back again in time for the next
+      pull = since < every * 1.8 ? 5 * clamp((since - .12) / Math.max(.2, every - .2), 0, 1) : 0; hx = ux * 6 + px * 2 * side; hy = uy * 4 + py * side; if (since < .1) { hx -= ux * 2; hy -= uy * 2; } }
     else if (kd.move === 'cast') { const up = -Math.PI / 2, p = live ? clamp(t / .35, 0, 1) : 1; ang = live ? mix(up + ux * .5, up + ux * .2, p) : up + ux * .2; glow = live ? 1 - p : 0; hx = (ux >= 0 ? 6 : -6) * side; hy = (live ? -3 * Math.sin(Math.PI * p) : bob); behind = false; }
     if ((behind ? 0 : 1) !== pass) continue; drew = true;
     hg.save(); hg.translate(36 + Math.round(hx * k), 36 + Math.round(hy * k));
     if (id === 'bow' && !(w && w.real)) {      // the plain bow is drawn fresh, because its string moves
-      hg.rotate(aim); const pts = []; for (let i = -8; i <= 8; i++) pts.push([Math.round(-i * i * .075), i]);
+      hg.rotate(aim); const pts = []; for (let i = -7; i <= 7; i++) pts.push([Math.round(-i * i * .09), i]);
       hg.fillStyle = C.ink; for (const [x, y] of pts) hg.fillRect(x - 1, y - 1, 3, 3); hg.fillStyle = WC.wood; for (const [x, y] of pts) hg.fillRect(x, y, 1, 1); hg.fillStyle = C.ember; hg.fillRect(0, -1, 1, 3);
-      const ex = pts[0][0]; hg.strokeStyle = C.foam; hg.lineWidth = 1; hg.beginPath(); hg.moveTo(ex + .5, -8); hg.lineTo(ex - pull + .5, 0); hg.lineTo(ex + .5, 8); hg.stroke();
+      const ex = pts[0][0]; hg.strokeStyle = C.foam; hg.lineWidth = 1; hg.beginPath(); hg.moveTo(ex + .5, -7); hg.lineTo(ex - pull + .5, 0); hg.lineTo(ex + .5, 7); hg.stroke();
+      if (pull > 1.5) { hg.fillStyle = WC.wood; hg.fillRect(Math.round(ex - pull), 0, 9, 1); hg.fillStyle = WC.steel; hg.fillRect(Math.round(ex - pull) + 9, -1, 2, 3); hg.fillStyle = C.ember; hg.fillRect(Math.round(ex - pull) - 1, -1, 2, 3); }      // the arrow on the string
     } else { if (!upright) hg.rotate(ang + Math.PI / 2); hg.drawImage(w.cv, -w.gx, -w.gy);
       if (glow > 0) { hg.globalAlpha = .55 * glow; hg.fillStyle = C.heal; hg.beginPath(); hg.arc(0, -w.gy + 3, 3 + 5 * glow, 0, TAU); hg.fill(); hg.globalAlpha = 1; } }
     hg.restore();
@@ -1548,10 +1567,16 @@ function render(dt) {
   for (const e of V.enemies) drawEnemy(e, dt);
   for (const a of V.actors) if (a.alive) drawActor(a, dt);
   flushPlates();
-  for (const s of V.shots) { c.strokeStyle = C[s.col]; c.lineWidth = s.big ? 4 : 2; c.lineCap = 'round'; c.beginPath(); c.moveTo(s.px, s.py); c.lineTo(s.x, s.y); c.stroke(); c.fillStyle = C.foam; c.beginPath(); c.arc(s.x, s.y, s.big ? 3 : 1.8, 0, TAU); c.fill(); }
+  for (const s of V.shots) { const a = s.src || V.actors[s.by], d = Math.hypot(s.x - s.px, s.y - s.py) || 1, ux = (s.x - s.px) / d, uy = (s.y - s.py) / d, col = C[s.col], L = s.big ? 30 : 20;
+    const g = c.createLinearGradient(s.x - ux * L, s.y - uy * L, s.x, s.y); g.addColorStop(0, 'transparent'); g.addColorStop(1, col); c.strokeStyle = g; c.lineWidth = s.big ? 5 : 2.5; c.lineCap = 'butt'; c.beginPath(); c.moveTo(s.x - ux * L, s.y - uy * L); c.lineTo(s.x, s.y); c.stroke();
+    if (a && S.WKINDS[a.held[0]] && S.WKINDS[a.held[0]].move === 'cast') { c.fillStyle = C.ink; c.beginPath(); c.arc(s.x, s.y, s.big ? 6 : 4.5, 0, TAU); c.fill(); c.fillStyle = col; c.beginPath(); c.arc(s.x, s.y, s.big ? 5 : 3.5, 0, TAU); c.fill(); c.fillStyle = C.foam; c.fillRect(s.x - 1, s.y - 1, 2, 2); }
+    else { c.save(); c.translate(s.x, s.y); c.rotate(Math.atan2(uy, ux)); const k = s.big ? 1.5 : 1; c.fillStyle = C.ink; c.fillRect(-11 * k, -1.6 * k, 13 * k, 3.2 * k); c.fillStyle = WC.wood; c.fillRect(-10 * k, -.7 * k, 10 * k, 1.4 * k); c.fillStyle = s.big ? C.ember : WC.hi; c.beginPath(); c.moveTo(3 * k, 0); c.lineTo(-1 * k, -2.4 * k); c.lineTo(-1 * k, 2.4 * k); c.closePath(); c.fill(); c.fillStyle = col; c.fillRect(-11 * k, -2 * k, 3 * k, 4 * k); c.restore(); }
+    if (s.big && !reduced && Math.random() < .7 && FX.fx.length < 160) FX.fx.push({ type: 'bit', x: s.x - ux * 6, y: s.y - uy * 6, vx: rand(-30, 30), vy: rand(-30, 30), col: C.ember, z: rand(1.5, 3), t: 0, dur: rand(.15, .3) }); }
+  c.lineCap = 'round';
   for (const f of FX.fx) {
     const p = f.t / f.dur; c.globalAlpha = 1 - p; c.strokeStyle = f.col;
     if (f.type === 'bit') { c.fillStyle = f.col; c.fillRect(f.x - f.z / 2, f.y - f.z / 2, f.z, f.z); }
+    else if (f.type === 'stuck') { c.save(); c.translate(f.x, f.y); c.rotate(f.a); c.globalAlpha = 1 - p * p; c.fillStyle = C.ink; c.fillRect(-10, -1.6, 9, 3.2); c.fillStyle = WC.wood; c.fillRect(-9, -.7, 8, 1.4); c.fillStyle = f.col; c.fillRect(-10, -2, 3, 4); c.restore(); }
     else if (f.type === 'star') { c.globalAlpha = 1; c.fillStyle = f.col; const r = f.r * (.6 + .4 * p); c.fillRect(f.x - r, f.y - 1.2, r * 2, 2.4); c.fillRect(f.x - 1.2, f.y - r, 2.4, r * 2); c.fillRect(f.x - r * .45, f.y - r * .45, r * .9, r * .9); }
     else if (f.type === 'ring') { c.lineWidth = 2.5; c.beginPath(); c.arc(f.x, f.y, f.r0 + (f.r1 - f.r0) * p, 0, TAU); c.stroke(); }
     else if (f.type === 'line') { c.globalAlpha = (1 - p) * .6; c.lineWidth = f.w * 2; c.lineCap = 'butt'; c.beginPath(); c.moveTo(f.x, f.y); c.lineTo(f.x2, f.y2); c.stroke(); c.lineCap = 'round'; }
@@ -1602,7 +1627,7 @@ function buildHud() {
   V.me.skills.forEach((sk, i) => {
     const b = el('button', 'sk ' + posCls[i] + (sk.ult ? ' ult' : '')); b.type = 'button'; b.id = 'sk' + i;
     const cdn = el('span', 'cdn'); b.append(el('b', '', sk.seal), el('small', '', sk.name), cdn);
-    b.setAttribute('aria-label', `${sk.name}：${sk.desc}`);
+    b.setAttribute('aria-label', `${sk.name}：${sk.desc}${sk.needs ? '（' + S.needText(sk) + '）' : ''}`);
     let lastPD = 0;
     b.addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); lastPD = performance.now(); aimStart(ev, i, sk); });
     b.addEventListener('pointermove', aimMove); b.addEventListener('pointerup', ev => aimEnd(ev, false)); b.addEventListener('pointercancel', ev => aimEnd(ev, true));
@@ -1635,6 +1660,7 @@ function hud() {
     s.el.style.setProperty('--cd', clamp(cd, 0, 1).toFixed(3));
     const txt = !s.sk.ult && p.cds[i] > 0 ? String(Math.ceil(p.cds[i])) : ''; if (s.cdn.textContent !== txt) s.cdn.textContent = txt;
     s.el.classList.toggle('cool', !s.sk.ult && p.cds[i] > 0);
+    s.el.classList.toggle('lack', !S.canUse(s.sk, p.held));      // the thing it needs is not in hand
     if (s.sk.ult) s.el.classList.toggle('ready', p.ult >= 100);
     if (s.sk.kick) s.el.classList.toggle('alert', casting && p.cds[i] <= 0 && p.alive);
   });
@@ -1728,7 +1754,7 @@ function renderCreate(msg) {
     b.addEventListener('click', () => { crCls = k; renderCreate(''); }); cards.appendChild(b);
   }
   $('#cr-blurb').textContent = CLASS_BLURB[crCls];
-  for (const k of d.skills) { const li = el('li'); li.append(el('em', '', k.seal), el('b', '', k.name), el('span', '', k.desc)); kit.appendChild(li); }
+  for (const k of d.skills) { const li = el('li'); li.append(el('em', '', k.seal), el('b', '', k.name), el('span', '', k.desc + (k.needs ? `（${S.needText(k)}）` : ''))); kit.appendChild(li); }
   drawHero($('#create-cv'), crCls, name || '？', `Lv.1　${d.name}`);
   if (msg !== undefined) { $('#cr-note').textContent = msg; $('#cr-note').classList.toggle('warn', !!msg); }
 }
@@ -1804,7 +1830,7 @@ function renderMenu(msg) {
   $('#m-lvl').textContent = `第 ${save.lvl} 層`;
   const best = save.best[save.lvl]; $('#m-best').textContent = best ? `最佳 ${fmt(best)}` : '限時 3:00';
   const kit = $('#kit'); kit.textContent = '';
-  for (const s of S.loadoutOf(save, chosen).map(id => S.SKILLS[id])) { const li = el('li'); li.append(el('em', '', s.seal), el('b', '', s.name), el('span', '', s.desc + (s.ult ? '（集滿能量才能放）' : ''))); kit.appendChild(li); }
+  for (const s of S.loadoutOf(save, chosen).map(id => S.SKILLS[id])) { const li = el('li'); li.append(el('em', '', s.seal), el('b', '', s.name), el('span', '', s.desc + (s.ult ? '（集滿能量才能放）' : '') + (s.needs ? `（${S.needText(s)}）` : ''))); kit.appendChild(li); }
   const gear = $('#gear'); gear.textContent = '';
   for (const [k, v] of [['鐘幣', save.coin], ['裝等', avgIlvl()], ['武器', save.gear.w], ['護甲', save.gear.a], ['飾品', save.gear.t], ['通關次數', save.runs]]) { const sp = el('span', '', k + ' '); sp.append(el('b', '', v)); gear.appendChild(sp); }
   $('#friends-btn').hidden = !(online && net.authed); $('#mail-btn').hidden = !(online && net.authed); mailBadge();
@@ -1913,7 +1939,7 @@ const openBag = () => openHero('bag'), openLoadout = () => { lo.sel = 0; openHer
 const MOD_NAME = { hp: '生命', dmg: '造成的傷害', heal: '治療量', taken: '受到的傷害', speed: '移動速度', threat: '仇恨', ult: '大招充能', cdr: '技能冷卻' };
 /* How an item reads for the character looking at it: what it is, whether their class can hold it, and how it compares. */
 const itemIs = it => S.itemKind(it, save.cls);
-const notMine = it => { const k = S.HELD[it.n] && S.WKINDS[S.HELD[it.n]]; return !!k && (it.s === 'w' || it.s === 'o') && k.cls !== save.cls; };
+const notMine = () => false;      // every class can hold every kind now
 const oneHanded = it => { const k = S.HELD[it.n] && S.WKINDS[S.HELD[it.n]]; return !!k && k.hand === 'one'; };
 function versus(it) { if (notMine(it)) return `${CLASSES[save.cls].name}不能用`; const t = S.slotFor(save, it), k = t.s || it.s, d = it.il - save.gear[k]; return `比身上的${d > 0 ? '高 ' + d : d < 0 ? '低 ' + -d : '一樣'}`; }
 function renderEquip() {
@@ -2092,7 +2118,7 @@ function renderLoadout() {
     for (const id of list) {
       const k = S.SKILLS[id], at = ids.indexOf(id), locked = k.lv > save.cl, li = el('li'), left = el('div', 'info'), meta = el('span', 'cost');
       meta.append(el('span', '', AIM_HINT[k.aim]), el('span', '', k.ult ? '集滿能量' : `冷卻 ${k.cd} 秒`));
-      left.append(el('b', '', `${k.seal}　${k.name}`), el('small', '', k.desc), meta);
+      left.append(el('b', '', `${k.seal}　${k.name}`), el('small', '', k.desc + (k.needs ? `（${S.needText(k)}）` : '')), meta);
       const b = el('button', 'mini' + (at < 0 && !locked ? ' go' : ''), locked ? `Lv.${k.lv} 解鎖` : at >= 0 ? (at === 3 ? '已帶著' : `在第 ${at + 1} 格`) : '換上'); b.type = 'button'; b.id = 'lo-' + id; b.disabled = locked || at >= 0 || waiting;
       b.addEventListener('click', () => {
         const next = ids.slice(), slot = ult ? 3 : lo.sel < 3 ? lo.sel : 0; next[slot] = id; lo.sel = slot; b.disabled = true;
@@ -2378,7 +2404,7 @@ function frame(ts) {
       if (G.result && !G.result.shown) { G.result.shown = true; conclude(G.result, V.me.stats); }
       towerView(dt);
     } else { buildView(ts); predictMe(dt, ts); if (inField()) fieldView(dt); else towerView(dt); }
-    updFx(dt); hud();
+    watchShots(); updFx(dt); hud();
   }
   render(dt);
 }
