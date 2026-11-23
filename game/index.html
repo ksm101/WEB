@@ -1288,7 +1288,7 @@ function drawHeld(a, set, pass, X, Y, q) {
     const side = hand ? -1 : 1, live = t < .4 && (a._wh || 0) === hand, bob = reduced ? 0 : Math.sin(clock * 3 + hand) * .6;
     let hx = ux * 5 + px * 3 * side, hy = uy * 3 + py * 2 * side, ang = aim, behind = uy < -.35, pull = 0, glow = 0, upright = false;
     if (kd.move === 'guard') { upright = true; if (guard) { hx = ux * 7; hy = uy * 5; behind = uy < -.6; } else { hx = px * -6 * (Math.abs(ux) > .7 ? 0 : 1) - ux * 2; hy = 1; behind = uy < -.35 || Math.abs(ux) > .7; } }
-    else if (kd.move === 'hold') { upright = true; if (id === 'quiver') { hx = -ux * 4; hy = -uy * 3 - 2; behind = uy > -.2; } else { hx = px * -7 - ux; hy = bob - 1; behind = uy < -.35; } }
+    else if (kd.move === 'hold') { upright = true; if (id === 'quiver') { hx = -ux * 4; hy = -uy * 3 - 2; behind = uy > -.2; } else { hx = px * -11 - ux; hy = bob + 2; behind = uy < -.35; } }      // a book is held out to the side, clear of the body
     else if (kd.move === 'swing') { const arc = id === 'hook' ? 1.3 : 1.9, f = (a._wf || 1) * side; ang = live && t < .22 ? aim + mix(-arc, arc, eOut(clamp(t / .16, 0, 1))) * f : aim - .95 * side + bob * .05; if (live && t < .22) { hx += ux * 3; hy += uy * 3; } }
     else if (kd.move === 'smash') { ang = live && t < .08 ? aim - mix(2.3, -.25, (t / .08) * (t / .08)) : live && t < .3 ? aim + .25 : aim - 1.2 * side + bob * .04; if (live && t < .3) { hx += ux * 4; hy += uy * 4; } }
     else if (kd.move === 'thrust') { const d = live ? (t < .06 ? 12 * t / .06 : mix(12, 0, clamp((t - .06) / .26, 0, 1))) : 0; hx += ux * d; hy += uy * d + (live ? 0 : bob); }
