@@ -31,4 +31,5 @@ window.ART_MANIFEST = Object.assign({
   wu: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'surprised', 'worried'] },
   mog: { portrait: true, anims: [] },
   _weapons: ['sword', 'hammer', 'maul', 'spear', 'hook', 'xbow', 'bow', 'staff', 'bell', 'shield', 'tome', 'quiver'],      // the bow has no string in its picture: the game draws the string
+  _tiles: ['sand', 'path', 'water', 'hull', 'stone', 'flood', 'brick'],
 },window.ART_MANIFEST);
