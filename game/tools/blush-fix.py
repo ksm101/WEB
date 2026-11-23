@@ -1,9 +1,10 @@
 """Repaint a hatched or dithered blush as a solid one: a patch of pink with a paler rim and three short strokes.
-A bead of sweat can be added too, at the place given: small and see-through, for the cheek. It is drawn in tones of
-the skin turned a little cool, with a soft edge and one white glint, because plain white on fair skin cannot be seen
-and a bright blue drop reads as a cartoon sign, not as sweat. Add the word big for that cartoon drop (the large one
-that sits on the head of someone at a loss).
-usage: blush-fix.py plain.png shy.png out.png [sweat_x sweat_y [big]]"""
+Sweat can be added too, starting at the place given: a faint wet trail running down the cheek that gathers into a
+small drop at its foot. The top has no edge at all and is only a shade off the skin, so it melts into the face; the
+drop is told by one white glint and a darker lip underneath. Say left or right for the way it leans as it runs
+(it should follow the line of the cheek). Plain white on fair skin cannot be seen, and a bright blue drop reads as
+a cartoon sign: add the word big for that sign (the large drop on the head of someone at a loss).
+usage: blush-fix.py plain.png shy.png out.png [sweat_x sweat_y [left|right|big]]"""
 import sys
 from collections import Counter
 from PIL import Image
@@ -46,10 +47,20 @@ if len(sys.argv) >= 6:
     sx, sy = int(sys.argv[4]), int(sys.argv[5])
     if sys.argv[6:7] == ['big']:
         shape = ['..oo..', '..oo..', '.oLLo.', '.oLLo.', 'oLLLLo', 'oWLLLo', 'oWLLLo', 'oLLLLo', '.oooo.']; col = { 'o': (58, 104, 158), 'L': (176, 224, 246), 'W': (255, 255, 255) }
-    else:      # see-through: the skin shows in it, a shade cooler; a darker lip underneath gives it weight
-        cool = lambda k, b: (int(skin[0] * k), int(skin[1] * k), min(255, int(skin[2] * k + b)))
-        shape = ['.oo.', 'oWLo', 'oLLo', 'oLLo', 'oLLs', '.ss.']; col = { 'o': cool(.84, 16), 'L': cool(.955, 22), 'W': (255, 255, 255), 's': cool(.72, 22) }
-    for j, row in enumerate(shape):
-        for i, ch in enumerate(row):
-            if ch != '.': pb[sx + i, sy + j] = col[ch] + (255,)
+        for j, row in enumerate(shape):
+            for i, ch in enumerate(row):
+                if ch != '.': pb[sx + i, sy + j] = col[ch] + (255,)
+    else:
+        lean = -1 if sys.argv[6:7] == ['left'] else 1 if sys.argv[6:7] == ['right'] else 0
+        tone = lambda k, b: (min(255, int(skin[0] * k)), min(255, int(skin[1] * k + b * .4)), min(255, int(skin[2] * k + b)))
+        trail, body, side, lip = tone(.985, 14), tone(.97, 26), tone(.90, 16), tone(.77, 24)
+        x = sx
+        for j in range(5):                      # the trail: one pixel wide, barely off the skin, shifting over once on the way
+            if j == 2: x += lean
+            pb[x, sy + j] = trail + (255,)
+        x += lean; y = sy + 5                   # the drop it gathers into
+        pb[x, y] = body + (255,)
+        pb[x - 1, y + 1] = side + (255,); pb[x, y + 1] = (255, 255, 255, 255); pb[x + 1, y + 1] = side + (255,)
+        pb[x - 1, y + 2] = side + (255,); pb[x, y + 2] = body + (255,); pb[x + 1, y + 2] = lip + (255,)
+        pb[x, y + 3] = lip + (255,)
 shy.save(sys.argv[3])
