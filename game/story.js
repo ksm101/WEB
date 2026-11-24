@@ -17,8 +17,8 @@
 
 const CAST = {
   kol: { lvl: 28, name: '柯爾', color: 'tank' },     // the shield: a shipwright before the tide, blunt, means well
-  mira: { lvl: 31, name: '蜜拉', color: 'heal' },    // the healer: listens to the tide, knows the tower's past
-  jin: { lvl: 24, name: '阿燼', color: 'ember' },    // the archer: impatient, counts everything in seconds
+  mira: { lvl: 31, name: '蜜拉', color: 'heal' },    // the healer, 27: everyone's gentle big sister, knows the tower's past; frightening when she smiles in anger, and the one person Jieyan obeys
+  jin: { lvl: 24, name: '婕焰', color: 'ember' },    // the archer, 21: a grown woman who acts the brat. Teases and plays tricks, but measures them; kind underneath; and when a joke goes too far she turns meek, afraid of being ignored
   wu: { lvl: 12, name: '小霧', color: 'brass' },     // the youngest: a lamp-keeper's apprentice, curious
   mog: { lvl: 40, name: '莫葛', color: 'rust' }      // the warden: once the bell-ringer
 };
@@ -31,7 +31,7 @@ const SCENES = {
     ['mira', '他的意思是歡迎。我們缺第四個人很久了。']
   ] },
   bell: { at: 'mira', title: '第一聲鐘響', lines: [
-    ['jin', '出來了。比我想的快，我本來賭你撐不過第二波。'],
+    ['jin', '欸～居然活著出來了？我還賭你撐不過第二波耶。嘻嘻。', 'smug'],
     ['mira', '你聽見了嗎？最後那一下，鐘在底下回了一聲。', 'serious'],
     ['kol', '那個看守者叫莫葛，以前是這座塔的敲鐘人。現在他只記得一件事：誰都不准靠近鐘。'],
     ['mira', '下次看到祭司開始念咒，就打斷他們。那些咒是念給潮水聽的。']
@@ -44,10 +44,10 @@ const SCENES = {
   craft: { at: 'kol', title: '工坊開張', lines: [
     ['kol', '手藝普通。不過能用，能用的就是好東西。', 'smile'],
     ['kol', '我以前造船。船沉了以後才知道，鏽過的鐵比新鐵更認得這片海。'],
-    ['jin', '聊完沒？下一趟我要在潮水回來之前出塔。三分鐘，一秒都不多給。', 'angry']
+    ['jin', '聊完沒～？下一趟要搶在潮水前出塔喔。慢吞吞的我可不等。', 'smug']
   ] },
   ontime: { at: 'jin', title: '搶在潮水之前', lines: [
-    ['jin', '看到沒，三分鐘內。這才叫進塔。'],
+    ['jin', '三分鐘內耶～不錯嘛。我本來都準備好要笑你了，可惜。', 'smug'],
     ['mira', '潮退得乾淨，鐘的碎片才會露出來。慢了，就只剩鏽。'],
     ['wu', '這瓶給你。蜜拉姐熬的，很苦，可是有用。'],
     ['mira', '下一趟留意地上。發紅的地方，是鐘要落下來的位置。']
@@ -80,67 +80,95 @@ const SCENES = {
 };
 
 /* The faces a portrait can have besides the plain one. */
-const MOODS = { smile: '微笑', happy: '開心', angry: '生氣、不耐煩', sad: '難過', surprised: '驚訝、興奮', worried: '擔心', serious: '認真、凝重', shy: '害羞', troubled: '傷腦筋' };
+const MOODS = { smile: '微笑', happy: '開心', angry: '生氣、不耐煩', sad: '難過', surprised: '驚訝、興奮', worried: '擔心', serious: '認真、凝重', shy: '害羞', troubled: '傷腦筋', smug: '壞笑、得意', teary: '慌了、快哭出來', dark: '笑著生氣（眼睛沒在笑）' };
+/* When someone has no portrait of a face, the nearest one they may have. */
+const ALT = { smug: 'smile', teary: 'shy', dark: 'serious', happy: 'smile' };
 
 /* What each of them says at the camp when they have nothing new for you: a line, or [line, face]. */
 const IDLE = {
   kol: ['火別讓它滅了。潮氣一上來，鐵就開始爛。', '灘上的殘骸可以拆，都是好鐵。', '塔門在北邊，沿著踩出來的路走就到。'],
-  mira: [['今天的潮聲很低，像有人在水底嘆氣。', 'sad'], '潮草長在水邊。兩把草加一塊鹽晶，就能熬一瓶藥。', '累了就回火邊坐著，這一圈牠們不敢進來。'],
-  jin: [['從這裡走到塔門，我最快四十秒。你呢？', 'smile'], '學徒念咒的時候就打斷牠，跟塔裡一樣。', '別在灘上站太久，螃蟹會圍過來。'],
+  mira: [['今天的潮聲很低，像有人在水底嘆氣。', 'sad'], '潮草長在水邊。兩把草加一塊鹽晶，就能熬一瓶藥。', ['累了就回火邊坐著。有我在，這一圈牠們不敢進來。', 'smile'],
+    ['有沒有好好吃飯？不可以騙姐姐喔。', 'smile'], ['婕焰又捉弄你了？跟我說，我會好好「請她喝茶」的。', 'dark']],
+  jin: [['從這裡跑到塔門，我最快四十秒。你呢～？要不要讓你十秒？', 'smug'], ['你背後有螃蟹喔。……騙你的，嘻嘻。回頭的樣子好好笑。', 'smug'],
+    '學徒一念咒就打斷牠，跟塔裡一樣。這句我可沒在鬧你。', ['噓——別跟蜜拉姐說在這看到我。我在躲她。', 'teary']],
   wu: ['我在燈塔學過看霧。霧往哪邊飄，潮就從哪邊來。', ['鹽晶會發光！晚上看最清楚。', 'surprised'], ['柯爾叔嘴巴很兇，可是他會偷偷幫我修弓。', 'smile']]
 };
 
 /* Bonds (sim.js BONDS says who has one and what it gives). scenes[n] plays once when tier n is reached; gift[mood]
- * is what they say to a gift, by how much they liked it; more[n] are extra things they say at the camp from tier n. */
+ * is what they say to a gift, by how much they liked it; more[n] are extra things they say at the camp from tier n.
+ * ask and vow play when they become your couple and when the vow is taken; dear is what they say at the camp after. */
 const BOND = {
   mira: {
     scenes: {
-      1: [['mira', '你又來了。……不是嫌你煩。這裡很少有人會特地繞過來找我說話。'],
-          ['mira', '我在熬藥，潮草快用完了。你要是順路，能幫我帶幾株回來嗎？', 'serious']],
-      2: [['mira', '塔還沒沉的時候，我在塔下替敲鐘的人送藥。鐘一響，船就知道怎麼回家。', 'sad'],
-          ['mira', '現在鐘在水底下。我能做的，只剩把上岸的人治好。'],
-          ['mira', '所以你下塔的時候，我會跟緊一點。你不准比我先倒。', 'serious']],
-      3: [['mira', '這個……給你。我多熬了一瓶，瓶口綁了紅線，是比較不苦的那種。', 'shy'],
-          ['mira', '別跟阿燼說。她會笑我偏心。', 'shy'],
-          ['mira', '還有一件事，只想拜託你。我想知道，趕在潮水前面把塔走完，是什麼感覺。', 'serious']],
+      1: [['mira', '又來看我了？真乖。這裡很少有人會特地繞過來陪我說話呢。', 'smile'],
+          ['mira', '我在熬藥，潮草快用完了。你要是順路，能幫姐姐帶幾株回來嗎？']],
+      2: [['jin', '噗，你背上被我貼了「我是慢吞吞」耶，繞了整個營地都沒發現～', 'smug'],
+          ['mira', '婕焰。', 'dark'],
+          ['jin', '蜜、蜜拉姐……我撕！我現在就撕掉！', 'teary'],
+          ['mira', '嚇到了嗎？她呀，我會看好的。你下塔的時候，我也會看著你。', 'smile']],
+      3: [['mira', '塔還沒沉的時候，我在塔下替敲鐘的人送藥。鐘一響，船就知道怎麼回家。', 'sad'],
+          ['mira', '現在我能做的，只剩把上岸的人治好。所以你不准比我先倒，知道嗎？', 'serious'],
+          ['mira', '這瓶給你，綁紅線的，比較不苦。別跟婕焰說，她會吵著說我偏心。', 'shy'],
+          ['mira', '還有件事只想拜託你。我想知道，趕在潮水前把塔走完是什麼感覺。']],
       4: [['mira', '昨晚的潮聲不一樣了。不像嘆氣，比較像……有人在水底哼歌。'],
-          ['mira', '我想是因為你。塔還是沉的，鐘還是啞的，可是我不怕聽了。', 'shy'],
-          ['mira', '等鐘再響的那一天，我想站在你旁邊聽。說好了。', 'serious']]
+          ['mira', '我一直在照顧別人，都忘了被人掛念是什麼感覺。是你讓我想起來的。', 'shy'],
+          ['mira', '等鐘再響的那一天，我想站在你旁邊聽。說好了喔。', 'smile']]
     },
+    ask: [['mira', '這束潮花……是給我的？等等，讓姐姐先深呼吸一下。', 'shy'],
+          ['mira', '我比你想的還愛操心，生起氣來也很可怕喔。這樣也可以嗎？', 'serious'],
+          ['mira', '……那以後，請多指教了。不准反悔喔。', 'shy'],
+          ['jin', '欸——！蜜拉姐臉好紅！我要去跟柯爾大叔說！', 'smug'],
+          ['mira', '婕焰。', 'dark']],
+    vow: [['mira', '用沉鐘碎片打的戒指……敲起來，有鐘的聲音呢。', 'shy'],
+          ['mira', '以前我只會等鐘響。現在我想和你一起，把它敲響。', 'serious'],
+          ['mira', '往後不管潮水漲到哪裡，你回來的地方都在我這裡。約好了。', 'smile']],
+    dear: [['你回來了。先讓我看看有沒有受傷……好，沒事。', 'smile'], ['今天也要平安回來。這不是拜託，是命令喔。', 'smile'], ['……手借我一下。嗯，這樣就不冷了。', 'shy']],
     gift: {
-      love: [['這個……真的可以給我嗎？我會好好收著的。', 'shy'], ['你怎麼知道我正缺這個？謝謝你。', 'shy']],
-      like: [['這個用得上。謝謝，我收下了。'], ['你有心了。']],
+      love: [['哎呀，是給我的？謝謝你，我會好好珍惜的。', 'shy'], ['你怎麼知道我正缺這個？真貼心。', 'shy']],
+      like: [['這個用得上呢。謝謝，我收下了。', 'smile'], ['你有心了。', 'smile']],
       ok: [['謝謝。我會想辦法用上的。']],
-      meh: [['……呃，謝謝。我想想這能拿來做什麼。', 'sad']]
+      meh: [['……嗯？這是婕焰教你送的吧。沒關係，我不生氣喔。', 'dark']]
     },
-    more: { 1: ['潮草我永遠不嫌多。鹽晶和藥水也用得上。'], 2: [['你今天臉色不錯。這樣我就放心了。']], 3: [['你一來，火好像比較暖。……是我的錯覺吧。', 'shy']] }
+    more: { 1: ['潮草我永遠不嫌多。鹽晶和藥水也用得上。'], 2: [['你今天氣色不錯。這樣姐姐就放心了。', 'smile']], 3: [['你一來，火好像比較暖。……是我的錯覺吧。', 'shy']] }
   },
   jin: {
     scenes: {
-      1: [['jin', '幹嘛老是來找我？我很忙，忙著比你快。', 'angry'],
-          ['jin', '……算了，你來得正好。灘上那群學徒整天念咒，吵得我瞄不準。'],
-          ['jin', '去讓牠們閉嘴。八隻，一隻都不能少。', 'serious']],
-      2: [['jin', '欸，上次那趟我有在看。你閃那一下還可以，就比我慢半步。'],
-          ['jin', '我從小在灘上撿鐵長大。跑得慢的東西，都被潮帶走了。所以我只信跑得動的人。', 'serious'],
-          ['jin', '……你算一個。別得意。', 'shy']],
-      3: [['jin', '這個箭頭我磨了三天，本來要自己用的。……拿去。弄丟了我揍你。', 'shy'],
-          ['jin', '還有，塔裡那些念咒的傢伙，一秒都不要多給。你打斷十次，我就承認你跟得上我。', 'serious']],
-      4: [['jin', '我以前覺得，一個人跑最快。'],
-          ['jin', '現在跑到塔門，我會回頭看一下。……就一下，看某個慢吞吞的傢伙有沒有跟上。', 'shy'],
-          ['jin', '笑什麼！下次不等你了！', 'angry'],
+      1: [['jin', '又來找我～？該不會是喜歡上我了吧？噗噗，臉紅了臉紅了。', 'smug'],
+          ['jin', '開玩笑的啦。來得正好，灘上那群學徒整天念咒，吵得我瞄不準。'],
+          ['jin', '幫我讓牠們閉嘴，八隻。辦得到嗎，慢吞吞～？', 'smug']],
+      2: [['jin', '嘻嘻，你水壺裡的水被我換成海水了喔～快喝快喝。', 'smug'],
+          ['n', '你沒有笑，轉身就走。'],
+          ['jin', '欸？等、等一下！你生氣了？我換回來了啦，真的！', 'teary'],
+          ['jin', '……不要不理我嘛。我以後會先看你臉色再鬧，好不好。', 'teary'],
+          ['jin', '沒生氣？……哼，嚇死人了。那、那這壺乾淨的給你。', 'shy']],
+      3: [['jin', '喂，手伸出來。……不是惡作劇啦！這次真的不是！', 'angry'],
+          ['jin', '箭頭，我磨了三天。你上次差點被砸到，我看了很不爽。', 'shy'],
+          ['jin', '所以塔裡那些念咒的，一秒都別多給。打斷十次，我就承認你。', 'serious']],
+      4: [['jin', '我以前覺得一個人跑最快。捉弄完就跑，誰也追不上。'],
+          ['jin', '現在跑到塔門會回頭看一下。……看某個慢吞吞有沒有跟上。', 'shy'],
+          ['jin', '笑什麼！再笑我就在你鞋子裡放螃蟹喔！', 'angry'],
           ['jin', '……騙你的。走吧，一起。', 'shy']]
     },
+    ask: [['jin', '潮花？給我？……等等，這是惡作劇對吧？換你整我了對吧？', 'teary'],
+          ['jin', '不是……？欸、欸欸？是真的？', 'teary'],
+          ['jin', '……好啦，答應你啦。可、可是在別人面前不准講！', 'shy'],
+          ['mira', '恭喜呀。婕焰，以後可不能再欺負人家了喔？', 'smile'],
+          ['jin', '蜜拉姐妳什麼時候站在那裡的啦——！', 'teary']],
+    vow: [['jin', '沉鐘碎片打的戒指？……你居然記得我喜歡這個。', 'shy'],
+          ['jin', '先說好，我還是會捉弄你。一輩子都會。你逃不掉了喔～', 'smug'],
+          ['jin', '所以……你也不准不理我。一輩子都不准。', 'teary']],
+    dear: [['今天的惡作劇是——抱一下。……幹嘛，不行喔！', 'shy'], ['欸，慢吞吞。出門前回頭看我一眼，這是規定。', 'smug'], ['你要是受傷回來，我會真的生氣。不是鬧你的那種。', 'serious']],
     gift: {
-      love: [['喔？這個不錯嘛。……我可沒有很高興。', 'shy'], ['算你識貨。收下了。', 'shy']],
-      like: [['還行。放我這邊吧。'], ['嗯，用得上。']],
+      love: [['喔～？很懂嘛。……我、我才沒有很高興！', 'shy'], ['算你識貨～收下了。下次惡作劇放你一馬。', 'smug']],
+      like: [['還行啦。放我這邊吧。'], ['嗯哼，勉強及格～', 'smug']],
       ok: [['喔。謝啦。']],
-      meh: [['你拿這個給我幹嘛？當我撿破爛的？', 'angry']]
+      meh: [['噗，送這個？你是不是在整我？這招我比你熟喔～', 'smug']]
     },
-    more: { 1: ['沉鐘碎片我有多少收多少，磨成箭頭最利。鐵屑也行。草就免了。'], 2: [['你今天跑得動嗎？跑得動就跟上。', 'serious']], 3: [['……看什麼。我只是剛好站在這裡等人。', 'shy']] }
+    more: { 1: ['沉鐘碎片有多少我收多少，磨成箭頭最利。鐵屑也行。草就免了～'], 2: [['今天還沒捉弄你耶。……怎樣，你在期待嗎？', 'smug']], 3: [['……看什麼。我只是剛好站在這裡等人啦。', 'shy']] }
   }
 };
 
 const ORDER = ['prologue', 'bell', 'kick', 'craft', 'ontime', 'clean', 'lvl3', 'temper', 'lvl5'];
 
-return { CAST, SCENES, ORDER, IDLE, MOODS, BOND };
+return { CAST, SCENES, ORDER, IDLE, MOODS, ALT, BOND };
 });

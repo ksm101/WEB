@@ -79,12 +79,24 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     const r0 = Sim.fixProfile(Sim.newProfile()); Sim.applyResult(r0, 1, { win: true, onTime: true, t: 100 }, { now: t0 }); assert.strictEqual(r0.bond.mira.v, 3); assert.strictEqual(r0.bond.jin.v, 3, 'a tower cleared with them counts');
     for (const who of Object.keys(Sim.BONDS)) { const st = Story.BOND[who]; assert.ok(Story.CAST[who] && Sim.FIELD.npcs.some(n => n.id === who) && st, who);
       for (let t = 1; t < Sim.BOND_TIERS.length; t++) { assert.ok(st.scenes[t] && st.scenes[t].length >= 2, `${who}: no scene for tier ${t}`); for (const [w, text, face] of st.scenes[t]) { assert.ok(w === 'n' || Story.CAST[w]); assert.ok(text.length <= 48, `${who} ${t}: line too long (${text.length})`); assert.ok(face === undefined || Story.MOODS[face]); } }
+      for (const key of ['ask', 'vow']) if (Sim.BONDS[who].love) { assert.ok(st[key] && st[key].length >= 2, `${who}: nothing written for ${key}`); for (const [w, text, face] of st[key]) { assert.ok(Story.CAST[w]); assert.ok(text.length <= 48, `${who} ${key}: line too long`); assert.ok(face === undefined || Story.MOODS[face]); } }
+      for (const t of st.dear || []) { const [line, face] = [].concat(t); assert.ok(typeof line === 'string' && line.length <= 48 && (face === undefined || Story.MOODS[face]), line); }
       for (const m of ['love', 'like', 'ok', 'meh']) { assert.ok(st.gift[m].length, `${who}: nothing to say to a ${m} gift`); for (const [text, face] of st.gift[m]) assert.ok(text.length <= 48 && (face === undefined || Story.MOODS[face])); }
       for (const k of Object.keys(st.more || {})) for (const t of st.more[k]) { const [line, face] = [].concat(t); assert.ok(typeof line === 'string' && line.length <= 48 && (face === undefined || Story.MOODS[face]), line); } }
+    for (const k of Object.keys(Story.ALT)) assert.ok(Story.MOODS[k] && Story.MOODS[Story.ALT[k]], `${k}: a face stands in for a face`);
+    { const q = Sim.fixProfile(Object.assign(Sim.newProfile(), { cls: 'dps' })), t1 = 2e12, day = 86400000; Object.assign(q.inv, { herb: 30, salt: 30, shard: 30 }); q.coin = 2000;
+      assert.ok(!Sim.bondAsk(q, 'jin', t1).ok, 'not before the last tier'); q.bond.jin.v = 700; assert.ok(!Sim.bondAsk(q, 'jin', t1).ok, 'nor before its scene has been seen'); assert.strictEqual(Sim.bondInfo(q, 'jin', t1).ask, null);
+      Sim.bondSeen(q, 'jin', 4, t1); q.bond.jin.seen = 4; assert.ok(Sim.bondInfo(q, 'jin', t1).ask.ready); const asked = Sim.bondAsk(q, 'jin', t1); assert.ok(asked.ok && asked.rel === 1 && q.inv.herb === 20 && q.inv.salt === 25, 'asking costs the flowers');
+      assert.strictEqual(Sim.bondInfo(q, 'jin', t1).name, '情侶'); assert.ok(!Sim.bondAsk(q, 'jin', t1).ok); assert.strictEqual(Sim.bondTeam(q).dps, .25);
+      const s0 = q.inv.scrap, hi = Sim.bondTalk(q, 'jin', t1 + day); assert.ok(hi.gain === 10 && hi.present && q.inv.scrap === s0 + 3, 'someone who loves you gives you something each day'); assert.ok(!Sim.bondTalk(q, 'jin', t1 + day).present);
+      assert.ok(!Sim.bondVow(q, 'jin', t1).ok, 'a vow waits for the full count'); q.bond.jin.v = 1000; const d0 = Sim.modsFor(q, 'dps').dmg, vow = Sim.bondVow(q, 'jin', t1); assert.ok(vow.ok && vow.rel === 2 && q.coin === 1500 && q.inv.shard === 20); assert.ok(Math.abs(Sim.modsFor(q, 'dps').dmg - d0 - .03) < 1e-9, 'and gives one more lasting bonus'); assert.strictEqual(Sim.bondTeam(q).dps, .3);
+      q.bond.mira.v = 1000; q.bond.mira.seen = 4; assert.ok(Sim.bondAsk(q, 'mira', t1).ok, 'you may court more than one'); assert.ok(!Sim.bondVow(q, 'mira', t1).ok, 'but a vow is with one only'); assert.ok(Sim.bondInfo(q, 'mira', t1).vow.taken);
+      q.bond.jin.rel = 7; Sim.fixProfile(q); assert.strictEqual(q.bond.jin.rel, 2); }
     const B = await named(port, '送禮人', 'dps'); B.send({ t: 'bond', op: 'talk', who: 'jin' }); let br = await B.wait('bond'); assert.ok(br.r.ok && br.r.gain === 5 && br.profile.bond.jin.v === 5);
     B.send({ t: 'bond', op: 'gift', who: 'jin', key: 'shard' }); br = await B.wait('bond', m => m.op === 'gift'); assert.ok(!br.r.ok, 'the server checks you have it');
-    B.send({ t: 'bond', op: 'gift', who: 'nobody', key: 'shard' }); B.send({ t: 'bond', op: 'talk', who: 'mira' }); br = await B.wait('bond', m => m.who === 'mira'); assert.strictEqual(br.profile.bond.mira.v, 5); B.ws.close();
-    ok('bonds: talk once a day, three gifts with their own tastes, tiers open their quests, bonuses and scenes, and the server keeps the count');
+    B.send({ t: 'bond', op: 'gift', who: 'nobody', key: 'shard' }); B.send({ t: 'bond', op: 'talk', who: 'mira' }); br = await B.wait('bond', m => m.who === 'mira'); assert.strictEqual(br.profile.bond.mira.v, 5);
+    B.send({ t: 'bond', op: 'ask', who: 'mira' }); br = await B.wait('bond', m => m.op === 'ask'); assert.ok(!br.r.ok && br.profile.bond.mira.rel === 0, 'the server decides whether the answer is yes'); B.ws.close();
+    ok('bonds: talk once a day, three gifts with their own tastes, tiers open their quests, bonuses and scenes; a couple, then a vow with one; the server keeps the count');
   }
 
   // levels: experience curve, level cap, creatures that follow the player inside a range, shrinking experience from weak ones

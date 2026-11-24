@@ -162,7 +162,7 @@ const sceneField = (id, D) => ({ id: 'd:' + id, name: D.name, w: D.map.w, h: D.m
 const floorOf = (p, did) => did && did !== 'tower' && DUNGEONS[did] ? ((p.dl && p.dl[did]) || 1) : p.lvl;
 const ROSTER = ['tank', 'heal', 'dps', 'dps'];
 const SPOTS = [[180, H - 150], [128, H - 84], [236, H - 96], [184, H - 58]];
-const BOT_NAMES = { tank: '柯爾', heal: '蜜拉', dps: ['阿燼', '小霧'] };
+const BOT_NAMES = { tank: '柯爾', heal: '蜜拉', dps: ['婕焰', '小霧'] };
 
 /* ---------- the field: 鏽灘, the shore between the camp (south) and the tower gate (north) ---------- */
 const SOLO_BOOST = { tank: 1.8, heal: 3.2, dps: 1 };   // alone in the field, tanks and healers hit harder so every class can hunt
@@ -1020,7 +1020,8 @@ function setCount(p) { const n = {}, seen = new Set(); for (const k of SLOTS) { 
 function modsFor(p, cls) {
   const m = modsOf(p.talents, cls), n = setCount(p);
   for (const id of Object.keys(n)) { const d = SETS[id]; if (n[id] >= 2) m[d.two[0]] += d.two[1]; if (n[id] >= 3) m[d.three[0]] += d.three[1]; }
-  for (const who of Object.keys(BONDS)) for (const [tier, key, val] of BONDS[who].perks) if (bondTier(p, who) >= tier) m[key] += val;      // what the people who trust you give you
+  for (const who of Object.keys(BONDS)) { for (const [tier, key, val] of BONDS[who].perks) if (bondTier(p, who) >= tier) m[key] += val;      // what the people who trust you give you
+    const lv = BONDS[who].love; if (lv && p.bond && p.bond[who] && p.bond[who].rel === 2) m[lv.perk[0]] += lv.perk[1]; }
   return m;
 }
 /* ---------- bonds: how well a character and some of the camp know each other ----------
@@ -1029,30 +1030,61 @@ function modsFor(p, cls) {
  * by handing them a main quest, and by their own quests. It is counted in tiers; reaching one brings a scene, at
  * some a lasting bonus for you, and from the second on they fight harder at your side as an AI teammate.
  * p.bond[who] = { v, day, talk, gift, run, seen }: day is the day the three counters are for, seen the last tier
- * whose scene has been shown. */
+ * whose scene has been shown.
+ * Some of them can come to love you (BONDS[who].love). At the last tier, with its scene seen, you may ask (it costs a
+ * bunch of tide flowers: LOVE.ask) and become a couple: rel 1. A couple at the full count may take a vow (a ring of
+ * bell shards: LOVE.vow): rel 2, and that with one person only. Whoever loves you gives you something each day, and
+ * fights harder still at your side; a vow adds one more lasting bonus. */
 const BOND_TIERS = [0, 100, 250, 450, 700], BOND_NAMES = ['初識', '熟識', '信賴', '親近', '知心'], BOND_CAP = 1000, BOND_TEAM = [0, 0, .08, .12, .2], BOND_DAY = { talk: 1, gift: 3, run: 3 };
 const BONDS = {
-  mira: { seat: 'heal', gifts: { herb: 12, salt: 8, potion: 8, shard: 5, scrap: 1 }, kinds: ['staff', 'bell', 'tome'], perks: [[2, 'hp', .03, '生命 +3%'], [3, 'taken', -.03, '受到的傷害 -3%'], [4, 'heal', .06, '治療量 +6%']] },
-  jin: { seat: 'dps', gifts: { shard: 20, scrap: 8, potion: 6, salt: 3, herb: 1 }, kinds: ['bow', 'xbow', 'quiver'], perks: [[2, 'speed', .03, '移動速度 +3%'], [3, 'dmg', .03, '造成的傷害 +3%'], [4, 'ult', .08, '大招充能 +8%']] }
+  mira: { seat: 'heal', love: { daily: { potion: 1 }, perk: ['hp', .04, '生命 +4%'] }, gifts: { herb: 12, salt: 8, potion: 8, shard: 5, scrap: 1 }, kinds: ['staff', 'bell', 'tome'], perks: [[2, 'hp', .03, '生命 +3%'], [3, 'taken', -.03, '受到的傷害 -3%'], [4, 'heal', .06, '治療量 +6%']] },
+  jin: { seat: 'dps', love: { daily: { scrap: 3 }, perk: ['dmg', .03, '造成的傷害 +3%'] }, gifts: { shard: 20, scrap: 8, potion: 6, salt: 3, herb: 1 }, kinds: ['bow', 'xbow', 'quiver'], perks: [[2, 'speed', .03, '移動速度 +3%'], [3, 'dmg', .03, '造成的傷害 +3%'], [4, 'ult', .08, '大招充能 +8%']] }
 };
+const LOVE = { ask: { herb: 10, salt: 5 }, vow: { shard: 10, coin: 500 } }, REL_NAMES = ['', '情侶', '誓約'], REL_TEAM = [0, .25, .3];
+const costText = c => Object.keys(c).map(k => (k === 'coin' ? `鐘幣 ${c[k]}` : `${k === 'potion' ? '潮息藥水' : MATS[k]} ×${c[k]}`)).join('、');
+const canPay = (p, c) => Object.keys(c).every(k => (k === 'coin' ? p.coin : p.inv[k]) >= c[k]);
+const pay = (p, c) => { if (!canPay(p, c)) return false; for (const k of Object.keys(c)) { if (k === 'coin') p.coin -= c[k]; else p.inv[k] -= c[k]; } return true; };
 const MAIN_AT = { bell: 'mira', kick: 'kol', craft: 'kol', ontime: 'jin', clean: 'wu', lvl3: 'mira', temper: 'kol', lvl5: 'mira' };      // who each main quest is handed to; story.js says the same, and the test holds them together
 const dayOf = now => Math.floor((now + 8 * 3600000) / 86400000);
 const tierOf = v => { let t = 0; for (let i = 0; i < BOND_TIERS.length; i++) if (v >= BOND_TIERS[i]) t = i; return t; };
 const bondTier = (p, who) => (p.bond && p.bond[who] ? tierOf(p.bond[who].v || 0) : 0);
 function fixBond(p, now) {
   const out = {}, old = isObj(p.bond) ? p.bond : {};
-  for (const who of Object.keys(BONDS)) { const o = isObj(old[who]) ? old[who] : {}, b = { v: qInt(o.v, 0, BOND_CAP), day: qInt(o.day, 0, 1e7), talk: qInt(o.talk, 0, 99), gift: qInt(o.gift, 0, 99), run: qInt(o.run, 0, 99), seen: qInt(o.seen, 0, BOND_TIERS.length - 1) };
+  for (const who of Object.keys(BONDS)) { const o = isObj(old[who]) ? old[who] : {}, b = { v: qInt(o.v, 0, BOND_CAP), day: qInt(o.day, 0, 1e7), talk: qInt(o.talk, 0, 99), gift: qInt(o.gift, 0, 99), run: qInt(o.run, 0, 99), seen: qInt(o.seen, 0, BOND_TIERS.length - 1), rel: BONDS[who].love ? qInt(o.rel, 0, 2) : 0 };
     if (now != null && b.day !== dayOf(now)) { b.day = dayOf(now); b.talk = b.gift = b.run = 0; } out[who] = b; }
   p.bond = out; return out;
 }
 function addBond(p, who, n, now) { const b = fixBond(p, now)[who]; if (!b) return { gain: 0, up: false, tier: 0 }; const t0 = tierOf(b.v); n = Math.max(0, Math.round(n)); b.v = Math.min(BOND_CAP, b.v + n); return { gain: n, up: tierOf(b.v) > t0, tier: tierOf(b.v) }; }
 /* Everything a screen needs about one bond. */
 function bondInfo(p, who, now) {
-  const b = fixBond(p, now)[who]; if (!b) return null; const t = tierOf(b.v), d = BONDS[who];
-  return { who, v: b.v, tier: t, name: BOND_NAMES[t], from: BOND_TIERS[t], to: BOND_TIERS[t + 1] || BOND_CAP, top: t === BOND_TIERS.length - 1, talkLeft: b.talk < BOND_DAY.talk, giftLeft: Math.max(0, BOND_DAY.gift - b.gift), seen: b.seen,
-    perks: d.perks.map(x => ({ tier: x[0], at: BOND_NAMES[x[0]], text: x[3], on: t >= x[0] })), team: BOND_TEAM[t], gifts: Object.keys(d.gifts) };
+  const all = fixBond(p, now), b = all[who]; if (!b) return null; const t = tierOf(b.v), d = BONDS[who], lv = d.love, taken = Object.keys(all).some(k => k !== who && all[k].rel === 2);
+  const perks = d.perks.map(x => ({ tier: x[0], at: BOND_NAMES[x[0]], text: x[3], on: t >= x[0] }));
+  if (lv) perks.push({ at: REL_NAMES[1], text: `每天第一次說話送你${costText(lv.daily)}，好感 +10`, on: b.rel >= 1 }, { at: REL_NAMES[2], text: lv.perk[2], on: b.rel === 2 });
+  return { who, v: b.v, tier: t, name: b.rel ? REL_NAMES[b.rel] : BOND_NAMES[t], from: BOND_TIERS[t], to: BOND_TIERS[t + 1] || BOND_CAP, top: t === BOND_TIERS.length - 1, talkLeft: b.talk < BOND_DAY.talk, giftLeft: Math.max(0, BOND_DAY.gift - b.gift), seen: b.seen,
+    perks, team: Math.max(BOND_TEAM[t], REL_TEAM[b.rel]), gifts: Object.keys(d.gifts), love: !!lv, rel: b.rel,
+    ask: lv && b.rel === 0 && t === BOND_TIERS.length - 1 && b.seen >= t ? { cost: costText(LOVE.ask), ready: canPay(p, LOVE.ask) } : null,      // the question can be asked
+    vow: lv && b.rel === 1 ? { cost: costText(LOVE.vow), need: BOND_CAP, full: b.v >= BOND_CAP, taken, ready: b.v >= BOND_CAP && !taken && canPay(p, LOVE.vow) } : null };
 }
-function bondTalk(p, who, now) { fixProfile(p); const b = fixBond(p, now)[who]; if (!b) return { ok: false, msg: '沒有這個人。' }; if (b.talk >= BOND_DAY.talk) return { ok: true, gain: 0, up: false, tier: tierOf(b.v) }; b.talk++; const r = addBond(p, who, 5, now); return { ok: true, gain: 5, up: r.up, tier: r.tier }; }
+function bondTalk(p, who, now) {
+  fixProfile(p); const b = fixBond(p, now)[who], lv = b && BONDS[who].love; if (!b) return { ok: false, msg: '沒有這個人。' }; if (b.talk >= BOND_DAY.talk) return { ok: true, gain: 0, up: false, tier: tierOf(b.v) };
+  b.talk++; const n = b.rel ? 10 : 5, r = addBond(p, who, n, now), out = { ok: true, gain: n, up: r.up, tier: r.tier };
+  if (b.rel && lv) { for (const k of Object.keys(lv.daily)) p.inv[k] = Math.min(k === 'potion' ? POTION_CAP : MAT_CAP, p.inv[k] + lv.daily[k]); out.present = costText(lv.daily); }      // someone who loves you sees you off with something
+  return out;
+}
+/* Ask them to be yours, and later to take a vow. */
+function bondAsk(p, who, now) {
+  fixProfile(p); const b = fixBond(p, now)[who]; if (!b || !BONDS[who].love) return { ok: false, msg: '沒有這個人。' };
+  if (b.rel) return { ok: false, msg: '你們已經在一起了。' }; if (tierOf(b.v) < BOND_TIERS.length - 1 || b.seen < BOND_TIERS.length - 1) return { ok: false, msg: `還不到時候，先成為${BOND_NAMES[BOND_TIERS.length - 1]}。` };
+  if (!pay(p, LOVE.ask)) return { ok: false, msg: `要先準備一束潮花：${costText(LOVE.ask)}。` };
+  b.rel = 1; return { ok: true, rel: 1, msg: '你們成為情侶了。' };
+}
+function bondVow(p, who, now) {
+  fixProfile(p); const all = fixBond(p, now), b = all[who]; if (!b || !BONDS[who].love) return { ok: false, msg: '沒有這個人。' };
+  if (b.rel === 2) return { ok: false, msg: '你們已經立過誓約了。' }; if (b.rel !== 1) return { ok: false, msg: '要先成為情侶。' };
+  if (Object.keys(all).some(k => k !== who && all[k].rel === 2)) return { ok: false, msg: '誓約只能和一個人立。' }; if (b.v < BOND_CAP) return { ok: false, msg: `好感要到 ${BOND_CAP}。` };
+  if (!pay(p, LOVE.vow)) return { ok: false, msg: `要先打一只鐘戒：${costText(LOVE.vow)}。` };
+  b.rel = 2; return { ok: true, rel: 2, msg: '你們立下了誓約。' };
+}
 /* what: { key } for a material or a potion, or { i } for the bag item at that place. */
 function bondGift(p, who, what, now) {
   fixProfile(p); const b = fixBond(p, now)[who], d = BONDS[who]; if (!b) return { ok: false, msg: '沒有這個人。' };
@@ -1066,7 +1098,7 @@ function bondGift(p, who, what, now) {
   return { ok: true, gain, mood: gain >= 12 ? 'love' : gain >= 6 ? 'like' : gain >= 3 ? 'ok' : 'meh', name, up: r.up, tier: r.tier, msg: `送出${name}，好感 +${gain}。` };
 }
 function bondSeen(p, who, tier, now) { const b = fixBond(p, now)[who]; if (b && Number.isInteger(tier) && tier > b.seen && tier <= tierOf(b.v)) b.seen = tier; return { ok: !!b }; }
-const bondTeam = p => { const o = {}; for (const who of Object.keys(BONDS)) o[BONDS[who].seat] = BOND_TEAM[bondTier(p, who)]; return o; };      // how much harder each of them fights beside this character
+const bondTeam = p => { const o = {}; for (const who of Object.keys(BONDS)) o[BONDS[who].seat] = Math.max(BOND_TEAM[bondTier(p, who)], REL_TEAM[p.bond && p.bond[who] ? p.bond[who].rel || 0 : 0]); return o; };      // how much harder each of them fights beside this character
 /* For the bag screen: every set, which pieces are on, and what it gives. */
 function setList(p) { const n = setCount(p); return Object.keys(SETS).map(id => { const d = SETS[id]; return { id, name: d.name, have: n[id] || 0, pieces: SET_SLOTS.map(k => ({ s: k, n: d.pieces[k], on: !!p.eq && SLOTS.some(h => p.eq[h].n === d.pieces[k]) })), two: d.two[2], three: d.three[2] }; }); }
 /* Put an item in the bag. With no room left it is sold on the spot: returns the coins it became, 0 when it was kept. */
@@ -1275,7 +1307,7 @@ function questList(p, now, online) {
     if (d.after && !questDone(q, d.after)) continue;
     if (d.bond && bondTier(p, d.bond[0]) < d.bond[1] && q.side[d.id] !== -1) continue;      // theirs to ask once they know you well enough
     const v = d.id === 's-level' && q.side[d.id] !== -1 ? p.cl : q.side[d.id] || 0, claimed = v === -1, have = claimed ? d.need : Math.min(d.need, d.have ? d.have(v) : v);
-    items.push({ id: d.id, group: 'side', title: d.title, tally: d.type === 'item' && d.item ? d.item : d.title, goal: d.goal, have, need: d.need, ready: !claimed && have >= d.need, claimed, from: d.bond ? d.bond[0] : '', reward: rewardText(d.reward) + (d.bondGain ? `、好感 +${d.bondGain[1]}` : '') });
+    items.push({ id: d.id, group: 'side', title: d.title, tally: d.type === 'item' && d.item ? d.item : d.title, goal: d.goal, have, need: d.need, ready: !claimed && have >= d.need, claimed, from: d.bond ? d.bond[0] : '', tier: d.bond ? d.bond[1] : 0, reward: rewardText(d.reward) + (d.bondGain ? `、好感 +${d.bondGain[1]}` : '') });
   }
   return { items, mainDone: q.main, mainTotal: MAIN.length };
 }
@@ -1511,7 +1543,7 @@ return { QUEST_TYPES, packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_
   get MAX_LEVEL() { return TUNE.maxLevel; }, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, get POTION_CAP() { return TUNE.potionCap; }, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id), MAIN_AT,
-  BONDS, BOND_TIERS, BOND_NAMES, BOND_DAY, BOND_TEAM, bondInfo, bondTalk, bondGift, bondSeen, bondTier, bondTeam, addBond,
+  BONDS, BOND_TIERS, BOND_NAMES, BOND_DAY, BOND_TEAM, LOVE, REL_NAMES, REL_TEAM, bondInfo, bondTalk, bondGift, bondAsk, bondVow, bondSeen, bondTier, bondTeam, addBond,
   TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, get RESPEC_COST() { return TUNE.respecCost; }, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
   SLOTS, SET_SLOTS, SLOT_NAME: { w: '主手', o: '副手', a: '護甲', t: '飾品' }, WKINDS, HAND_NAME, HELD, hands, heldOf, heldFix, slotFor, wants, itemKind, kindOf, reach, canUse, needText, NEEDS, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
   runDrops, bossDrops, refit, get TOWER_LEVEL() { return DUNGEONS.tower.min; }, PORTAL };

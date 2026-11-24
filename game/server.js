@@ -626,10 +626,10 @@ function start(opts) {
         case 'field0': case 'fg': case 'fk': case 'fr': return onField(ws, m);
         case 'loadout': { const r = Sim.setLoadout(pc(ws.acc), pc(ws.acc).cls, m.skills); if (r.ok) { store.put(ws.acc); refit(ws); } return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'bond': {      // talk to, give to, or mark a scene seen with someone at the camp who keeps a bond
-          const c = pc(ws.acc), who = String(m.who), now = Date.now(), op = m.op === 'talk' || m.op === 'gift' ? m.op : 'seen'; if (!Object.prototype.hasOwnProperty.call(Sim.BONDS, who)) return;
-          if (op === 'gift' && seats.has(ws.acc.id)) return send(ws, { t: 'bond', op, who, r: { ok: false, msg: '副本裡不能送禮。' } });
-          const r = op === 'talk' ? Sim.bondTalk(c, who, now) : op === 'gift' ? Sim.bondGift(c, who, typeof m.key === 'string' ? { key: m.key } : { i: clampInt(m.i, 0, 999) }, now) : Sim.bondSeen(c, who, clampInt(m.tier, 0, 9), now);
-          if (r.ok) { store.put(ws.acc); later(ws); if (r.up) refit(ws); }
+          const c = pc(ws.acc), who = String(m.who), now = Date.now(), op = ['talk', 'gift', 'ask', 'vow'].includes(m.op) ? m.op : 'seen'; if (!Object.prototype.hasOwnProperty.call(Sim.BONDS, who)) return;
+          if (op !== 'seen' && op !== 'talk' && seats.has(ws.acc.id)) return send(ws, { t: 'bond', op, who, r: { ok: false, msg: '副本裡不能送禮。' } });
+          const r = op === 'talk' ? Sim.bondTalk(c, who, now) : op === 'gift' ? Sim.bondGift(c, who, typeof m.key === 'string' ? { key: m.key } : { i: clampInt(m.i, 0, 999) }, now) : op === 'ask' ? Sim.bondAsk(c, who, now) : op === 'vow' ? Sim.bondVow(c, who, now) : Sim.bondSeen(c, who, clampInt(m.tier, 0, 9), now);
+          if (r.ok) { store.put(ws.acc); later(ws); if (r.up || r.rel) refit(ws); }
           return send(ws, { t: 'bond', op, who, r, profile: profileOf(ws.acc) });
         }
         case 'claim': { const r = Sim.questClaim(pc(ws.acc), String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
