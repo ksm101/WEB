@@ -378,7 +378,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     <div id="talk" hidden>
       <b id="talk-who"></b><p id="talk-text" aria-live="polite"></p>
       <div id="talk-pick" hidden></div>
-      <div id="talk-bond" hidden><b id="tb-name"></b><span class="bar"><i id="tb-bar"></i></span><span id="tb-num"></span><button class="mini go" id="tb-gift" type="button">送禮</button></div>
+      <div id="talk-bond" hidden><b id="tb-name"></b><span class="bar"><i id="tb-bar"></i></span><span id="tb-num"></span><button class="mini go" id="tb-gift" type="button">互動</button></div>
       <div class="row"><span id="talk-count"></span><button class="mini" id="talk-skip" type="button">跳過</button></div>
     </div>
     <div id="gift" hidden></div>
@@ -874,7 +874,7 @@ const dgn = id => S.DUNGEONS[id] || S.DUNGEONS.tower, dname = id => dgn(id).name
 const dungeonLv = id => qs.has('tower') ? Math.max(1, +qs.get('tower') || 1) : QUICK ? 1 : dgn(id).min;      // read each time: the editor can change it
 const dungeonOpen = id => save.cl >= dungeonLv(id);
 const cam = { x: 0, y: 0 }, NPC_CLS = { kol: 'tank', mira: 'heal', jin: 'dps', wu: 'dps' };
-const talk = { lines: null, i: 0, done: null, focus: null }, quest = { giver: '' };
+const talk = { lines: null, i: 0, done: null, focus: null }, quest = { due: new Set() };
 const inField = () => !!V && V.mode === 'field';      // alone (run on this device) or with a party (run on the server)
 let nearNpc = null, nearGate = false, nearStall = null, nearExit = null;
 
@@ -1012,8 +1012,9 @@ function askPick(q) {
 }
 function endSay() { const done = talk.done, picks = talk.picks || []; talk.pick = null; talk.art = false; talk.hold = null; $('#talk-pick').hidden = true; $('#gift').hidden = true; $('#talk-art').style.bottom = ''; talk.lines = null; talk.done = null; talk.focus = null; talk.bond = ''; talk.gift = false; $('#talk').hidden = true; $('#talk-art').hidden = true; $('#talk-art').dataset.who = ''; if (done) done(picks); }
 function talkTo(id) {
-  const main = S.questList(save, Date.now(), online).items.find(x => x.group === 'main'), sc = main && Story.SCENES[main.id];
-  if (main && main.ready && sc && sc.at === id) return claimMain(main.id);      // this is who the finished quest goes back to
+  const items = S.questList(save, Date.now(), online).items, main = items.find(x => x.group === 'main'), sc = main && Story.SCENES[main.id];
+  const due = items.filter(x => x.ready && x.at === id).sort((a, b) => (a.group === 'main' ? 0 : 1) - (b.group === 'main' ? 0 : 1))[0];
+  if (due) return turnIn(due, id);      // this is who a finished quest goes back to: that comes before anything else
   const bond = S.BONDS[id] && Story.BOND[id] ? id : ''; if (bond && bondScene(id)) return;      // a tier reached since last time: that comes first
   let idle = Story.IDLE[id] || ['……']; if (bond) { const t = S.bondTier(save, id), more = Story.BOND[id].more || {}; for (const k of Object.keys(more)) if (t >= +k) idle = idle.concat(more[k]); if (save.bond[id] && save.bond[id].rel && Story.BOND[id].dear) idle = Story.BOND[id].dear.concat(Story.BOND[id].dear, idle); }      // someone who loves you mostly talks like it
   const said = pick(idle), lines = said && said.lines ? said.lines.map(l => [id].concat(l)) : [[id].concat(said)];      // an idle line is a line, or [line, face], or several of them said one after another
@@ -1040,10 +1041,10 @@ function bondScene(who) {
 }
 function renderBond() {
   const who = talk.bond, b = who ? S.bondInfo(save, who, Date.now()) : null, g = $('#gift'); $('#talk-bond').hidden = !b; g.hidden = !b || !talk.gift; if (!b) return;
-  $('#tb-name').textContent = `好感・${b.name}`; $('#tb-bar').style.width = clamp((b.v - b.from) / (b.to - b.from), 0, 1) * 100 + '%'; $('#tb-num').textContent = `${b.v} / ${b.to}`; $('#tb-gift').textContent = talk.gift ? '收起' : '送禮';
+  $('#tb-name').textContent = `好感・${b.name}`; $('#tb-bar').style.width = clamp((b.v - b.from) / (b.to - b.from), 0, 1) * 100 + '%'; $('#tb-num').textContent = `${b.v} / ${b.to}`; $('#tb-gift').textContent = talk.gift ? '收起' : '互動';
   if (!talk.gift) return;
   const name = Story.CAST[who].name, ul = el('ul'), list = el('div', 'gifts'); g.textContent = '';
-  { const hd = el('div', 'gh'), back = el('button', 'mini', '收起'); back.type = 'button'; back.addEventListener('click', () => { talk.gift = false; talk.sure = null; renderBond(); }); hd.append(el('b', '', `送給${name}`), el('span', '', `好感・${b.name}　${b.v} / ${b.to}`), back); g.appendChild(hd); }
+  { const hd = el('div', 'gh'), back = el('button', 'mini', '收起'); back.type = 'button'; back.addEventListener('click', () => { talk.gift = false; talk.sure = null; renderBond(); }); hd.append(el('b', '', `和${name}互動`), el('span', '', `好感・${b.name}　${b.v} / ${b.to}`), back); g.appendChild(hd); }
   for (const p of b.perks) ul.appendChild(el('li', p.on ? 'on' : '', `${p.on ? '✓' : '・'} ${p.at}：${p.text}`));
   ul.appendChild(el('li', b.team ? 'on' : '', `${b.team ? '✓' : '・'} 信賴起：${name}當你的隊友時更強${b.team ? `（現在 +${Math.round(b.team * 100)}%）` : ''}`));
   const step = (label, op, ready, why) => { const bt = el('button', 'mini' + (ready ? ' go' : ''), label); bt.type = 'button'; bt.disabled = !ready; bt.addEventListener('click', () => { if (talk.sure !== bt) { talk.sure = bt; bt.textContent = '確定嗎？再點一次'; return; } talk.sure = null; loveStep(op); }); g.appendChild(bt); if (!ready && why) g.appendChild(el('p', '', why)); };
@@ -1119,9 +1120,12 @@ function talkTap(ev) {      // a tap on the dialogue box, or on the world while 
   if (talk.gift) { talk.gift = false; return renderBond(); }
   nextSay();
 }
-function claimMain(id) {
-  if (online) { if (!net.authed) return toast('連線中，等一下再試。', [], 2500); net.claiming = id; return send({ t: 'claim', id }); }
-  const r = S.questClaim(save, id, Date.now()); writeSave(); levelCheck(); toast(r.msg, [], 3500); renderBag(); renderMenu(); if (r.ok) say(Story.SCENES[id].lines);
+/* Report a finished quest to whoever it goes back to. They say their piece, and if you owe them another, that follows. */
+function turnInLines(it, at) { const sc = it.group === 'main' && Story.SCENES[it.id]; return sc ? sc.lines : Story.TURNIN[it.id] || (it.say ? [[at, it.say]] : [[at].concat(pick(Story.THANKS[at] || ['……']))]); }
+function turnedIn(it, at) { if (!inField() || !Story.CAST[at]) return; say(turnInLines(it, at), () => { const more = S.questList(save, Date.now(), online).items.some(x => x.ready && x.at === at); if (more) talkTo(at); else if (S.BONDS[at] && Story.BOND[at]) bondScene(at); }); }
+function turnIn(it, at) {
+  if (online) { if (!net.authed) return toast('連線中，等一下再試。', [], 2500); net.claiming = { it, at }; return send({ t: 'claim', id: it.id, at }); }
+  const r = S.questClaim(save, it.id, Date.now(), at); writeSave(); levelCheck(); toast(r.msg, [], 3500); renderBag(); renderQuests(); if (!$('#menu').hidden) renderMenu(); if (r.ok) { refitMe(); turnedIn(it, at); }
 }
 function toCamp(msg) { $('#quests').hidden = true; if (!inField()) { chosen = save.cls; startField(); } if (msg) banner(msg, 2800); }
 function replayScene(id) { const sc = Story.SCENES[id]; if (!sc) return; $('#quests').hidden = true; if (inField()) say(sc.lines); else { chosen = save.cls; startField(() => say(sc.lines)); } }
@@ -1240,7 +1244,7 @@ function onMsg(m) {
     }
     case 'loadout': applyProfile(m); if (!m.ok) toast(String(m.msg || ''), [], 4000); refitMe(); renderLoadout(); if (!$('#menu').hidden) renderMenu(); break;
     case 'bond': { const cb = net.bondCb; net.bondCb = null; if (m.profile) applyProfile(m); if (cb && m.r) cb(m.r); break; }
-    case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && inField() && Story.SCENES[id]) say(Story.SCENES[id].lines); break; }
+    case 'claimed': { const was = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && was && was.it) turnedIn(was.it, was.at); break; }
     case 'fy': { const done = newlyDone(() => applyProfile(m)); if (inField() && m.ok) showYield(m.mats || {}, done, m.xp, m.coin, m.item); if (m.item && m.item.up) refitMe(); break; }
     case 'loot': onLoot(m); break;
     case 'mail': net.mail = m; net.unread = m.list.filter(x => !x.read).length; mailBadge(); renderMail(); break;
@@ -1741,7 +1745,7 @@ function drawNpc(n) {
   }
   bar(x - 16, y - up - 10, 32, 4, 1, C.heal); plate(x, y - up - 14, cast ? cast.lvl : 1, cast ? cast.name : '', C.foam, 2);
   c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink;
-  if (quest.giver === n.id && !talk.lines) { c.font = `900 22px ${F.display}`; c.fillStyle = C.brass; const my = y - up - 30 + (reduced ? 0 : Math.sin(clock * 4) * 2); c.strokeText('！', x, my); c.fillText('！', x, my); }
+  if (quest.due.has(n.id) && !talk.lines) { c.font = `900 22px ${F.display}`; c.fillStyle = C.brass; const my = y - up - 30 + (reduced ? 0 : Math.sin(clock * 4) * 2); c.strokeText('！', x, my); c.fillText('！', x, my); }
 }
 function drawMinimap() {
   const c = ctx, w = 46, h = w * FD.h / FD.w, x = stageW - w - 10, y = 10, k = w / FD.w;
@@ -2445,7 +2449,7 @@ function renderQuests() {
   const ql = S.questList(save, Date.now(), online), ready = ql.items.filter(x => x.ready).length, badge = $('#q-badge');
   badge.hidden = !ready; badge.textContent = ready; { const b2 = $('#q-badge2'); b2.hidden = !ready; b2.textContent = ready; }
   const main = ql.items.find(x => x.group === 'main'), line = $('#m-quest'); line.textContent = ''; line.classList.toggle('ready', !!(main && main.ready));
-  quest.giver = main && main.ready && Story.SCENES[main.id] ? Story.SCENES[main.id].at : '';      // who at the camp is waiting for you
+  quest.due = new Set(ql.items.filter(x => x.ready && x.at && Story.CAST[x.at]).map(x => x.at));      // who at the camp is waiting to hear from you
   line.append(el('span', '', '主線'), el('b', '', main ? `${main.title}　${main.goal}` : '主線暫時到這裡，之後會再加'), el('i', '', main ? (main.ready ? '回營地領獎' : `${main.have} / ${main.need}`) : ''));
   if ($('#quests').hidden) return;
   const body = $('#quests-body'), waiting = online && !net.authed; body.textContent = '';
@@ -2456,9 +2460,10 @@ function renderQuests() {
       const li = el('li'), left = el('div', 'info'), meta = el('span', 'cost');
       meta.append(el('span', '', `進度 ${it.have}/${it.need}`), el('span', '', `獎勵　${it.reward}`));
       left.append(el('b', '', it.title), el('small', '', it.goal), meta);
-      const sc = key === 'main' && Story.SCENES[it.id], who = sc && Story.CAST[sc.at];      // main quests are handed in to someone at the camp
+      const who = it.at ? Story.CAST[it.at] : null, asked = it.from && it.from !== it.at && Story.CAST[it.from];      // most quests are reported to someone at the camp, not always whoever asked
+      if (asked) left.appendChild(el('small', '', `${asked.name}託你的`));
       const b = el('button', 'mini' + (it.ready ? ' go' : ''), it.claimed ? '已領' : !it.ready ? '進行中' : who ? `找${who.name}` : '領取'); b.type = 'button'; b.id = 'claim-' + it.id; b.disabled = !it.ready || waiting;
-      b.addEventListener('click', () => { if (who) return toCamp(`${who.name}在營地等你，走過去說話就能領獎。`); b.disabled = true; doClaim(it.id); });
+      b.addEventListener('click', () => { if (who) return toCamp(mateActor(it.at) ? `${who.name}就在你旁邊：點上方她的名牌，跟她說一聲。` : `${who.name}在營地等你，走過去說話就能領獎。`); b.disabled = true; doClaim(it.id); });
       li.append(left, b); ul.appendChild(li);
     }
     g.appendChild(ul); body.appendChild(g);
@@ -2475,7 +2480,7 @@ function renderQuests() {
   }
 }
 function doClaim(id) {
-  if (online) { net.claiming = id; return send({ t: 'claim', id }); }   // the server hands out rewards
+  if (online) { net.claiming = ''; return send({ t: 'claim', id }); }   // the server hands out rewards
   const r = S.questClaim(save, id, Date.now()); writeSave(); levelCheck(); toast(r.msg, [], 3500); renderBag(); renderMenu();
 }
 

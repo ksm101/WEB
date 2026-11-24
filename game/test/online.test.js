@@ -117,6 +117,15 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
       Sim.removeFieldMate(F, 0); assert.ok(mate.out && Sim.present(F).length === 1); assert.ok(Sim.bondMate(m, 'jin', false, tm).ok && m.mate === '' && Sim.mateOf(m) === null);
       m.mate = 'jin'; m.bond.jin.v = 0; Sim.fixProfile(m); assert.strictEqual(m.mate, '', 'nobody walks with you who is not yet a friend'); assert.strictEqual(quiet > 0, true);
       for (const w of Object.keys(Sim.BONDS)) if (Sim.BONDS[w].love) for (const key of ['come', 'stay']) { assert.ok(Story.BOND[w][key] && Story.BOND[w][key].length, `${w}: nothing to say for ${key}`); for (const t of Story.BOND[w][key]) said(t); } }
+    { const camp = Sim.FIELD.npcs.map(n => n.id), t5 = 6e12, e = Sim.fixProfile(Sim.newProfile()), all = () => Sim.questList(e, t5, true).items;
+      for (const it of all()) if (it.group !== 'main') assert.ok(camp.includes(it.at), `${it.id}: reported to nobody at the camp`);
+      for (const id of Object.keys(Story.TURNIN)) { const lines = Story.TURNIN[id]; assert.ok(lines.length >= 1 && lines.length <= 4); for (const [w, text, face] of lines) { assert.ok(Story.CAST[w], `${id}: unknown speaker`); assert.ok(text.length > 0 && text.length <= 48, `${id}: line too long`); assert.ok(face === undefined || Story.MOODS[face]); } }
+      for (const who of camp) { assert.ok(Story.THANKS[who] && Story.THANKS[who].length, `${who}: nothing to say on being reported to`); for (const t of Story.THANKS[who]) said(t); }
+      assert.ok(!all().some(x => x.id === 's-medicine'), 'the errand waits for what comes before it'); for (let i = 0; i < 6; i++) Sim.questEvent(e, { type: 'gather', node: 'wreck' }, t5);
+      assert.ok(!Sim.questClaim(e, 's-gather', t5, 'kol').ok, 'a quest is not handed over to the wrong person'); assert.ok(Sim.questClaim(e, 's-gather', t5, 'mira').ok);
+      const errand = all().find(x => x.id === 's-medicine'); assert.ok(errand && errand.ready && errand.at === 'kol' && errand.from === 'mira', 'an errand is ready to carry at once, to someone other than whoever asked'); assert.strictEqual(Story.TURNIN['s-medicine'][0][0], 'kol');
+      const v0 = e.bond.mira.v; assert.ok(Sim.questClaim(e, 's-medicine', t5, 'kol').ok && e.bond.mira.v === v0 + 10); assert.ok(all().find(x => x.id === 's-medicine').claimed);
+      for (const it of all()) if (Story.TURNIN[it.id]) assert.strictEqual(Story.TURNIN[it.id][0][0], it.at, `${it.id}: the first to speak is whoever it goes back to`); }
     for (const k of Object.keys(Story.ALT)) assert.ok(Story.MOODS[k] && Story.MOODS[Story.ALT[k]], `${k}: a face stands in for a face`);
     { const q = Sim.fixProfile(Object.assign(Sim.newProfile(), { cls: 'dps' })), t1 = 2e12, day = 86400000; Object.assign(q.inv, { herb: 30, salt: 30, shard: 30 }); q.coin = 2000;
       assert.ok(!Sim.bondAsk(q, 'jin', t1).ok, 'not before the last tier'); q.bond.jin.v = 700; assert.ok(!Sim.bondAsk(q, 'jin', t1).ok, 'nor before its scene has been seen'); assert.strictEqual(Sim.bondInfo(q, 'jin', t1).ask, null);

@@ -1334,21 +1334,26 @@ const MAIN = [
   { id: 'lvl5', title: '鐘塔中段', goal: '抵達第 5 層', need: 5, reward: { coin: 120, xp: 500, shard: 2, potion: 1, scrap: 12 }, value: p => p.lvl }
 ];
 const WEEK = [
-  { id: 'w-runs', title: '本週巡塔', goal: '這週通關 5 場', need: 5, reward: { coin: 80, xp: 300, scrap: 15, salt: 4 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
-  { id: 'w-kicks', title: '本週斷法', goal: '這週成功打斷 10 次', need: 10, reward: { coin: 60, xp: 250, salt: 5 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
-  { id: 'w-surge', title: '本週漲潮', goal: '這週在鏽灘撐過 2 次漲潮', need: 2, online: true, reward: { coin: 80, xp: 300, shard: 2 }, inc: ev => ev.type === 'event' ? 1 : 0 },
-  { id: 'w-ontime', title: '本週準時', goal: '這週三分鐘內通關 3 場', need: 3, reward: { coin: 80, xp: 350, shard: 2 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 }
+  { id: 'w-runs', at: 'kol', title: '本週巡塔', goal: '這週通關 5 場', need: 5, reward: { coin: 80, xp: 300, scrap: 15, salt: 4 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
+  { id: 'w-kicks', at: 'mira', title: '本週斷法', goal: '這週成功打斷 10 次', need: 10, reward: { coin: 60, xp: 250, salt: 5 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
+  { id: 'w-surge', at: 'wu', title: '本週漲潮', goal: '這週在鏽灘撐過 2 次漲潮', need: 2, online: true, reward: { coin: 80, xp: 300, shard: 2 }, inc: ev => ev.type === 'event' ? 1 : 0 },
+  { id: 'w-ontime', at: 'jin', title: '本週準時', goal: '這週三分鐘內通關 3 場', need: 3, reward: { coin: 80, xp: 350, shard: 2 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 }
 ];
+/* at: who the finished quest is reported to (someone at the camp), where they have something to say and hand over
+ * what was promised. It need not be whoever asked (from): an errand (type 'errand') is nothing but carrying something
+ * from one of them to another, and is ready to report as soon as it is given. A quest without `at` is claimed from the
+ * list. */
 const SIDE = [
-  { id: 's-party', title: '結伴', goal: '和至少一位其他玩家一起通關', need: 1, online: true, reward: { coin: 50, xp: 200, scrap: 10, potion: 1 }, upd: (v, ev) => isRun(ev) && ev.win && ev.mates > 0 ? 1 : v },
-  { id: 's-level', title: '站穩腳步', goal: '升到 5 級', need: 5, reward: { coin: 60, shard: 2, potion: 1 }, upd: (v, ev, p) => p.cl, have: v => v },
-  { id: 's-gather', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { coin: 40, xp: 150, scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
-  { id: 's-hunt', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { coin: 50, xp: 200, salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
-  { id: 'b-mira1', title: '蜜拉的藥草', goal: '替蜜拉採 6 株潮草', need: 6, bond: ['mira', 1], bondGain: ['mira', 40], reward: { potion: 2, xp: 150 }, upd: (v, ev) => ev.type === 'gather' && ev.node === 'herb' ? Math.min(6, v + 1) : v },
-  { id: 'b-mira2', title: '趕在潮前', goal: '在限時內通關沉鐘塔 3 次', need: 3, bond: ['mira', 3], bondGain: ['mira', 60], reward: { coin: 150, shard: 2 }, upd: (v, ev) => isRun(ev) && ev.win && ev.onTime ? Math.min(3, v + 1) : v },
-  { id: 'b-jin1', title: '吵死人的學徒', goal: '在鏽灘擊倒 8 隻鹽咒學徒', need: 8, bond: ['jin', 1], bondGain: ['jin', 40], reward: { scrap: 10, xp: 150 }, upd: (v, ev) => ev.type === 'kill' && ev.kind === 'acolyte' ? Math.min(8, v + 1) : v },
-  { id: 'b-jin2', title: '一秒都不多給', goal: '在副本裡打斷 10 次讀條', need: 10, bond: ['jin', 3], bondGain: ['jin', 60], reward: { coin: 150, shard: 2 }, upd: (v, ev) => isRun(ev) ? Math.min(10, v + (ev.kicks || 0)) : v },
-  { id: 's-friend', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { coin: 30, xp: 100, salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
+  { id: 's-party', at: 'wu', title: '結伴', goal: '和至少一位其他玩家一起通關', need: 1, online: true, reward: { coin: 50, xp: 200, scrap: 10, potion: 1 }, upd: (v, ev) => isRun(ev) && ev.win && ev.mates > 0 ? 1 : v },
+  { id: 's-level', at: 'kol', title: '站穩腳步', goal: '升到 5 級', need: 5, reward: { coin: 60, shard: 2, potion: 1 }, upd: (v, ev, p) => p.cl, have: v => v },
+  { id: 's-gather', at: 'mira', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { coin: 40, xp: 150, scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
+  { id: 's-medicine', at: 'kol', from: 'mira', type: 'errand', after: 's-gather', title: '送藥', goal: '把蜜拉熬的藥帶去給柯爾', need: 1, bondGain: ['mira', 10], reward: { coin: 20, xp: 80 }, upd: v => v },
+  { id: 's-hunt', at: 'kol', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { coin: 50, xp: 200, salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
+  { id: 'b-mira1', at: 'mira', title: '蜜拉的藥草', goal: '替蜜拉採 6 株潮草', need: 6, bond: ['mira', 1], bondGain: ['mira', 40], reward: { potion: 2, xp: 150 }, upd: (v, ev) => ev.type === 'gather' && ev.node === 'herb' ? Math.min(6, v + 1) : v },
+  { id: 'b-mira2', at: 'mira', title: '趕在潮前', goal: '在限時內通關沉鐘塔 3 次', need: 3, bond: ['mira', 3], bondGain: ['mira', 60], reward: { coin: 150, shard: 2 }, upd: (v, ev) => isRun(ev) && ev.win && ev.onTime ? Math.min(3, v + 1) : v },
+  { id: 'b-jin1', at: 'jin', title: '吵死人的學徒', goal: '在鏽灘擊倒 8 隻鹽咒學徒', need: 8, bond: ['jin', 1], bondGain: ['jin', 40], reward: { scrap: 10, xp: 150 }, upd: (v, ev) => ev.type === 'kill' && ev.kind === 'acolyte' ? Math.min(8, v + 1) : v },
+  { id: 'b-jin2', at: 'jin', title: '一秒都不多給', goal: '在副本裡打斷 10 次讀條', need: 10, bond: ['jin', 3], bondGain: ['jin', 60], reward: { coin: 150, shard: 2 }, upd: (v, ev) => isRun(ev) ? Math.min(10, v + (ev.kicks || 0)) : v },
+  { id: 's-friend', at: 'wu', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { coin: 30, xp: 100, salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
 ];
 const weekOf = now => Math.floor((Math.floor((now + 8 * 3600000) / 86400000) + 3) / 7);
 const qInt = (v, a, b) => Number.isInteger(v) ? Math.min(b, Math.max(a, v)) : a;
@@ -1368,7 +1373,7 @@ const rewardText = r => Object.keys(r).map(k => `${k === 'xp' ? '經驗' : k ===
 /* A quest made in the editor is one of these kinds. Each is counted from the events the game already reports:
  * a kill carries the creature's kind, its pack's own name (tag) and the map; a gather the kind of spot and the map;
  * a finished run the dungeon; a landmark its name. `after` names a quest that must be handed in first. */
-const QUEST_TYPES = { kill: '擊倒一隻有名字的怪', kind: '擊倒某一種怪', gather: '採集', item: '收集任務物品（怪身上掉）', reach: '到達一個地標', run: '通關副本' };
+const QUEST_TYPES = { errand: '跑腿：把東西帶去給回報的人', kill: '擊倒一隻有名字的怪', kind: '擊倒某一種怪', gather: '採集', item: '收集任務物品（怪身上掉）', reach: '到達一個地標', run: '通關副本' };
 function questHit(t, ev) {
   switch (t.type) {
     case 'kill': return ev.type === 'kill' && !!ev.tag && ev.tag === t.kill;
@@ -1383,14 +1388,14 @@ function questHit(t, ev) {
 const questDone = (q, id) => q.side[id] === -1 || (MAIN.findIndex(m => m.id === id) >= 0 && q.main > MAIN.findIndex(m => m.id === id));
 function questList(p, now, online) {
   const q = fixQuests(p, now), items = [], m = MAIN[q.main];
-  if (m) { const have = Math.min(m.need, m.value ? m.value(p) : q.mp); items.push({ id: m.id, group: 'main', title: m.title, goal: m.goal, have, need: m.need, ready: have >= m.need, claimed: false, reward: rewardText(m.reward) }); }
-  for (const d of WEEK) { if (d.online && !online) continue; const have = q.week.p[d.id] || 0, claimed = !!q.week.c[d.id]; items.push({ id: d.id, group: 'week', title: d.title, goal: d.goal, have: claimed ? d.need : have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) }); }
+  if (m) { const have = Math.min(m.need, m.value ? m.value(p) : q.mp); items.push({ id: m.id, group: 'main', title: m.title, goal: m.goal, have, need: m.need, ready: have >= m.need, claimed: false, at: MAIN_AT[m.id] || '', from: '', reward: rewardText(m.reward) }); }
+  for (const d of WEEK) { if (d.online && !online) continue; const have = q.week.p[d.id] || 0, claimed = !!q.week.c[d.id]; items.push({ id: d.id, group: 'week', title: d.title, goal: d.goal, have: claimed ? d.need : have, need: d.need, ready: !claimed && have >= d.need, claimed, at: d.at || '', from: '', reward: rewardText(d.reward) }); }
   for (const d of SIDE) {
     if (d.online && !online) continue;
     if (d.after && !questDone(q, d.after)) continue;
     if (d.bond && bondTier(p, d.bond[0]) < d.bond[1] && q.side[d.id] !== -1) continue;      // theirs to ask once they know you well enough
-    const v = d.id === 's-level' && q.side[d.id] !== -1 ? p.cl : q.side[d.id] || 0, claimed = v === -1, have = claimed ? d.need : Math.min(d.need, d.have ? d.have(v) : v);
-    items.push({ id: d.id, group: 'side', title: d.title, tally: d.type === 'item' && d.item ? d.item : d.title, goal: d.goal, have, need: d.need, ready: !claimed && have >= d.need, claimed, from: d.bond ? d.bond[0] : '', tier: d.bond ? d.bond[1] : 0, reward: rewardText(d.reward) + (d.bondGain ? `、好感 +${d.bondGain[1]}` : '') });
+    const v = d.id === 's-level' && q.side[d.id] !== -1 ? p.cl : q.side[d.id] || 0, claimed = v === -1, have = claimed || d.type === 'errand' ? d.need : Math.min(d.need, d.have ? d.have(v) : v);      // an errand is ready to carry as soon as it is given
+    items.push({ id: d.id, group: 'side', title: d.title, tally: d.type === 'item' && d.item ? d.item : d.title, goal: d.goal, have, need: d.need, ready: !claimed && have >= d.need, claimed, at: d.at || '', say: d.custom ? d.say || '' : '', from: d.from || (d.bond ? d.bond[0] : ''), tier: d.bond ? d.bond[1] : 0, reward: rewardText(d.reward) + (d.bondGain ? `、好感 +${d.bondGain[1]}` : '') });
   }
   return { items, mainDone: q.main, mainTotal: MAIN.length };
 }
@@ -1402,9 +1407,11 @@ function questEvent(p, ev, now) {
   for (const d of WEEK) if (!q.week.c[d.id]) { const v = Math.min(d.need, (q.week.p[d.id] || 0) + (d.inc(ev) || 0)); if (v > 0) q.week.p[d.id] = v; }
   for (const d of SIDE) if (q.side[d.id] !== -1 && !(d.after && !questDone(q, d.after)) && !(d.bond && bondTier(p, d.bond[0]) < d.bond[1])) { const v = d.upd(q.side[d.id] || 0, ev, p); if (v > 0) q.side[d.id] = v; }
 }
-function questClaim(p, id, now) {
+/* at: who it is being reported to, when it is. A quest that goes back to someone is not handed over by anyone else. */
+function questClaim(p, id, now, at) {
   const q = fixQuests(p, now), it = questList(p, now, true).items.find(x => x.id === id);
   if (!it) return { ok: false, msg: '沒有這個任務。' };
+  if (typeof at === 'string' && at && it.at && at !== it.at) return { ok: false, msg: `「${it.title}」要找別人回報。` };
   if (it.claimed) return { ok: false, msg: '這個任務的獎勵已經領過了。' };
   if (!it.ready) return { ok: false, msg: `「${it.title}」還沒完成。` };
   const d = MAIN.concat(WEEK, SIDE).find(x => x.id === id);
@@ -1465,7 +1472,7 @@ function patch(tgt, src) {
 }
 const editable = o => { const r = {}; for (const k of Object.keys(o)) if ((LIM[k] && typeof o[k] === 'number') || (TEXT[k] && typeof o[k] === 'string')) r[k] = o[k]; return r; };
 function exportData() {
-  const map = t => { const r = {}; for (const k of Object.keys(t)) r[k] = editable(t[k]); return r; }, quests = list => list.map(x => Object.assign({ id: x.id }, editable(x), { reward: x.reward }, x.custom ? { type: x.type, kill: x.kill, kind: x.kind, node: x.node, map: x.map, item: x.item, chance: x.chance, reach: x.reach, run: x.run, fast: x.fast, after: x.after } : null));
+  const map = t => { const r = {}; for (const k of Object.keys(t)) r[k] = editable(t[k]); return r; }, quests = list => list.map(x => Object.assign({ id: x.id }, editable(x), { reward: x.reward }, x.custom ? { type: x.type, kill: x.kill, kind: x.kind, node: x.node, map: x.map, item: x.item, chance: x.chance, reach: x.reach, run: x.run, fast: x.fast, after: x.after, at: x.at, say: x.say } : null));
   const enemies = map(ENEMY), maps = {}, dungeons = {};
   for (const k of Object.keys(ENEMY)) { if (ENEMY[k].base) enemies[k].base = ENEMY[k].base; if (ENEMY[k].moves) enemies[k].moves = ENEMY[k].moves; }
   for (const k of Object.keys(DUNGEONS)) { const D = DUNGEONS[k]; dungeons[k] = D.type === 'layout' ? { name: D.name, min: D.min, time: D.time, type: 'layout', map: D.map } : { name: D.name, min: D.min, time: D.time, type: 'waves', waves: D.waves }; }
@@ -1538,7 +1545,7 @@ function applyData(d) {
     for (let i = SIDE.length - 1; i >= 0; i--) if (SIDE[i].custom && !d.quests.side.some(q => isObj(q) && q.id === SIDE[i].id)) SIDE.splice(i, 1);
     for (const q of d.quests.side) {
       if (!isObj(q) || !(typeof q.kill === 'string' || Object.prototype.hasOwnProperty.call(QUEST_TYPES, q.type)) || !/^k[a-z0-9]{1,8}$/.test(q.id) || SIDE.some(x => x.id === q.id) || SIDE.filter(x => x.custom).length >= 30) continue;
-      const t = { id: q.id, title: '新任務', goal: '', need: 1, reward: { xp: 100 }, custom: true, type: 'kill', kill: '', kind: '', node: '', map: '', item: '', chance: .5, reach: '', run: '', fast: false, after: '' };
+      const t = { id: q.id, title: '新任務', goal: '', need: 1, reward: { xp: 100 }, custom: true, type: 'kill', kill: '', kind: '', node: '', map: '', item: '', chance: .5, reach: '', run: '', fast: false, after: '', at: '', say: '' };
       t.upd = (v, ev) => questHit(t, ev) ? Math.min(t.need, v + 1) : v; SIDE.push(t);
     }
   }
@@ -1546,7 +1553,8 @@ function applyData(d) {
     const t = isObj(q) && list.find(x => x.id === q.id); if (!t) continue; patch(t, q);
     if (t.custom) {
       if (Object.prototype.hasOwnProperty.call(QUEST_TYPES, q.type)) t.type = q.type;
-      for (const [f, n] of [['kill', 8], ['kind', 12], ['node', 6], ['map', 12], ['item', 6], ['reach', 8], ['run', 12], ['after', 12]]) if (typeof q[f] === 'string') t[f] = cleanStr(q[f], n);
+      for (const [f, n] of [['kill', 8], ['kind', 12], ['node', 6], ['map', 12], ['item', 6], ['reach', 8], ['run', 12], ['after', 12], ['at', 12], ['say', 60]]) if (typeof q[f] === 'string') t[f] = cleanStr(q[f], n);
+      if (!FIELD.npcs.some(n => n.id === t.at)) t.at = ''; if (t.type === 'errand') { t.need = 1; if (!t.at) t.type = 'kill'; }      // an errand has to be to somebody
       { const c = numIn(q.chance, .05, 1, false); if (c !== null) t.chance = c; } if (q.fast !== undefined) t.fast = !!q.fast; t.need = Math.min(99, t.need);
     }
     if (isObj(q.reward)) { const r = prices(q.reward, 1, 99999, ['coin', 'xp', 'potion'].concat(matKeys)); if (Object.keys(r).length) t.reward = r; }

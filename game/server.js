@@ -632,7 +632,7 @@ function start(opts) {
           if (r.ok) { store.put(ws.acc); later(ws); if (r.up || r.rel) refit(ws); }
           return send(ws, { t: 'bond', op, who, r, profile: profileOf(ws.acc) });
         }
-        case 'claim': { const r = Sim.questClaim(pc(ws.acc), String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
+        case 'claim': { const r = Sim.questClaim(pc(ws.acc), String(m.id), Date.now(), typeof m.at === 'string' ? m.at.slice(0, 12) : ''); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'craft': { const r = Sim.craft(pc(ws.acc), String(m.id)); if (r.ok) { Sim.questEvent(pc(ws.acc), { type: 'craft', kind: r.kind }, Date.now()); store.put(ws.acc); } return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
       }
       if (m.t === 'lootmode' || m.t === 'ready') {      // about the group you are waiting for

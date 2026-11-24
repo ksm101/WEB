@@ -226,7 +226,7 @@ const VIEW = {
         ul.appendChild(card('q:' + q.id, q.title, mine ? `${q.goal}　${q.need} 次${q.after ? '（接在別的任務後面）' : ''}` : q.goal, b => {
           b.appendChild(form(P, ['title', 'goal', 'need']));
           if (mine) { const f = el('div', 'fields');
-            f.appendChild(choice('類型', q.type, Object.entries(S.QUEST_TYPES), turn(q, v => { q.type = v; if (['kill', 'reach'].includes(v)) q.need = 1;
+            f.appendChild(choice('類型', q.type, Object.entries(S.QUEST_TYPES), turn(q, v => { q.type = v; if (['kill', 'reach', 'errand'].includes(v)) q.need = 1; if (v === 'errand' && !q.at) q.at = S.FIELD.npcs[0].id;
               if (v === 'kill') q.kill = q.kill || (named[0] || [''])[0]; if (v === 'kind' || v === 'item') q.kind = q.kind || kinds[0][0]; if (v === 'item') { q.kill = ''; q.item = q.item || '信物'; } if (v === 'reach') q.reach = q.reach || (marks[0] || [''])[0]; })));
             if (q.type === 'kill') f.appendChild(choice('目標：哪一隻有名字的怪', q.kill, gone(named, q.kill, '地圖上已經沒有這個名字'), turn(q, v => { q.kill = v; })));
             if (q.type === 'kind') f.append(choice('目標：哪一種怪', q.kind, gone(kinds, q.kind, '已經沒有這種怪'), turn(q, v => { q.kind = v; })), choice('在哪張地圖', q.map, [['', '哪張地圖都算']].concat(maps), turn(q, v => { q.map = v; })));
@@ -236,6 +236,8 @@ const VIEW = {
                 q.kill ? choice('哪一隻', q.kill, gone(named, q.kill, '地圖上已經沒有這個名字'), turn(q, v => { q.kill = v; })) : choice('哪一種怪', q.kind, gone(kinds, q.kind, '已經沒有這種怪'), turn(q, v => { q.kind = v; })), numField('每次擊倒掉出來的機率', P.concat('chance'), ['', .05, 1, .05])); }
             if (q.type === 'reach') f.appendChild(choice('目標：哪個地標', q.reach, gone(marks, q.reach, '地圖上已經沒有這個地標'), turn(q, v => { q.reach = v; })));
             if (q.type === 'run') f.append(choice('哪個副本', q.run, [['', '哪個副本都算']].concat(runs), turn(q, v => { q.run = v; })), choice('要在時限內打完嗎', q.fast ? '1' : '0', [['0', '不用，通關就算'], ['1', '要，超時不算']], turn(q, v => { q.fast = v === '1'; })));
+            { const folk = S.FIELD.npcs.map(n => [n.id, (window.Story && Story.CAST[n.id] ? Story.CAST[n.id].name : n.id)]), inp = el('input'); inp.type = 'text'; inp.maxLength = 60; inp.value = q.say || ''; inp.autocomplete = 'off'; inp.placeholder = '不填就用那個人平常的謝詞'; inp.addEventListener('change', () => { q.say = inp.value; commit(); });
+              f.append(choice('找誰回報', q.at || '', (q.type === 'errand' ? [] : [['', '不用找人，在任務清單直接領']]).concat(folk), v => { q.at = v; }), field('回報時那個人說的話', inp)); }
             f.appendChild(choice('什麼時候出現', q.after, [['', '一開始就有']].concat(doc.quests.main.concat(doc.quests.side).filter(x => x.id !== q.id).map(x => [x.id, `交完「${x.title}」之後`])), v => { q.after = v; }));
             b.appendChild(f);
             if (q.type === 'kill' && !named.length) b.appendChild(note('地圖上還沒有取了名字的怪：到「地圖」分頁選一組怪群，替牠取名字。'));

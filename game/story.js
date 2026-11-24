@@ -224,7 +224,30 @@ const BOND = {
   }
 };
 
+/* What is said when a finished quest is reported to whoever it goes back to (sim.js: the quest's `at`). The first to
+ * speak is that person. A quest with nothing written here gets one of their THANKS. */
+const TURNIN = {
+  'w-runs': [['kol', '這週五趟，一趟沒少。拿去，該你的。', 'smile']],
+  'w-kicks': [['mira', '十次都打斷了？這週的潮水會晚一點回來。謝謝你。', 'smile']],
+  'w-surge': [['wu', '兩次漲潮都撐住了！我在燈塔上都有看到喔！', 'surprised']],
+  'w-ontime': [['jin', '三趟都在三分鐘內？哼～還算跟得上嘛。', 'smug']],
+  's-party': [['wu', '你帶了別的人一起進塔？外面還有其他人嗎？好想認識！', 'surprised']],
+  's-level': [['kol', '站得比剛來的時候穩了。五級，算是能用的人了。', 'smile']],
+  's-gather': [['mira', '採了這麼多？辛苦了。這些夠我熬好幾鍋了。', 'smile'],
+    ['mira', '對了，這瓶是給柯爾的。他嘴上說不用，膝蓋可不是這麼說的。'],
+    ['mira', '你能幫我拿去給他嗎？我這邊走不開。']],
+  's-medicine': [['kol', '蜜拉叫你送來的？……我又沒說我膝蓋痛。', 'serious'],
+    ['kol', '放著吧。替我跟她說……算了，別說。拿去，跑腿錢。']],
+  's-hunt': [['kol', '灘上清爽多了。十二隻，我都聽見了。']],
+  's-friend': [['wu', '你交到朋友了！名字我幫你記在燈塔的本子上了。', 'smile']],
+  'b-mira1': [['mira', '六株，葉子都還是濕的。你採得真仔細。', 'smile'], ['mira', '這兩瓶你帶著。下塔的時候，別逞強。']],
+  'b-mira2': [['mira', '三次都趕在潮水前面……原來是這種感覺。光聽你說，心跳都快了。', 'shy'], ['mira', '謝謝你替我去看。下次，換我跟你一起走。', 'smile']],
+  'b-jin1': [['jin', '八隻全閉嘴了？喔～不錯嘛。終於安靜了。', 'smug'], ['jin', '……謝啦。這句只說一次喔，沒聽到算你的。', 'shy']],
+  'b-jin2': [['jin', '十次？真的假的，你該不會邊打邊偷數吧。', 'smug'], ['jin', '好啦，我承認你跟得上我。就一點點。', 'shy']]
+};
+const THANKS = { kol: ['辦妥了？好。拿去。'], mira: [['辛苦了。這是說好的謝禮。', 'smile']], jin: [['喔，辦完啦？拿去拿去～', 'smug']], wu: [['謝謝你！這個給你！', 'smile']] };
+
 const ORDER = ['prologue', 'bell', 'kick', 'craft', 'ontime', 'clean', 'lvl3', 'temper', 'lvl5'];
 
-return { CAST, SCENES, ORDER, IDLE, MOODS, ALT, POSES, BOND };
+return { CAST, SCENES, ORDER, IDLE, MOODS, ALT, POSES, BOND, TURNIN, THANKS };
 });
