@@ -405,10 +405,10 @@ function start(opts) {
   const lootChar = x => { const rec = store.get(x.id), c = rec && rec.chars[x.ci]; return c && c.made === x.made ? c : null; };
   function award(L, i, win, rolls) {
     const e = L.items[i]; e.done = true; let g = null; const x = L.members[win], c = x && lootChar(x);
-    if (c) { g = Sim.giveItem(c, e.it); store.put(store.get(x.id)); } else win = -1;
+    if (c) { g = Sim.giveItem(c, e.it, true); store.put(store.get(x.id)); } else win = -1;
     L.members.forEach((o, k) => {
       const ws = online.get(o.id); if (!ws) return; const mine = k === win, cur = mine && pc(ws.acc) === c;
-      send(ws, { t: 'loot', L: L.id, i, win, rolls, give: mine ? { up: g.up, old: g.old, sold: g.sold } : undefined, profile: cur ? charProfile(c) : undefined });
+      send(ws, { t: 'loot', L: L.id, i, win, rolls, give: mine ? { up: g.up, better: g.better, old: g.old, sold: g.sold } : undefined, profile: cur ? charProfile(c) : undefined });
       if (mine) { later(ws); if (cur) refit(ws); }
     });
     if (L.items.every(o => o.done)) loots.delete(L.id);

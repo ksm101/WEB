@@ -866,7 +866,7 @@ function stepEvent(G, dt) {
 /* What everyone who saw a surge through gets. */
 function eventReward(p) {
   fixProfile(p); const mats = { shard: 1, scrap: 4, herb: 2 }; grant(p, mats); const x = addXp(p, 150 + 25 * p.cl), coin = addCoin(p, 40);
-  const item = Math.random() < DROP.event ? giveItem(p, rollItem(fieldIlvl(clamp(p.cl, EV_MIN, EV_MAX)) + 2, null, DROP.eventSet, p.cls)) : null;
+  const item = Math.random() < DROP.event ? giveItem(p, rollItem(fieldIlvl(clamp(p.cl, EV_MIN, EV_MAX)) + 2, null, DROP.eventSet, p.cls), true) : null;
   return { mats, xp: x.xp, ups: x.ups, coin, item };
 }
 
@@ -888,7 +888,7 @@ function fieldGain(p, what, key, pk, map) {
   if (what === 'kill') { const def = Number.isInteger(pk) ? (MAPS[map] || FIELD).packs[pk] : null; if (!def || def.kind !== key) return null; ml = mobLevel(def, p.cl); xp = xpForKill(key, ml, p.cl); }
   const mats = fieldYield(what, key); grant(p, mats); const x = addXp(p, xp);
   const coin = what === 'kill' && Math.random() < .6 ? addCoin(p, 1 + Math.floor(Math.random() * 2) + Math.floor(p.cl / 6)) : 0;      // creatures sometimes carry a little coin
-  const item = ml && Math.random() < DROP.field ? giveItem(p, rollItem(fieldIlvl(ml), null, DROP.fieldSet, p.cls)) : null;      // and, now and then, something to wear
+  const item = ml && Math.random() < DROP.field ? giveItem(p, rollItem(fieldIlvl(ml), null, DROP.fieldSet, p.cls), true) : null;      // and, now and then, something to wear
   return { mats, xp: x.xp, ups: x.ups, coin, item };
 }
 
@@ -1200,13 +1200,15 @@ function wear(p, it, k) {
 /* A new item arrives. It is put on at once when that leaves the character better off, unless it would break a set
  * bonus; otherwise it goes to the bag. For the hands, better off means what the two hands hold between them: a weapon
  * for both hands counts twice, and one for one hand taking its place leaves the other hand empty.
- * Returns { it, up, old, sold }: sold is what the pieces that found no room fetched. */
-function giveItem(p, it) {
+ * Returns { it, up, old, sold }: sold is what the pieces that found no room fetched.
+ * With `hold` nothing is put on: it goes to the bag, and `better` says it would have been worn, so that the player can
+ * be shown it and asked. That is how everything found in play arrives; what is made at the forge is still put on. */
+function giveItem(p, it, hold) {
   fixProfile(p); const t = slotFor(p, it), k = t.s || null, h = hands(p);
   const old = k ? p.gear[k] : 0, was = k ? NAME_SET[p.eq[k].n] : '', keep = was && was !== NAME_SET[it.n] && setCount(p)[was] >= 2;
   const after = k === 'w' ? (t.two ? it.il * 2 : it.il + (h.two ? 10 : p.gear.o)) : k === 'o' ? p.gear.w + it.il : it.il, before = k === 'w' || k === 'o' ? p.gear.w + p.gear.o : old, up = !!k && after > before && !keep; let sold = 0;
-  if (up) for (const prev of wear(p, it, k)) sold += stow(p, prev); else sold = stow(p, it);
-  return { it, up, old, sold };
+  if (up && !hold) for (const prev of wear(p, it, k)) sold += stow(p, prev); else sold = stow(p, it);
+  return { it, up: up && !hold, better: up && !!hold && !sold, old, sold };
 }
 function equipItem(p, i, hand) {
   fixProfile(p); const it = Number.isInteger(i) ? p.bag[i] : null; if (!it) return { ok: false, msg: '背包裡沒有這件。' };
@@ -1244,7 +1246,7 @@ function applyResult(p, lvl, r, o) {
   if (!o.share) { const now = o.now || Date.now(); for (const who of Object.keys(BONDS)) { const b = fixBond(p, now)[who]; if (b.run < BOND_DAY.run) { b.run++; addBond(p, who, 3, now); } } }      // cleared with the camp at your side
   // alone, the first piece leans towards your weakest slot
   const weak = Math.random() < .5 ? SLOTS.filter(k => !(k === 'o' && hands(p).two)).reduce((m, k) => p.gear[k] < p.gear[m] ? k : m, 'w') : null;
-  const loot = o.share ? [] : runDrops(lvl, r, 1, clamp(o.trash | 0, 0, 6), weak, p.cls).map(it => giveItem(p, it));
+  const loot = o.share ? [] : runDrops(lvl, r, 1, clamp(o.trash | 0, 0, 6), weak, p.cls).map(it => giveItem(p, it, true));
   const did = DUNGEONS[o.dungeon] ? o.dungeon : 'tower', bk = did === 'tower' ? lvl : did + ':' + lvl;
   if (!p.best[bk] || r.t < p.best[bk]) p.best[bk] = Math.round(r.t * 10) / 10;
   if (r.onTime) { const next = Math.max(floorOf(p, did), Math.min(50, lvl + 1)); if (did === 'tower') p.lvl = next; else p.dl[did] = next; }
@@ -1324,35 +1326,37 @@ const isRun = ev => ev.type === 'run';
 const CLS_BIT = { tank: 1, heal: 2, dps: 4 };
 const bits = n => (n & 1) + (n >> 1 & 1) + (n >> 2 & 1);
 const MAIN = [
-  { id: 'bell', title: '第一聲鐘響', goal: '通關沉鐘塔一次', need: 1, reward: { coin: 30, xp: 120, scrap: 6, salt: 2 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
-  { id: 'kick', title: '斷其咒語', goal: '成功打斷敵人的金色讀條 3 次', need: 3, reward: { coin: 30, xp: 120, salt: 3 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
+  { id: 'bell', go: ['gate'], title: '第一聲鐘響', goal: '通關沉鐘塔一次', need: 1, reward: { coin: 30, xp: 120, scrap: 6, salt: 2 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
+  { id: 'kick', go: ['gate'], title: '斷其咒語', goal: '成功打斷敵人的金色讀條 3 次', need: 3, reward: { coin: 30, xp: 120, salt: 3 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
   { id: 'craft', title: '工坊開張', goal: '在背包裡製作任何一樣東西', need: 1, reward: { coin: 40, xp: 150, scrap: 8, salt: 2 }, inc: ev => ev.type === 'craft' ? 1 : 0 },
-  { id: 'ontime', title: '搶在潮水之前', goal: '三分鐘內通關一次', need: 1, reward: { coin: 50, xp: 200, potion: 1 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 },
-  { id: 'clean', title: '乾淨的腳步', goal: '通關一場，而且整場沒有踩到紅圈', need: 1, reward: { coin: 60, xp: 250, shard: 1, scrap: 6 }, inc: ev => isRun(ev) && ev.win && ev.hits === 0 ? 1 : 0 },
-  { id: 'lvl3', title: '更深一層', goal: '抵達第 3 層', need: 3, reward: { coin: 70, xp: 300, salt: 4, scrap: 8 }, value: p => p.lvl },
+  { id: 'ontime', go: ['gate'], title: '搶在潮水之前', goal: '三分鐘內通關一次', need: 1, reward: { coin: 50, xp: 200, potion: 1 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 },
+  { id: 'clean', go: ['gate'], title: '乾淨的腳步', goal: '通關一場，而且整場沒有踩到紅圈', need: 1, reward: { coin: 60, xp: 250, shard: 1, scrap: 6 }, inc: ev => isRun(ev) && ev.win && ev.hits === 0 ? 1 : 0 },
+  { id: 'lvl3', go: ['gate'], title: '更深一層', goal: '抵達第 3 層', need: 3, reward: { coin: 70, xp: 300, salt: 4, scrap: 8 }, value: p => p.lvl },
   { id: 'temper', title: '淬火', goal: '淬鍊任何一個部位一次', need: 1, reward: { coin: 70, xp: 300, shard: 2 }, inc: ev => ev.type === 'craft' && ev.kind === 'temper' ? 1 : 0 },
-  { id: 'lvl5', title: '鐘塔中段', goal: '抵達第 5 層', need: 5, reward: { coin: 120, xp: 500, shard: 2, potion: 1, scrap: 12 }, value: p => p.lvl }
+  { id: 'lvl5', go: ['gate'], title: '鐘塔中段', goal: '抵達第 5 層', need: 5, reward: { coin: 120, xp: 500, shard: 2, potion: 1, scrap: 12 }, value: p => p.lvl }
 ];
 const WEEK = [
-  { id: 'w-runs', at: 'kol', title: '本週巡塔', goal: '這週通關 5 場', need: 5, reward: { coin: 80, xp: 300, scrap: 15, salt: 4 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
-  { id: 'w-kicks', at: 'mira', title: '本週斷法', goal: '這週成功打斷 10 次', need: 10, reward: { coin: 60, xp: 250, salt: 5 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
+  { id: 'w-runs', go: ['gate'], at: 'kol', title: '本週巡塔', goal: '這週通關 5 場', need: 5, reward: { coin: 80, xp: 300, scrap: 15, salt: 4 }, inc: ev => isRun(ev) && ev.win ? 1 : 0 },
+  { id: 'w-kicks', go: ['gate'], at: 'mira', title: '本週斷法', goal: '這週成功打斷 10 次', need: 10, reward: { coin: 60, xp: 250, salt: 5 }, inc: ev => isRun(ev) ? ev.kicks : 0 },
   { id: 'w-surge', at: 'wu', title: '本週漲潮', goal: '這週在鏽灘撐過 2 次漲潮', need: 2, online: true, reward: { coin: 80, xp: 300, shard: 2 }, inc: ev => ev.type === 'event' ? 1 : 0 },
-  { id: 'w-ontime', at: 'jin', title: '本週準時', goal: '這週三分鐘內通關 3 場', need: 3, reward: { coin: 80, xp: 350, shard: 2 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 }
+  { id: 'w-ontime', go: ['gate'], at: 'jin', title: '本週準時', goal: '這週三分鐘內通關 3 場', need: 3, reward: { coin: 80, xp: 350, shard: 2 }, inc: ev => isRun(ev) && ev.onTime ? 1 : 0 }
 ];
-/* at: who the finished quest is reported to (someone at the camp), where they have something to say and hand over
+/* go: where its doing is, for the tracker that walks you there: ['gate'] the tower door, ['pack', kind] creatures of
+ * that kind ('' any), ['node', type] something to gather ('' anything). Quests made in the editor say it by their type.
+ * at: who the finished quest is reported to (someone at the camp), where they have something to say and hand over
  * what was promised. It need not be whoever asked (from): an errand (type 'errand') is nothing but carrying something
  * from one of them to another, and is ready to report as soon as it is given. A quest without `at` is claimed from the
  * list. */
 const SIDE = [
   { id: 's-party', at: 'wu', title: '結伴', goal: '和至少一位其他玩家一起通關', need: 1, online: true, reward: { coin: 50, xp: 200, scrap: 10, potion: 1 }, upd: (v, ev) => isRun(ev) && ev.win && ev.mates > 0 ? 1 : v },
-  { id: 's-level', at: 'kol', title: '站穩腳步', goal: '升到 5 級', need: 5, reward: { coin: 60, shard: 2, potion: 1 }, upd: (v, ev, p) => p.cl, have: v => v },
-  { id: 's-gather', at: 'mira', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { coin: 40, xp: 150, scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
+  { id: 's-level', go: ['pack', ''], at: 'kol', title: '站穩腳步', goal: '升到 5 級', need: 5, reward: { coin: 60, shard: 2, potion: 1 }, upd: (v, ev, p) => p.cl, have: v => v },
+  { id: 's-gather', go: ['node', ''], at: 'mira', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { coin: 40, xp: 150, scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
   { id: 's-medicine', at: 'kol', from: 'mira', type: 'errand', after: 's-gather', title: '送藥', goal: '把蜜拉熬的藥帶去給柯爾', need: 1, bondGain: ['mira', 10], reward: { coin: 20, xp: 80 }, upd: v => v },
-  { id: 's-hunt', at: 'kol', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { coin: 50, xp: 200, salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
-  { id: 'b-mira1', at: 'mira', title: '蜜拉的藥草', goal: '替蜜拉採 6 株潮草', need: 6, bond: ['mira', 1], bondGain: ['mira', 40], reward: { potion: 2, xp: 150 }, upd: (v, ev) => ev.type === 'gather' && ev.node === 'herb' ? Math.min(6, v + 1) : v },
-  { id: 'b-mira2', at: 'mira', title: '趕在潮前', goal: '在限時內通關沉鐘塔 3 次', need: 3, bond: ['mira', 3], bondGain: ['mira', 60], reward: { coin: 150, shard: 2 }, upd: (v, ev) => isRun(ev) && ev.win && ev.onTime ? Math.min(3, v + 1) : v },
-  { id: 'b-jin1', at: 'jin', title: '吵死人的學徒', goal: '在鏽灘擊倒 8 隻鹽咒學徒', need: 8, bond: ['jin', 1], bondGain: ['jin', 40], reward: { scrap: 10, xp: 150 }, upd: (v, ev) => ev.type === 'kill' && ev.kind === 'acolyte' ? Math.min(8, v + 1) : v },
-  { id: 'b-jin2', at: 'jin', title: '一秒都不多給', goal: '在副本裡打斷 10 次讀條', need: 10, bond: ['jin', 3], bondGain: ['jin', 60], reward: { coin: 150, shard: 2 }, upd: (v, ev) => isRun(ev) ? Math.min(10, v + (ev.kicks || 0)) : v },
+  { id: 's-hunt', go: ['pack', ''], at: 'kol', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { coin: 50, xp: 200, salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
+  { id: 'b-mira1', go: ['node', 'herb'], at: 'mira', title: '蜜拉的藥草', goal: '替蜜拉採 6 株潮草', need: 6, bond: ['mira', 1], bondGain: ['mira', 40], reward: { potion: 2, xp: 150 }, upd: (v, ev) => ev.type === 'gather' && ev.node === 'herb' ? Math.min(6, v + 1) : v },
+  { id: 'b-mira2', go: ['gate'], at: 'mira', title: '趕在潮前', goal: '在限時內通關沉鐘塔 3 次', need: 3, bond: ['mira', 3], bondGain: ['mira', 60], reward: { coin: 150, shard: 2 }, upd: (v, ev) => isRun(ev) && ev.win && ev.onTime ? Math.min(3, v + 1) : v },
+  { id: 'b-jin1', go: ['pack', 'acolyte'], at: 'jin', title: '吵死人的學徒', goal: '在鏽灘擊倒 8 隻鹽咒學徒', need: 8, bond: ['jin', 1], bondGain: ['jin', 40], reward: { scrap: 10, xp: 150 }, upd: (v, ev) => ev.type === 'kill' && ev.kind === 'acolyte' ? Math.min(8, v + 1) : v },
+  { id: 'b-jin2', go: ['gate'], at: 'jin', title: '一秒都不多給', goal: '在副本裡打斷 10 次讀條', need: 10, bond: ['jin', 3], bondGain: ['jin', 60], reward: { coin: 150, shard: 2 }, upd: (v, ev) => isRun(ev) ? Math.min(10, v + (ev.kicks || 0)) : v },
   { id: 's-friend', at: 'wu', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { coin: 30, xp: 100, salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
 ];
 const weekOf = now => Math.floor((Math.floor((now + 8 * 3600000) / 86400000) + 3) / 7);
@@ -1406,6 +1410,24 @@ function questEvent(p, ev, now) {
   if (m && m.inc) q.mp = Math.min(m.need, q.mp + (m.inc(ev) || 0));
   for (const d of WEEK) if (!q.week.c[d.id]) { const v = Math.min(d.need, (q.week.p[d.id] || 0) + (d.inc(ev) || 0)); if (v > 0) q.week.p[d.id] = v; }
   for (const d of SIDE) if (q.side[d.id] !== -1 && !(d.after && !questDone(q, d.after)) && !(d.bond && bondTier(p, d.bond[0]) < d.bond[1])) { const v = d.upd(q.side[d.id] || 0, ev, p); if (v > 0) q.side[d.id] = v; }
+}
+/* Where to go for a quest as it now stands: { go: 'npc', who } to report it, else what its doing needs:
+ * { go: 'gate' }, { go: 'pack', kind, tag, map }, { go: 'node', node, map }, { go: 'mark', tag }; null when there is
+ * nowhere to send anyone (something made at the forge, something that needs other people). */
+function questGoal(p, id, now) {
+  const it = questList(p, now, true).items.find(x => x.id === id), d = it && MAIN.concat(WEEK, SIDE).find(x => x.id === id); if (!it || it.claimed) return null;
+  if (it.ready || d.type === 'errand') return it.at ? { go: 'npc', who: it.at } : null;
+  if (d.custom) switch (d.type) {
+    case 'kill': return { go: 'pack', kind: '', tag: d.kill, map: '' };
+    case 'kind': return { go: 'pack', kind: d.kind, tag: '', map: d.map || '' };
+    case 'item': return { go: 'pack', kind: d.kill ? '' : d.kind, tag: d.kill || '', map: '' };
+    case 'gather': return { go: 'node', node: d.node || '', map: d.map || '' };
+    case 'reach': return { go: 'mark', tag: d.reach };
+    case 'run': return { go: 'gate' };
+    default: return null;
+  }
+  const g = d.go; if (!g) return null;
+  return g[0] === 'gate' ? { go: 'gate' } : g[0] === 'pack' ? { go: 'pack', kind: g[1] || '', tag: '', map: '' } : g[0] === 'node' ? { go: 'node', node: g[1] || '', map: '' } : null;
 }
 /* at: who it is being reported to, when it is. A quest that goes back to someone is not handed over by anyone else. */
 function questClaim(p, id, now, at) {
@@ -1633,7 +1655,7 @@ return { QUEST_TYPES, packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_
   FIELD, get GATHER_TIME() { return TUNE.gatherTime; }, get NODE_RESPAWN() { return TUNE.nodeRespawn; }, createField, addFieldActor, removeFieldActor, present, pushOut, fieldYield, grant, fieldGain, eventReward,
   get MAX_LEVEL() { return TUNE.maxLevel; }, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, get POTION_CAP() { return TUNE.potionCap; }, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
-  weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id), MAIN_AT,
+  weekOf, fixQuests, questList, questEvent, questClaim, questGoal, pushOut, MAIN_IDS: MAIN.map(m => m.id), MAIN_AT,
   BONDS, BOND_TIERS, BOND_NAMES, BOND_DAY, BOND_TEAM, LOVE, REL_NAMES, REL_TEAM, bondInfo, bondTalk, bondGift, bondLook, bondAsk, bondVow, bondMate, bondFit, bondEquip, bondUnequip, mateOf, MATE_TIER, addFieldMate, removeFieldMate, bondSeen, bondTier, bondTeam, addBond,
   TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, get RESPEC_COST() { return TUNE.respecCost; }, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
   SLOTS, SET_SLOTS, SLOT_NAME: { w: '主手', o: '副手', a: '護甲', t: '飾品' }, WKINDS, HAND_NAME, HELD, hands, heldOf, heldFix, slotFor, wants, itemKind, kindOf, reach, canUse, needText, NEEDS, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,

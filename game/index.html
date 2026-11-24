@@ -253,6 +253,23 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 #ch-list li{cursor:pointer}
 #ch-list li.sel{border-color:var(--brass);background:var(--slate)}
 #ch-list li small{text-align:right;line-height:1.5}
+#track{position:absolute;left:var(--gl);top:8px;z-index:2;display:flex;flex-direction:column;gap:4px;max-width:62%}
+#track.low{top:52px}
+#track .tk{display:block;max-width:100%;padding:5px 9px;border:0;border-left:3px solid var(--line);border-radius:0 6px 6px 0;background:rgba(10,22,27,.74);color:var(--foam);font-size:12px;line-height:1.35;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#track .tk i{font-style:normal;color:var(--mute);margin-left:6px}
+#track .tk.ready{border-left-color:var(--brass);color:var(--brass)}
+#track .tk.on{border-left-color:var(--ember);background:rgba(40,24,14,.86)}
+#track .tk.on i{color:var(--ember)}
+#offer{position:absolute;right:var(--gr);top:106px;z-index:3;display:flex;align-items:center;gap:8px;max-width:72%;padding:7px 12px 7px 8px;border:1.5px solid var(--brass);border-radius:22px;background:rgba(10,22,27,.94);color:var(--foam);text-align:left;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+#offer[hidden]{display:none}
+#offer svg{flex:none;width:34px;height:34px}
+#offer circle{fill:none;stroke-width:3}
+#offer circle.bg{stroke:var(--line)}
+#offer circle.run{stroke:var(--ember);stroke-dasharray:94.3;stroke-dashoffset:0;transform:rotate(-90deg);transform-origin:18px 18px}
+#offer path{fill:none;stroke:var(--brass);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+#offer span{display:flex;flex-direction:column;min-width:0}
+#offer b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#offer small{font-size:11px;color:var(--brass)}
 #threat{position:absolute;left:var(--gl);top:64px;width:132px;display:flex;flex-direction:column;gap:3px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:rgba(10,22,27,.82);pointer-events:none;font-size:10px}
 #threat.warn{border-color:var(--brass)}
 #threat.mine{border-color:var(--danger)}
@@ -361,6 +378,8 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
       <div id="bosscast" hidden><i></i><span></span></div>
     </div>
     <div id="threat" hidden></div>
+    <div id="track" hidden></div>
+    <button id="offer" type="button" hidden><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="bg" cx="18" cy="18" r="15"/><circle class="run" cx="18" cy="18" r="15"/><path d="M18 25V12M12.5 17.5 18 12l5.5 5.5"/></svg><span><b id="offer-name"></b><small id="offer-sub"></small></span></button>
     <div id="banner" class="off" aria-live="polite"></div>
     <div id="queue" hidden><button id="q-open" type="button"></button><button class="mini go" id="q-go" type="button" hidden></button></div>
     <button id="act" type="button" hidden></button>
@@ -831,6 +850,7 @@ function act(o) {
 }
 function enterRun() {
   FX.fx = []; FX.texts = []; FX.shake = 0; FX.red = 0; FX.stop = 0; stick.x = stick.y = 0;
+  nav.on = false; nav.id = ''; nav.grid = null; offerNow = null; $('#offer').hidden = true;
   hideScreens();
   $('#app').dataset.mode = inField() ? 'field' : mode; talk.lines = null; talk.done = null; talk.focus = null;
   $('#talk').hidden = true; $('#gift').hidden = true; $('#talk-art').hidden = true; $('#portbox').hidden = true; $('#act').hidden = true;
@@ -852,7 +872,7 @@ function startSolo(cls, d) {
  * reported and the server answers with the rewards. With no server at all, the rewards are rolled on this device. */
 function conclude(r, stats, extra) {
   const view = V, lvl = V.lvl; V.result = r;
-  const show = (loot, more) => setTimeout(() => { if (V === view) showResult(r, stats, loot, lvl, more || {}); }, SPEED > 1 ? 0 : 1100);
+  const show = (loot, more) => { for (const g of loot || []) offerGear(g); setTimeout(() => { if (V === view) showResult(r, stats, loot, lvl, more || {}); }, SPEED > 1 ? 0 : 1100); };      // anything better is offered once you are back outside
   if (extra) return show(extra.loot, extra);
   if (net.authed) {
     net.solo = { show, timer: setTimeout(() => { if (net.solo) { net.solo = null; show(null, { note: '伺服器沒有回應，這場的獎勵沒有記錄到。' }); } }, 4000) };
@@ -926,6 +946,97 @@ function mateSync(quiet, fresh) {      // fresh: she has been dressed anew, so p
   if (m) { const i = S.addFieldMate(G, m, 0), a = G.actors[i]; if (a && at) { a.x = at[0]; a.y = at[1]; a.hp = Math.max(1, a.maxHp * at[2]); } } else S.removeFieldMate(G, 0);
   if (!quiet) buildHud();
 }
+/* ---------- the tracker, and walking there by itself ----------
+ * A few quests are listed on the view. A tap on one walks you to where it is done, or to whoever it is reported to:
+ * a path is found round rocks, walls and water, and followed until you arrive or touch the stick. When what you need
+ * is on another map the walk goes to the way out towards it. */
+const nav = { on: false, id: '', path: [], i: 0, x: 0, y: 0, r: 0, label: '', t: 0, lx: 0, ly: 0, tries: 0, grid: null };
+const NAV_CELL = 20;
+function navGrid(F) {      // which squares of this map a body can stand in
+  const w = Math.ceil(F.w / NAV_CELL), h = Math.ceil(F.h / NAV_CELL), free = new Uint8Array(w * h), pad = 15;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const x = (i + .5) * NAV_CELL, y = (j + .5) * NAV_CELL; let ok = x > 16 && y > 16 && x < F.w - 16 && y < F.h - 16;
+    if (ok) for (const r of F.rocks || []) if (Math.hypot(x - r.x, y - r.y) < r.r + pad) { ok = false; break; }
+    if (ok) for (const b of F.walls || []) if (b.type !== 'road' && Math.abs(x - b.x) < b.w / 2 + pad && Math.abs(y - b.y) < b.h / 2 + pad) { ok = false; break; }
+    free[j * w + i] = ok ? 1 : 0; }
+  return { w, h, free, id: F.id, at: (x, y) => { const i = Math.floor(x / NAV_CELL), j = Math.floor(y / NAV_CELL); return i >= 0 && j >= 0 && i < w && j < h && free[j * w + i] === 1; } };
+}
+function navNear(g, i, j) { if (g.free[j * g.w + i]) return [i, j]; for (let r = 1; r < 12; r++) for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) { if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue; const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a < g.w && b < g.h && g.free[b * g.w + a]) return [a, b]; } return null; }
+function navPath(g, x0, y0, x1, y1) {      // A* over the squares, eight ways, no cutting corners
+  const cl = (v, m) => clamp(Math.floor(v / NAV_CELL), 0, m - 1), s = navNear(g, cl(x0, g.w), cl(y0, g.h)), e = navNear(g, cl(x1, g.w), cl(y1, g.h)); if (!s || !e) return null;
+  const N = g.w * g.h, cost = new Float32Array(N).fill(1e9), from = new Int32Array(N).fill(-1), done = new Uint8Array(N), open = [], S0 = s[1] * g.w + s[0], E = e[1] * g.w + e[0], hx = k => Math.hypot(k % g.w - e[0], Math.floor(k / g.w) - e[1]);
+  cost[S0] = 0; open.push([hx(S0), S0]);
+  while (open.length) { let b = 0; for (let k = 1; k < open.length; k++) if (open[k][0] < open[b][0]) b = k; const cur = open.splice(b, 1)[0][1]; if (cur === E) break; if (done[cur]) continue; done[cur] = 1; const ci = cur % g.w, cj = Math.floor(cur / g.w);
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { if (!di && !dj) continue; const ni = ci + di, nj = cj + dj; if (ni < 0 || nj < 0 || ni >= g.w || nj >= g.h) continue; const nk = nj * g.w + ni; if (!g.free[nk] || done[nk]) continue;
+      if (di && dj && (!g.free[cj * g.w + ni] || !g.free[nj * g.w + ci])) continue; const c = cost[cur] + (di && dj ? 1.414 : 1); if (c < cost[nk]) { cost[nk] = c; from[nk] = cur; open.push([c + hx(nk), nk]); } } }
+  if (from[E] < 0 && E !== S0) return null; const out = []; for (let k = E; k >= 0 && k !== S0; k = from[k]) out.push({ x: (k % g.w + .5) * NAV_CELL, y: (Math.floor(k / g.w) + .5) * NAV_CELL }); out.reverse(); return out;
+}
+const navClear = (g, x0, y0, x1, y1) => { const d = Math.hypot(x1 - x0, y1 - y0), n = Math.ceil(d / 8); for (let k = 1; k <= n; k++) if (!g.at(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n)) return false; return true; };
+/* The first way out of `from` on the shortest chain of maps to one that `has` what is wanted. */
+function navExit(from, has) {
+  const seen = new Set([from]), q = [[from, null]]; while (q.length) { const [id, first] = q.shift(), M = S.MAPS[id]; if (!M) continue; if (id !== from && has(M)) return first; for (const e of M.exits || []) if (!seen.has(e.to)) { seen.add(e.to); q.push([e.to, first || e]); } } return null;
+}
+/* Where on this map a goal is: { x, y, r, label }, or { msg } when there is nowhere to walk to. */
+function navSpot(goal) {
+  const me = V.me, near = list => list.slice().sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y))[0], kn = k => (S.ENEMY[k] ? S.ENEMY[k].name : '怪物');
+  const out = (M, why) => { const e = navExit(FD.id, M); return e ? { x: e.x, y: e.y, r: 20, label: `前往${S.MAPS[e.to].name}` } : { msg: why }; };
+  if (goal.go === 'npc') { const who = Story.CAST[goal.who], name = who ? who.name : '他'; if (mateActor(goal.who)) return { msg: `${name}就在你旁邊：點上方她的名牌。` }; const n = FD.npcs.find(x => x.id === goal.who); return n ? { x: n.x, y: n.y + 6, r: 40, label: `找${name}` } : out(M => (M.npcs || []).some(x => x.id === goal.who), `這附近找不到${name}。`); }
+  if (goal.go === 'gate') return FD.gate ? { x: FD.gate.x, y: FD.gate.y + 48, r: 16, label: '塔門' } : out(M => !!M.gate, '這附近沒有通往塔的路。');
+  if (goal.go === 'mark') { const m = (FD.marks || []).find(x => x.name === goal.tag); return m ? { x: m.x, y: m.y, r: Math.max(12, m.r * .5), label: m.name } : out(M => (M.marks || []).some(x => x.name === goal.tag), '找不到這個地標。'); }
+  if (goal.go === 'node') { const fit = M => (M.nodes || []).filter(n => !goal.node || n.type === goal.node), here = goal.map && goal.map !== FD.id ? [] : fit(FD), ripe = here.filter(n => { const v = V.nodes && V.nodes.find(x => x.id === n.id); return !v || !v.cd || !(v.cd[meIdx] > 0); });
+    const n = near(ripe.length ? ripe : here); return n ? { x: n.x + 14, y: n.y + 10, r: 10, label: '採集點' } : out(M => (!goal.map || M.id === goal.map) && fit(M).length > 0, '找不到可以採的地方。'); }
+  if (goal.go === 'pack') { const fit = M => (M.packs || []).filter(p => (goal.tag ? p.name === goal.tag : true) && (!goal.kind || p.kind === goal.kind || S.baseOf(p.kind) === goal.kind)), here = goal.map && goal.map !== FD.id ? [] : fit(FD), p = near(here);
+    return p ? { x: p.x, y: p.y, r: 120, label: p.name || kn(p.kind) } : out(M => (!goal.map || M.id === goal.map) && fit(M).length > 0, '找不到這種怪出沒的地方。'); }
+  return { msg: '這個任務沒有可以帶你去的地方。' };
+}
+function navStop(msg) { if (!nav.on) return; nav.on = false; nav.id = ''; nav.path = []; if (msg) banner(msg, 1600); renderTrack(); }
+function navGo(id) {
+  if (!inField() || !V.me.alive || talk.lines) return; if (nav.on && nav.id === id) return navStop();
+  const goal = S.questGoal(save, id, Date.now()); if (!goal) return toast('這個任務沒有可以帶你去的地方：它是在背包、工坊，或要和其他玩家一起做的。', [], 3600);
+  const t = navSpot(goal); if (t.msg) return toast(t.msg, [], 3200);
+  if (!nav.grid || nav.grid.id !== FD.id) nav.grid = navGrid(FD);
+  const path = navPath(nav.grid, V.me.x, V.me.y, t.x, t.y); if (!path) return toast('走不過去。', [], 2600);
+  Object.assign(nav, { on: true, id, path, i: 0, x: t.x, y: t.y, r: t.r, label: t.label, t: 0, lx: V.me.x, ly: V.me.y, tries: 0 }); renderTrack();
+}
+/* Which way to push the stick this moment. */
+function navStep(dt) {
+  const me = V.me, g = nav.grid, dEnd = Math.hypot(nav.x - me.x, nav.y - me.y); if (!me.alive || !g || g.id !== FD.id) { navStop(); return { x: 0, y: 0 }; }
+  if (dEnd <= nav.r) { navStop(`到了：${nav.label}`); return { x: 0, y: 0 }; }
+  while (nav.i < nav.path.length - 1 && navClear(g, me.x, me.y, nav.path[nav.i + 1].x, nav.path[nav.i + 1].y)) nav.i++;      // cut across where the way is open
+  let p = nav.path[nav.i]; if (p && Math.hypot(p.x - me.x, p.y - me.y) < 12) { nav.i++; p = nav.path[nav.i]; }
+  if (!p || (nav.i >= nav.path.length - 1 && navClear(g, me.x, me.y, nav.x, nav.y))) p = { x: nav.x, y: nav.y };
+  nav.t += dt; if (nav.t > 1.2) { const moved = Math.hypot(me.x - nav.lx, me.y - nav.ly); nav.t = 0; nav.lx = me.x; nav.ly = me.y;      // not getting anywhere: look for the way again, and give up the third time
+    if (moved < 8) { if (++nav.tries > 2) { navStop('走不過去'); return { x: 0, y: 0 }; } const again = navPath(g, me.x, me.y, nav.x, nav.y); if (again) { nav.path = again; nav.i = 0; } } else nav.tries = 0; }
+  const d = Math.hypot(p.x - me.x, p.y - me.y) || 1; return { x: (p.x - me.x) / d, y: (p.y - me.y) / d };
+}
+function drawNav() {
+  if (!nav.on) return; const c = ctx, me = V.me; c.save(); c.strokeStyle = C.ember; c.globalAlpha = .55; c.lineWidth = 2; c.setLineDash([3, 7]); c.lineDashOffset = reduced ? 0 : -clock * 18;
+  c.beginPath(); c.moveTo(me.x, me.y + me.r * .6); for (let k = nav.i; k < nav.path.length; k++) c.lineTo(nav.path[k].x, nav.path[k].y); c.lineTo(nav.x, nav.y); c.stroke();
+  c.setLineDash([]); c.globalAlpha = .8; c.beginPath(); c.arc(nav.x, nav.y, 9 + (reduced ? 0 : Math.sin(clock * 5) * 2), 0, TAU); c.stroke(); c.restore();
+}
+function renderTrack() {
+  const bx = $('#track'); if (!bx) return; const show = !!V && inField() && !V.event; bx.hidden = !show; if (!show) return; bx.textContent = '';
+  const items = S.questList(save, Date.now(), online).items.filter(x => !x.claimed), main = items.find(x => x.group === 'main'), rest = items.filter(x => x.group !== 'main');
+  const list = (main ? [main] : []).concat(rest.filter(x => x.ready && x.at), rest.filter(x => !x.ready && x.have > 0 && x.group === 'side'), rest.filter(x => !x.ready && x.have > 0), rest.filter(x => !x.ready && x.group === 'side' && x.from), rest.filter(x => !x.ready && x.group === 'side'), rest).filter((x, i, a) => a.indexOf(x) === i).slice(0, 3);      // the main one, what can be reported, what is under way, what someone asked of you, then the rest
+  for (const it of list) { const who = it.ready && it.at && Story.CAST[it.at], on = nav.on && nav.id === it.id, bt = el('button', 'tk' + (it.ready ? ' ready' : '') + (on ? ' on' : ''), who ? `！找${who.name}：${it.title}` : it.title); bt.type = 'button';
+    bt.appendChild(el('i', '', on ? '導航中，點一下停' : it.ready ? '' : `${it.have}/${it.need}`)); bt.addEventListener('click', ev => { ev.stopPropagation(); navGo(it.id); }); bx.appendChild(bt); }
+}
+/* ---------- something better to wear turns up ----------
+ * It is in the bag. For a few seconds it is shown with a ring running down; a tap puts it on, and when the ring is
+ * gone it is simply left in the bag. */
+const offers = []; let offerNow = null, offerT = 0; const OFFER_SECS = 8;
+function offerGear(g) { if (g && g.better && g.it) offers.push(g.it); }
+function offerTick(dt) {
+  const bx = $('#offer'), ok = !!V && inField() && V.me.alive;
+  if (offerNow) { offerT -= dt; bx.querySelector('.run').style.strokeDashoffset = (94.3 * (1 - Math.max(0, offerT) / OFFER_SECS)).toFixed(1); if (offerT <= 0 || !ok) { offerNow = null; bx.hidden = true; } return; }
+  if (!offers.length || !ok || talk.lines) return;
+  const it = offers.shift(), i = save.bag.map((x, k) => (x.n === it.n && x.il === it.il && x.q === it.q ? k : -1)).filter(k => k >= 0).pop(), t = S.slotFor(save, it); if (i === undefined || !t.s || !S.wants(save, it)) return;      // gone, or no longer better
+  offerNow = it; offerT = OFFER_SECS; $('#offer-name').textContent = it.n; $('#offer-sub').textContent = `裝等 ${it.il}（比身上高 ${Math.max(1, it.il - save.gear[t.s])}）　點一下換上`; bx.hidden = false;
+}
+function offerTake() {
+  const it = offerNow; if (!it) return; offerNow = null; $('#offer').hidden = true;
+  const i = save.bag.map((x, k) => (x.n === it.n && x.il === it.il && x.q === it.q ? k : -1)).filter(k => k >= 0).pop(); if (i === undefined) return toast('那件已經不在背包裡了。', [], 2400);
+  itemDo('equip', i);
+}
 function fieldFrame(dt) {
   S.step(G, simDt(dt));
   const evs = G.events; G.events = [];
@@ -946,6 +1057,7 @@ function goHome(msg) {
 }
 /* what is within reach, and where the camera should be */
 function fieldView(dt) {
+  offerTick(dt); { const tr = $('#track'), busy = !$('#threat').hidden; if (tr.dataset.busy !== String(busy)) { tr.dataset.busy = String(busy); tr.style.visibility = busy ? 'hidden' : ''; } tr.classList.toggle('low', !$('#queue').hidden); }      // in a fight the threat list has that corner
   const me = V.me, en = FD.id === 'shore' ? eventNow() : null; V.evInfo = en;      // the surge only comes ashore on the home map
   if (en && en.active && me.alive && !talk.lines) {      // walk into an open surge and you are in it, with whoever else is there
     const d = Math.hypot(me.x - en.spot.x, me.y - en.spot.y), t = performance.now();
@@ -962,13 +1074,13 @@ function fieldView(dt) {
   sheetView(); const g = camGoal(), k = 1 - Math.exp(-dt * 8); cam.x += (g.x - cam.x) * k; cam.y += (g.y - cam.y) * k;
 }
 /* one sentence about a piece of gear that just arrived */
-function gotText(g) { return `${S.itemText(g.it, save.cls)}，${g.up ? '比身上的好，已經換上' : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`; }
+function gotText(g) { return `${S.itemText(g.it, save.cls)}，${g.up ? '比身上的好，已經換上' : g.better ? '比身上的好，在背包裡' : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`; }
 function showYield(mats, done, xp, coin, item) {
   const me = V && V.me; if (!me) return; let i = 0;
   if (xp > 0) addText(me.x, me.y - 46 - 15 * i++, `經驗 +${xp}`, C.foam, 11, 1.4);       // start above your own nameplate
   if (coin > 0) addText(me.x, me.y - 46 - 15 * i++, `鐘幣 +${coin}`, C.brass, 12, 1.4);
   for (const k of Object.keys(mats)) addText(me.x, me.y - 46 - 15 * i++, `${S.MATS[k]} +${mats[k]}`, C.brass, 12, 1.4);
-  if (item) { addText(me.x, me.y - 46 - 15 * i++, item.it.n, C.brass, 13, 2); toast('撿到' + gotText(item) + '。', [], 4500); }
+  if (item) { addText(me.x, me.y - 46 - 15 * i++, item.it.n, C.brass, 13, 2); if (item.better) offerGear(item); else toast('撿到' + gotText(item) + '。', [], 4500); }
   else if (done.length) toast(`任務完成：${done.join('、')}。`, [], 3500);
   renderQuests();
 }
@@ -1260,7 +1372,7 @@ function onMsg(m) {
       break;
     case 'event-no': net.evJoin = 0; net.evSkip = m.cycle; net.home = null; toast(String(m.msg || ''), [], 3000); break;
     case 'event-end': {
-      const done = newlyDone(() => applyProfile(m)); net.evSkip = m.cycle;
+      const done = newlyDone(() => applyProfile(m)); net.evSkip = m.cycle; offerGear(m.item);
       const got = Object.keys(m.mats || {}).map(k => `${S.MATS[k]} +${m.mats[k]}`).join('、'), mates = (m.mates || []).map(String);
       toast(m.win ? `漲潮退了。經驗 +${m.xp}、鐘幣 +${m.coin || 0}${got ? '、' + got : ''}${m.item ? '。撿到' + gotText(m.item) : ''}。${mates.length ? `一起守住的人：${mates.join('、')}，好友頁的「最近隊友」可以加他們。` : ''}${done.length ? `任務完成：${done.join('、')}。` : ''}` : '時間到了，這次沒守住。', [], 7000);
       if (mode === 'online' && V && V.event) goHome();
@@ -1371,6 +1483,7 @@ function pushMove(now) {
   let mx = stick.x, my = stick.y;
   if (keys.has('a') || keys.has('arrowleft')) mx -= 1; if (keys.has('d') || keys.has('arrowright')) mx += 1;
   if (keys.has('w') || keys.has('arrowup')) my -= 1; if (keys.has('s') || keys.has('arrowdown')) my += 1;
+  if (nav.on) { if (Math.hypot(mx, my) > .15 || !inField() || talk.lines) navStop(); else { const v = navStep(1 / 60); mx = v.x; my = v.y; } }      // walking somewhere by itself, until the stick says otherwise
   if (inField() && talk.lines) { mx = 0; my = 0; }                // stand still while someone is talking to you
   if (mode !== 'online') { input.mx = mx; input.my = my; V.me.input.mx = mx; V.me.input.my = my; return; }
   const qx = Math.round(clamp(mx, -1, 1) * 20) / 20, qy = Math.round(clamp(my, -1, 1) * 20) / 20; input.mx = qx; input.my = qy;
@@ -1827,7 +1940,7 @@ function render(dt) {
   if (!field && V.state === 'won') drawPortal();
   drawAim();
   for (const a of V.actors) if (!a.alive && !a.out && !a.ghost) drawActor(a, dt);
-  if (field) { for (const n of V.nodes) drawNode(n); for (const n of FD.npcs) drawNpc(n); for (const n of FD.stalls) drawStall(n); }
+  if (field) { drawNav(); for (const n of V.nodes) drawNode(n); for (const n of FD.npcs) drawNpc(n); for (const n of FD.stalls) drawStall(n); }
   for (const e of V.enemies) drawEnemy(e, dt);
   for (const a of V.actors) if (a.alive) drawActor(a, dt);
   flushPlates();
@@ -2446,6 +2559,7 @@ function doCraft(id) {
 /* ---------- quests ---------- */
 function openQuests() { $('#quests').hidden = false; renderQuests(); }
 function renderQuests() {
+  renderTrack();
   const ql = S.questList(save, Date.now(), online), ready = ql.items.filter(x => x.ready).length, badge = $('#q-badge');
   badge.hidden = !ready; badge.textContent = ready; { const b2 = $('#q-badge2'); b2.hidden = !ready; b2.textContent = ready; }
   const main = ql.items.find(x => x.group === 'main'), line = $('#m-quest'); line.textContent = ''; line.classList.toggle('ready', !!(main && main.ready));
@@ -2503,7 +2617,7 @@ function renderPile() {
   pile.items.forEach((it, i) => {
     const out = pile.out[i], better = S.wants(save, it), li = itemRow(it, `${itemIs(it)}・${notMine(it) ? CLASSES[save.cls].name + '不能用' : better ? '比你身上的好' : '不比你身上的好'}`, [], 'pile'), acts = el('div', 'acts');
     if (out) { const w = pile.members[out.win], rolls = (out.rolls || []).map(x => `${pile.members[x[0]].name} ${x[1] === 'need' ? '需求' : '貪婪'} ${x[2]}`).join('、');
-      acts.append(el('small', out.win === pile.you ? 'q2' : '', (w ? `${out.win === pile.you ? '你' : w.name}拿到了` : '沒有人要') + (rolls ? `（${rolls}）` : '') + (out.give ? `　${out.give.up ? '已經換上' : out.give.sold ? `背包滿了，賣了 ${out.give.sold} 鐘幣` : '放進背包'}` : ''))); }
+      acts.append(el('small', out.win === pile.you ? 'q2' : '', (w ? `${out.win === pile.you ? '你' : w.name}拿到了` : '沒有人要') + (rolls ? `（${rolls}）` : '') + (out.give ? `　${out.give.up ? '已經換上' : out.give.better ? '比身上的好，在背包裡' : out.give.sold ? `背包滿了，賣了 ${out.give.sold} 鐘幣` : '放進背包'}` : ''))); }
     else if (pile.mode === 'leader') { if (boss) pile.members.forEach((x, k) => { const b = el('button', 'mini', '給 ' + (k === pile.you ? '自己' : x.name)); b.type = 'button'; b.id = `assign-${i}-${k}`; b.addEventListener('click', () => { b.disabled = true; send({ t: 'assign', L: pile.id, i, to: k }); }); acts.appendChild(b); }); else acts.append(el('small', '', '等隊長決定')); }
     else if (pile.mine[i]) acts.append(el('small', '', `你選了${{ need: '需求', greed: '貪婪', pass: '放棄' }[pile.mine[i]]}，等其他人`));
     else for (const [k, label] of [['need', '需求'], ['greed', '貪婪'], ['pass', '放棄']]) { const b = el('button', 'mini' + (k === 'need' && better ? ' go' : ''), label); b.type = 'button'; b.id = `roll-${i}-${k}`; b.disabled = k === 'need' && !better;
@@ -2515,7 +2629,7 @@ function renderPile() {
 function onLoot(m) {
   if (m.profile) { applyProfile(m); if (!$('#menu').hidden) renderMenu(); renderEquip(); renderBag(); }
   if (!pile || pile.id !== m.L || !pile.items[m.i]) { if (m.give) toast('你分到了一件裝備，在背包裡。', [], 3500); return; }
-  pile.out[m.i] = { win: m.win, rolls: m.rolls, give: m.give }; renderPile();
+  pile.out[m.i] = { win: m.win, rolls: m.rolls, give: m.give }; if (m.give && m.give.better) offerGear({ better: true, it: pile.items[m.i] }); renderPile();
 }
 setInterval(() => { const n = pile && $('#pile-note'); if (n) n.textContent = pileNote(); }, 1000);      // only the countdown: the buttons stay put
 function showResult(r, s, loot, lvl, more) {
@@ -2530,7 +2644,7 @@ function showResult(r, s, loot, lvl, more) {
   body.append(head, time, dl);
   if (more.note) body.appendChild(el('p', 'note warn', more.note));
   if (loot && loot.length) { const ul = el('ul', 'items'); ul.id = 'my-loot';
-    for (const g of loot) ul.appendChild(itemRow(g.it, `${itemIs(g.it)}・${g.up ? `比身上的 ${g.old} 好，已經換上` : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`, [], g.up ? 'worn' : ''));
+    for (const g of loot) ul.appendChild(itemRow(g.it, `${itemIs(g.it)}・${g.up ? `比身上的 ${g.old} 好，已經換上` : g.better ? `比身上的 ${g.old} 好，回到野外會問你要不要換上` : g.sold ? `背包滿了，賣了 ${g.sold} 鐘幣` : '放進背包'}`, [], g.up ? 'worn' : ''));
     body.appendChild(ul); }
   pile = more.pile ? Object.assign({ out: {}, mine: {}, until: performance.now() + more.pile.left * 1000 }, more.pile) : null;
   if (pile) { const g = el('div', 'group'); g.id = 'pile'; body.appendChild(g); renderPile(); }
@@ -2690,6 +2804,7 @@ $('#go-field').addEventListener('click', () => startField());
 $('#gate-party').addEventListener('click', () => { $('#finder').hidden = true; chosen = save.cls; goOnline(V.code); });
 $('#act').addEventListener('click', doAct);
 $('#talk').addEventListener('click', talkTap);
+$('#offer').addEventListener('click', ev => { ev.stopPropagation(); offerTake(); }); $('#offer').addEventListener('pointerdown', ev => ev.stopPropagation()); $('#track').addEventListener('pointerdown', ev => ev.stopPropagation());
 $('#gift').addEventListener('pointerdown', ev => ev.stopPropagation()); $('#talk').addEventListener('pointerdown', ev => ev.stopPropagation());      // it lies over the stick: a touch on it is not a touch on the stick   // tap the box, or the world, for the next line
 $('#port-cancel').addEventListener('click', closePort);
 $('#port-back').addEventListener('click', () => exitTower(true));
@@ -2735,7 +2850,7 @@ function boot(data) {
   if (QUICK && box.chars.length) showMenu(''); else showChars('');     // the game opens on the character screen
   probe(); requestAnimationFrame(frame);
 }
-window.__game = { FX, SND, get V() { return V; }, get G() { return G; }, get mode() { return mode; }, get save() { return save; }, box, net, talk, cam, startSolo, startField, showMenu, send, goOnline, goField, exitTower, openFinder, travel, get FD() { return FD; }, get did() { return did; } };
+window.__game = { offerGear, navGo, nav, FX, SND, get V() { return V; }, get G() { return G; }, get mode() { return mode; }, get save() { return save; }, box, net, talk, cam, startSolo, startField, showMenu, send, goOnline, goField, exitTower, openFinder, travel, get FD() { return FD; }, get did() { return did; } };
 const hot = window.claude && window.claude.hot;
 if (hot && hot.snapshot) hot.snapshot(() => ({ box }));
 if (hot && hot.ready) hot.ready(boot); else boot(hot && hot.data || {});
