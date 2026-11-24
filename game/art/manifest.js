@@ -31,7 +31,7 @@ window.ART_MANIFEST = Object.assign({
   brute: { cell: 48, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   boss: { cell: 64, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   kol: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'serious'] },
-  mira: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['serious', 'blank', 'shy', 'dark', 'darkflat', 'darkside', 'fake', 'smile'] },
+  mira: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['serious', 'blank', 'shy', 'dark', 'darkflat', 'darkgrin', 'darkside', 'fake', 'smile'] },
   jin: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['angry', 'serious', 'shy', 'laugh', 'panic', 'smug', 'teary', 'smile'], looks: { bun: [] } },
   wu: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'surprised', 'worried'] },
   mog: { portrait: true, anims: [] },
