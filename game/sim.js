@@ -1031,14 +1031,17 @@ function modsFor(p, cls) {
  * some a lasting bonus for you, and from the second on they fight harder at your side as an AI teammate.
  * p.bond[who] = { v, day, talk, gift, run, seen }: day is the day the three counters are for, seen the last tier
  * whose scene has been shown.
+ * A scene may stop and let the player choose what to do (story.js writes the choices). picks[tier] says what each
+ * choice of that tier's scene is worth, to whom; it is counted once, when the scene is marked seen, and the choice
+ * is remembered in ch so that later lines may look back on it.
  * Some of them can come to love you (BONDS[who].love). At the last tier, with its scene seen, you may ask (it costs a
  * bunch of tide flowers: LOVE.ask) and become a couple: rel 1. A couple at the full count may take a vow (a ring of
  * bell shards: LOVE.vow): rel 2, and that with one person only. Whoever loves you gives you something each day, and
  * fights harder still at your side; a vow adds one more lasting bonus. */
 const BOND_TIERS = [0, 100, 250, 450, 700], BOND_NAMES = ['初識', '熟識', '信賴', '親近', '知心'], BOND_CAP = 1000, BOND_TEAM = [0, 0, .08, .12, .2], BOND_DAY = { talk: 1, gift: 3, run: 3 };
 const BONDS = {
-  mira: { seat: 'heal', love: { daily: { potion: 1 }, perk: ['hp', .04, '生命 +4%'] }, gifts: { herb: 12, salt: 8, potion: 8, shard: 5, scrap: 1 }, kinds: ['staff', 'bell', 'tome'], perks: [[2, 'hp', .03, '生命 +3%'], [3, 'taken', -.03, '受到的傷害 -3%'], [4, 'heal', .06, '治療量 +6%']] },
-  jin: { seat: 'dps', love: { daily: { scrap: 3 }, perk: ['dmg', .03, '造成的傷害 +3%'] }, gifts: { shard: 20, scrap: 8, potion: 6, salt: 3, herb: 1 }, kinds: ['bow', 'xbow', 'quiver'], perks: [[2, 'speed', .03, '移動速度 +3%'], [3, 'dmg', .03, '造成的傷害 +3%'], [4, 'ult', .08, '大招充能 +8%']] }
+  mira: { seat: 'heal', picks: { 2: [{ mira: 5, jin: 5 }, { mira: 8 }] }, love: { daily: { potion: 1 }, perk: ['hp', .04, '生命 +4%'] }, gifts: { herb: 12, salt: 8, potion: 8, shard: 5, scrap: 1 }, kinds: ['staff', 'bell', 'tome'], perks: [[2, 'hp', .03, '生命 +3%'], [3, 'taken', -.03, '受到的傷害 -3%'], [4, 'heal', .06, '治療量 +6%']] },
+  jin: { seat: 'dps', picks: { 2: [{}, { jin: 10 }, { jin: 6 }] }, love: { daily: { scrap: 3 }, perk: ['dmg', .03, '造成的傷害 +3%'] }, gifts: { shard: 20, scrap: 8, potion: 6, salt: 3, herb: 1 }, kinds: ['bow', 'xbow', 'quiver'], perks: [[2, 'speed', .03, '移動速度 +3%'], [3, 'dmg', .03, '造成的傷害 +3%'], [4, 'ult', .08, '大招充能 +8%']] }
 };
 const LOVE = { ask: { herb: 10, salt: 5 }, vow: { shard: 10, coin: 500 } }, REL_NAMES = ['', '情侶', '誓約'], REL_TEAM = [0, .25, .3];
 const costText = c => Object.keys(c).map(k => (k === 'coin' ? `鐘幣 ${c[k]}` : `${k === 'potion' ? '潮息藥水' : MATS[k]} ×${c[k]}`)).join('、');
@@ -1050,7 +1053,8 @@ const tierOf = v => { let t = 0; for (let i = 0; i < BOND_TIERS.length; i++) if 
 const bondTier = (p, who) => (p.bond && p.bond[who] ? tierOf(p.bond[who].v || 0) : 0);
 function fixBond(p, now) {
   const out = {}, old = isObj(p.bond) ? p.bond : {};
-  for (const who of Object.keys(BONDS)) { const o = isObj(old[who]) ? old[who] : {}, b = { v: qInt(o.v, 0, BOND_CAP), day: qInt(o.day, 0, 1e7), talk: qInt(o.talk, 0, 99), gift: qInt(o.gift, 0, 99), run: qInt(o.run, 0, 99), seen: qInt(o.seen, 0, BOND_TIERS.length - 1), rel: BONDS[who].love ? qInt(o.rel, 0, 2) : 0 };
+  for (const who of Object.keys(BONDS)) { const o = isObj(old[who]) ? old[who] : {}, b = { v: qInt(o.v, 0, BOND_CAP), day: qInt(o.day, 0, 1e7), talk: qInt(o.talk, 0, 99), gift: qInt(o.gift, 0, 99), run: qInt(o.run, 0, 99), seen: qInt(o.seen, 0, BOND_TIERS.length - 1), rel: BONDS[who].love ? qInt(o.rel, 0, 2) : 0, ch: {} };
+    if (isObj(o.ch)) for (let t = 1; t < BOND_TIERS.length; t++) if (Number.isInteger(o.ch[t]) && o.ch[t] >= 0 && o.ch[t] < 8) b.ch[t] = o.ch[t];
     if (now != null && b.day !== dayOf(now)) { b.day = dayOf(now); b.talk = b.gift = b.run = 0; } out[who] = b; }
   p.bond = out; return out;
 }
@@ -1097,7 +1101,12 @@ function bondGift(p, who, what, now) {
   b.gift++; const r = addBond(p, who, gain, now);
   return { ok: true, gain, mood: gain >= 12 ? 'love' : gain >= 6 ? 'like' : gain >= 3 ? 'ok' : 'meh', name, up: r.up, tier: r.tier, msg: `送出${name}，好感 +${gain}。` };
 }
-function bondSeen(p, who, tier, now) { const b = fixBond(p, now)[who]; if (b && Number.isInteger(tier) && tier > b.seen && tier <= tierOf(b.v)) b.seen = tier; return { ok: !!b }; }
+function bondSeen(p, who, tier, now, pick) {
+  const b = fixBond(p, now)[who]; if (!b || !Number.isInteger(tier) || tier <= b.seen || tier > tierOf(b.v)) return { ok: !!b };
+  b.seen = tier; const opts = (BONDS[who].picks || {})[tier], worth = opts && Number.isInteger(pick) ? opts[pick] : null, gains = {}; if (!worth) return { ok: true };
+  b.ch[tier] = pick; for (const k of Object.keys(worth)) if (BONDS[k] && worth[k] > 0) gains[k] = addBond(p, k, worth[k], now).gain;      // what you chose to do in it counts, once
+  return { ok: true, gains };
+}
 const bondTeam = p => { const o = {}; for (const who of Object.keys(BONDS)) o[BONDS[who].seat] = Math.max(BOND_TEAM[bondTier(p, who)], REL_TEAM[p.bond && p.bond[who] ? p.bond[who].rel || 0 : 0]); return o; };      // how much harder each of them fights beside this character
 /* For the bag screen: every set, which pieces are on, and what it gives. */
 function setList(p) { const n = setCount(p); return Object.keys(SETS).map(id => { const d = SETS[id]; return { id, name: d.name, have: n[id] || 0, pieces: SET_SLOTS.map(k => ({ s: k, n: d.pieces[k], on: !!p.eq && SLOTS.some(h => p.eq[h].n === d.pieces[k]) })), two: d.two[2], three: d.three[2] }; }); }
@@ -1158,7 +1167,7 @@ function applyResult(p, lvl, r, o) {
   const x = addXp(p, r.win ? (100 + 50 * lvl) * (r.onTime ? 1.25 : 1) : 25), coin = addCoin(p, r.win ? (20 + 10 * lvl) * (r.onTime ? 1.25 : 1) : 5);
   if (!r.win) return { loot: [], mats, xp: x.xp, ups: x.ups, coin };
   p.runs++;
-  if (!o.share) { const now = o.now || Date.now(), bonds = fixBond(p, now); for (const who of Object.keys(bonds)) if (bonds[who].run < BOND_DAY.run) { bonds[who].run++; addBond(p, who, 3, now); } }      // cleared with the camp at your side
+  if (!o.share) { const now = o.now || Date.now(); for (const who of Object.keys(BONDS)) { const b = fixBond(p, now)[who]; if (b.run < BOND_DAY.run) { b.run++; addBond(p, who, 3, now); } } }      // cleared with the camp at your side
   // alone, the first piece leans towards your weakest slot
   const weak = Math.random() < .5 ? SLOTS.filter(k => !(k === 'o' && hands(p).two)).reduce((m, k) => p.gear[k] < p.gear[m] ? k : m, 'w') : null;
   const loot = o.share ? [] : runDrops(lvl, r, 1, clamp(o.trash | 0, 0, 6), weak, p.cls).map(it => giveItem(p, it));

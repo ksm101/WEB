@@ -96,6 +96,8 @@ const IDLE = {
 
 /* Bonds (sim.js BONDS says who has one and what it gives). scenes[n] plays once when tier n is reached; gift[mood]
  * is what they say to a gift, by how much they liked it; more[n] are extra things they say at the camp from tier n.
+ * A scene may hold a choice in place of a line: { pick: [{ say: what the player does, lines: [...] }, ...] }. The lines
+ * of the one chosen are spoken, then the scene goes on. sim.js (BONDS[who].picks) says what each choice is worth.
  * ask and vow play when they become your couple and when the vow is taken; dear is what they say at the camp after. */
 const BOND = {
   mira: {
@@ -105,6 +107,13 @@ const BOND = {
       2: [['jin', '噗，你背上被我貼了「我是慢吞吞」耶，繞了整個營地都沒發現～', 'smug'],
           ['mira', '婕焰。', 'dark'],
           ['jin', '蜜、蜜拉姐……我撕！我現在就撕掉！', 'teary'],
+          { pick: [
+            { say: '「算了啦，我不介意。」', lines: [
+              ['mira', '你人真好。可是太縱容她，她會得寸進尺的喔。', 'smile'],
+              ['jin', '得救了……慢吞吞，這次算我欠你的。', 'shy']] },
+            { say: '「蜜拉姐，交給妳了。」', lines: [
+              ['mira', '好。婕焰，今晚的鍋子妳一個人洗，洗到照得出臉為止。', 'dark'],
+              ['jin', '嗚……你給我記住啦——！', 'teary']] }] },
           ['mira', '嚇到了嗎？她呀，我會看好的。你下塔的時候，我也會看著你。', 'smile']],
       3: [['mira', '塔還沒沉的時候，我在塔下替敲鐘的人送藥。鐘一響，船就知道怎麼回家。', 'sad'],
           ['mira', '現在我能做的，只剩把上岸的人治好。所以你不准比我先倒，知道嗎？', 'serious'],
@@ -137,10 +146,26 @@ const BOND = {
           ['jin', '開玩笑的啦。來得正好，灘上那群學徒整天念咒，吵得我瞄不準。'],
           ['jin', '幫我讓牠們閉嘴，八隻。辦得到嗎，慢吞吞～？', 'smug']],
       2: [['jin', '嘻嘻，你水壺裡的水被我換成海水了喔～快喝快喝。', 'smug'],
-          ['n', '你沒有笑，轉身就走。'],
-          ['jin', '欸？等、等一下！你生氣了？我換回來了啦，真的！', 'teary'],
-          ['jin', '……不要不理我嘛。我以後會先看你臉色再鬧，好不好。', 'teary'],
-          ['jin', '沒生氣？……哼，嚇死人了。那、那這壺乾淨的給你。', 'shy']],
+          { pick: [
+            { say: '不理她，轉身就走', lines: [
+              ['n', '你沒有笑，一句話也沒說，轉身就走。'],
+              ['jin', '欸？等、等一下！你生氣了？我換回來了啦，真的！', 'teary'],
+              ['jin', '……不要不理我嘛。我以後會先看你臉色再鬧，好不好。', 'teary'],
+              ['n', '你回頭，告訴她你沒有生氣。'],
+              ['jin', '沒生氣？……哼，嚇死人了。下次不准這樣嚇我。', 'shy']] },
+            { say: '灌一大口，誇張地噴出來', lines: [
+              ['n', '你仰頭灌了一大口，朝天噴成一道水霧，然後直挺挺倒下。'],
+              ['jin', '噗哈哈哈！你是噴泉嗎！好髒喔～再一次、再一次！', 'smug'],
+              ['n', '你躺在地上，一動也不動。'],
+              ['jin', '……喂？演夠了吧？喂！你不要嚇我！蜜拉姐——！', 'teary'],
+              ['n', '你睜開一隻眼睛，對她眨了一下。'],
+              ['jin', '你、你這傢伙！居然反過來整我！……算你厲害啦。', 'angry']] },
+            { say: '面不改色地喝完：「還不錯。」', lines: [
+              ['n', '你面不改色地喝完整壺，擦了擦嘴。'],
+              ['jin', '欸？那是真的海水耶！你、你沒事吧？快吐出來啦！', 'teary'],
+              ['n', '其實你早就發現，偷偷換回淡水了。'],
+              ['jin', '……你早就知道了？可惡，被反將一軍。下次我會更小心的！', 'angry']] }] },
+          ['jin', '……那、那這壺乾淨的給你。這次是真的，沒有加料啦。', 'shy']],
       3: [['jin', '喂，手伸出來。……不是惡作劇啦！這次真的不是！', 'angry'],
           ['jin', '箭頭，我磨了三天。你上次差點被砸到，我看了很不爽。', 'shy'],
           ['jin', '所以塔裡那些念咒的，一秒都別多給。打斷十次，我就承認你。', 'serious']],

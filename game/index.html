@@ -208,6 +208,8 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 #talk.narr p{color:var(--mute)}
 #talk .row{display:flex;justify-content:space-between;align-items:center;margin-top:auto;font-size:11px;color:var(--mute)}
 #talk .mini{height:30px;font-size:12px}
+#talk-pick{display:flex;flex-direction:column;gap:6px;cursor:default}
+#talk-pick .mini{height:auto;min-height:42px;padding:8px 12px;font-size:15px;line-height:1.4;text-align:left;white-space:normal;border-color:var(--brass)}
 #talk-bond{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);cursor:default}
 #talk-bond b{font-size:12px;letter-spacing:.06em;color:var(--brass);white-space:nowrap}
 #talk-bond .bar{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden}
@@ -348,6 +350,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     <img id="talk-art" alt="" hidden>
     <div id="talk" hidden>
       <b id="talk-who"></b><p id="talk-text" aria-live="polite"></p>
+      <div id="talk-pick" hidden></div>
       <div id="talk-bond" hidden><b id="tb-name"></b><span class="bar"><i id="tb-bar"></i></span><span id="tb-num"></span><button class="mini go" id="tb-gift" type="button">送禮</button></div>
       <div id="gift" hidden></div>
       <div class="row"><span id="talk-count"></span><button class="mini" id="talk-skip" type="button">跳過</button></div>
@@ -935,10 +938,12 @@ function fieldReport(t, body, what, key, pk) {
 }
 
 /* ---------- talking: a box over the world, one line per tap ---------- */
-function say(lines, done, bond) { talk.lines = lines; talk.i = 0; talk.done = done || null; talk.bond = bond || ''; talk.gift = false; $('#portbox').hidden = true; $('#talk').hidden = false; renderBond(); nextSay(); }
+function say(lines, done, bond) { talk.lines = lines.slice(); talk.i = 0; talk.done = done || null; talk.bond = bond || ''; talk.gift = false; talk.pick = null; talk.picks = []; $('#talk-pick').hidden = true; $('#portbox').hidden = true; $('#talk').hidden = false; renderBond(); nextSay(); }
 function nextSay() {
   if (!talk.lines) return;
   if (talk.i >= talk.lines.length) return endSay();
+  if (talk.pick) return;      // waiting for the player to choose
+  if (talk.lines[talk.i].pick) return askPick(talk.lines[talk.i]);
   const [who, text, mood] = talk.lines[talk.i++], c = Story.CAST[who], w = $('#talk-who');
   $('#talk').classList.toggle('narr', !c); w.hidden = !c; w.textContent = c ? c.name : ''; if (c) w.style.color = C[c.color];
   $('#talk-text').textContent = text; $('#talk-count').textContent = `${talk.i} / ${talk.lines.length}　點一下繼續`;
@@ -950,7 +955,13 @@ function nextSay() {
     art.hidden = !im; if (!im) art.dataset.who = ''; }
   talk.focus = FD.npcs.find(n => n.id === who) || null;
 }
-function endSay() { const done = talk.done; talk.lines = null; talk.done = null; talk.focus = null; talk.bond = ''; talk.gift = false; $('#talk').hidden = true; $('#talk-art').hidden = true; $('#talk-art').dataset.who = ''; if (done) done(); }
+/* The talk stops for the player to choose what to do. The lines of what they chose are put where the choice was. */
+function askPick(q) {
+  const bx = $('#talk-pick'); talk.pick = q; bx.textContent = ''; bx.hidden = false; $('#talk-count').textContent = '你要怎麼做？';
+  q.pick.forEach((o, i) => { const bt = el('button', 'mini', o.say); bt.type = 'button'; bt.addEventListener('click', ev => { ev.stopPropagation(); if (talk.pick !== q) return; talk.pick = null; talk.picks.push(i); bx.hidden = true; $('#talk-art').style.bottom = ''; talk.lines.splice(talk.i, 1, ...o.lines); nextSay(); }); bx.appendChild(bt); });
+  $('#talk-art').style.bottom = Math.max(96, $('#talk').offsetHeight - 70) + 'px';      // the box has grown: lift the portrait so the face stays clear of it
+}
+function endSay() { const done = talk.done, picks = talk.picks || []; talk.pick = null; $('#talk-pick').hidden = true; $('#talk-art').style.bottom = ''; talk.lines = null; talk.done = null; talk.focus = null; talk.bond = ''; talk.gift = false; $('#talk').hidden = true; $('#talk-art').hidden = true; $('#talk-art').dataset.who = ''; if (done) done(picks); }
 function talkTo(id) {
   const main = S.questList(save, Date.now(), online).items.find(x => x.group === 'main'), sc = main && Story.SCENES[main.id];
   if (main && main.ready && sc && sc.at === id) return claimMain(main.id);      // this is who the finished quest goes back to
@@ -965,7 +976,7 @@ function talkTo(id) {
 /* ---------- bonds: the people at the camp who come to know you ---------- */
 function bondDo(o, cb) {
   if (online) { if (!net.authed) return toast('連線中，等一下再試。', [], 2500); net.bondCb = cb || null; return send(Object.assign({ t: 'bond' }, o)); }
-  const now = Date.now(), r = o.op === 'talk' ? S.bondTalk(save, o.who, now) : o.op === 'gift' ? S.bondGift(save, o.who, o.key ? { key: o.key } : { i: o.i }, now) : o.op === 'ask' ? S.bondAsk(save, o.who, now) : o.op === 'vow' ? S.bondVow(save, o.who, now) : S.bondSeen(save, o.who, o.tier, now);
+  const now = Date.now(), r = o.op === 'talk' ? S.bondTalk(save, o.who, now) : o.op === 'gift' ? S.bondGift(save, o.who, o.key ? { key: o.key } : { i: o.i }, now) : o.op === 'ask' ? S.bondAsk(save, o.who, now) : o.op === 'vow' ? S.bondVow(save, o.who, now) : S.bondSeen(save, o.who, o.tier, now, o.pick);
   writeSave(); if (cb) cb(r);
 }
 function bondGain(who, r) { const n = FD.npcs.find(x => x.id === who); if (n && r.gain) addText(n.x, n.y - 58, `好感 +${r.gain}`, C.ember, 13, 1.6, true); if (r.up) toast(`和${Story.CAST[who].name}的好感到了「${S.BOND_NAMES[r.tier]}」。`, [], 3500); }
@@ -975,7 +986,7 @@ function bondScene(who) {
   const t = b.seen + 1, name = Story.CAST[who].name, perk = b.perks.find(x => x.tier === t), gets = [];
   if (perk) gets.push(`你獲得「${perk.text}」`); if (S.BOND_TEAM[t] > S.BOND_TEAM[t - 1]) gets.push(`${name}當你的隊友時實力 +${Math.round(S.BOND_TEAM[t] * 100)}%`);
   if (S.questList(save, Date.now(), online).items.some(x => x.from === who && x.tier === t && !x.claimed)) gets.push(`${name}有事拜託你（任務 → 支線）`);
-  say((st.scenes[t] || []).concat([['n', `和${name}的好感到了「${S.BOND_NAMES[t]}」${gets.length ? '：' + gets.join('；') : ''}。`]]), () => bondDo({ op: 'seen', who, tier: t }, () => { refitMe(); renderQuests(); bondScene(who); }));
+  say((st.scenes[t] || []).concat([['n', `和${name}的好感到了「${S.BOND_NAMES[t]}」${gets.length ? '：' + gets.join('；') : ''}。`]]), picks => bondDo({ op: 'seen', who, tier: t, pick: picks && picks.length ? picks[0] : -1 }, r => { for (const k of Object.keys((r && r.gains) || {})) bondGain(k, { gain: r.gains[k] }); refitMe(); renderQuests(); bondScene(who); }));
   return true;
 }
 function renderBond() {
@@ -1013,7 +1024,8 @@ function talkTap(ev) {      // a tap on the dialogue box, or on the world while 
   const t = ev && ev.target && ev.target.closest ? ev.target : null;
   if (t && t.closest('#talk-skip')) return endSay();
   if (t && t.closest('#tb-gift')) { talk.gift = !talk.gift; talk.sure = null; return renderBond(); }
-  if (t && (t.closest('#gift') || t.closest('#talk-bond'))) return;
+  if (t && (t.closest('#gift') || t.closest('#talk-bond') || t.closest('#talk-pick'))) return;
+  if (talk.pick) return;      // nothing goes on until they choose
   if (talk.gift) { talk.gift = false; return renderBond(); }
   nextSay();
 }
