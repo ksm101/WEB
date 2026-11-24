@@ -18,22 +18,22 @@
  * portrait: true when there is art/<id>/portrait.png, the large picture shown while that person speaks. Someone who
  *     only has a portrait (the warden speaks as `mog`) is listed as  mog: { portrait: true, anims: [] }
  * Example:
- *   dps: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle', 'walk', 'attack', 'hurt'] }
+ *   dps: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle', 'walk', 'attack', 'hurt'] }
  */
 window.ART_MANIFEST = Object.assign({
-  dps: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], hands: true },
-  tank: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], hands: true },
-  heal: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], hands: true },
+  dps: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], hands: true },
+  tank: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], hands: true },
+  heal: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], hands: true },
   acolyte: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   grunt: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   caster: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   crab: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   brute: { cell: 48, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   boss: { cell: 64, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'] },
-  kol: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'serious'] },
+  kol: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'serious'] },
   mira: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['serious', 'blank', 'shy', 'dark', 'darkflat', 'darkside', 'fake', 'smile'] },
   jin: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['angry', 'serious', 'shy', 'laugh', 'panic', 'smug', 'teary', 'smile'], looks: { bun: [] } },
-  wu: { cell: 32, foot: 4, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'surprised', 'worried'] },
+  wu: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'surprised', 'worried'] },
   mog: { portrait: true, anims: [] },
   _weapons: ['sword', 'hammer', 'maul', 'spear', 'hook', 'xbow', 'bow', 'staff', 'bell', 'shield', 'tome', 'quiver'],      // the bow has no string in its picture: the game draws the string
   _tiles: ['sand', 'path', 'water', 'hull', 'stone', 'flood', 'brick'],
