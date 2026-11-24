@@ -10,6 +10,9 @@
  *     A line of the story asks for one as its third item; without it, or when that face is missing, the plain one shows.
  * _tiles, _props, _deco, _icons, _ui: the ground, the things that stand on it, the scatter, the icons and the menu
  *     picture that have been drawn. art/README.md says what each is and how to list it.
+ * looks: the same person dressed another way, each with its own portraits: looks: { bun: ['smug', 'shy'] } means
+ *     art/<id>/portrait-bun.png and art/<id>/portrait-bun_smug.png, ..._shy.png. The game offers a look as a gift only
+ *     once it is listed here. A pose (a whole other drawing for a strong feeling) is listed under moods like a face.
  * scale: 0.5 with cell: 64 is a body drawn at twice as many pixels to the same size. _fine: the kinds of thing
  *     (weapon, prop, deco) that have all been redrawn that way; a ground tile 64 high is taken to be so by itself.
  * portrait: true when there is art/<id>/portrait.png, the large picture shown while that person speaks. Someone who

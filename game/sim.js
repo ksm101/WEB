@@ -1034,14 +1034,17 @@ function modsFor(p, cls) {
  * A scene may stop and let the player choose what to do (story.js writes the choices). picks[tier] says what each
  * choice of that tier's scene is worth, to whom; it is counted once, when the scene is marked seen, and the choice
  * is remembered in ch so that later lines may look back on it.
+ * Clothes and things for the hair can be given too (looks): each is bought and given in one step from a tier on,
+ * counts for the bond once, and from then on she may wear it or not as the player likes. looks is what has been
+ * given, look what she has on ('' is how she first was). The pictures for a look are the client's business.
  * Some of them can come to love you (BONDS[who].love). At the last tier, with its scene seen, you may ask (it costs a
  * bunch of tide flowers: LOVE.ask) and become a couple: rel 1. A couple at the full count may take a vow (a ring of
  * bell shards: LOVE.vow): rel 2, and that with one person only. Whoever loves you gives you something each day, and
  * fights harder still at your side; a vow adds one more lasting bonus. */
 const BOND_TIERS = [0, 100, 250, 450, 700], BOND_NAMES = ['初識', '熟識', '信賴', '親近', '知心'], BOND_CAP = 1000, BOND_TEAM = [0, 0, .08, .12, .2], BOND_DAY = { talk: 1, gift: 3, run: 3 };
 const BONDS = {
-  mira: { seat: 'heal', picks: { 2: [{ mira: 5, jin: 5 }, { mira: 8 }] }, love: { daily: { potion: 1 }, perk: ['hp', .04, '生命 +4%'] }, gifts: { herb: 12, salt: 8, potion: 8, shard: 5, scrap: 1 }, kinds: ['staff', 'bell', 'tome'], perks: [[2, 'hp', .03, '生命 +3%'], [3, 'taken', -.03, '受到的傷害 -3%'], [4, 'heal', .06, '治療量 +6%']] },
-  jin: { seat: 'dps', picks: { 2: [{}, { jin: 10 }, { jin: 6 }] }, love: { daily: { scrap: 3 }, perk: ['dmg', .03, '造成的傷害 +3%'] }, gifts: { shard: 20, scrap: 8, potion: 6, salt: 3, herb: 1 }, kinds: ['bow', 'xbow', 'quiver'], perks: [[2, 'speed', .03, '移動速度 +3%'], [3, 'dmg', .03, '造成的傷害 +3%'], [4, 'ult', .08, '大招充能 +8%']] }
+  mira: { seat: 'heal', looks: { shawl: { name: '潮紋披肩', what: '衣服', cost: { coin: 400, salt: 5 }, tier: 2, gain: 30 } }, picks: { 2: [{ mira: 5, jin: 5 }, { mira: 8 }] }, love: { daily: { potion: 1 }, perk: ['hp', .04, '生命 +4%'] }, gifts: { herb: 12, salt: 8, potion: 8, shard: 5, scrap: 1 }, kinds: ['staff', 'bell', 'tome'], perks: [[2, 'hp', .03, '生命 +3%'], [3, 'taken', -.03, '受到的傷害 -3%'], [4, 'heal', .06, '治療量 +6%']] },
+  jin: { seat: 'dps', looks: { bun: { name: '緞面髮圈', what: '髮飾', cost: { coin: 300 }, tier: 2, gain: 30 } }, picks: { 2: [{}, { jin: 10 }, { jin: 6 }] }, love: { daily: { scrap: 3 }, perk: ['dmg', .03, '造成的傷害 +3%'] }, gifts: { shard: 20, scrap: 8, potion: 6, salt: 3, herb: 1 }, kinds: ['bow', 'xbow', 'quiver'], perks: [[2, 'speed', .03, '移動速度 +3%'], [3, 'dmg', .03, '造成的傷害 +3%'], [4, 'ult', .08, '大招充能 +8%']] }
 };
 const LOVE = { ask: { herb: 10, salt: 5 }, vow: { shard: 10, coin: 500 } }, REL_NAMES = ['', '情侶', '誓約'], REL_TEAM = [0, .25, .3];
 const costText = c => Object.keys(c).map(k => (k === 'coin' ? `鐘幣 ${c[k]}` : `${k === 'potion' ? '潮息藥水' : MATS[k]} ×${c[k]}`)).join('、');
@@ -1054,6 +1057,7 @@ const bondTier = (p, who) => (p.bond && p.bond[who] ? tierOf(p.bond[who].v || 0)
 function fixBond(p, now) {
   const out = {}, old = isObj(p.bond) ? p.bond : {};
   for (const who of Object.keys(BONDS)) { const o = isObj(old[who]) ? old[who] : {}, b = { v: qInt(o.v, 0, BOND_CAP), day: qInt(o.day, 0, 1e7), talk: qInt(o.talk, 0, 99), gift: qInt(o.gift, 0, 99), run: qInt(o.run, 0, 99), seen: qInt(o.seen, 0, BOND_TIERS.length - 1), rel: BONDS[who].love ? qInt(o.rel, 0, 2) : 0, ch: {} };
+    { const known = BONDS[who].looks || {}; b.looks = (Array.isArray(o.looks) ? o.looks : []).filter((k, i, a) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(known, k) && a.indexOf(k) === i); b.look = b.looks.includes(o.look) ? o.look : ''; }
     if (isObj(o.ch)) for (let t = 1; t < BOND_TIERS.length; t++) if (Number.isInteger(o.ch[t]) && o.ch[t] >= 0 && o.ch[t] < 8) b.ch[t] = o.ch[t];
     if (now != null && b.day !== dayOf(now)) { b.day = dayOf(now); b.talk = b.gift = b.run = 0; } out[who] = b; }
   p.bond = out; return out;
@@ -1065,7 +1069,8 @@ function bondInfo(p, who, now) {
   const perks = d.perks.map(x => ({ tier: x[0], at: BOND_NAMES[x[0]], text: x[3], on: t >= x[0] }));
   if (lv) perks.push({ at: REL_NAMES[1], text: `每天第一次說話送你${costText(lv.daily)}，好感 +10`, on: b.rel >= 1 }, { at: REL_NAMES[2], text: lv.perk[2], on: b.rel === 2 });
   return { who, v: b.v, tier: t, name: b.rel ? REL_NAMES[b.rel] : BOND_NAMES[t], from: BOND_TIERS[t], to: BOND_TIERS[t + 1] || BOND_CAP, top: t === BOND_TIERS.length - 1, talkLeft: b.talk < BOND_DAY.talk, giftLeft: Math.max(0, BOND_DAY.gift - b.gift), seen: b.seen,
-    perks, team: Math.max(BOND_TEAM[t], REL_TEAM[b.rel]), gifts: Object.keys(d.gifts), love: !!lv, rel: b.rel,
+    perks, team: Math.max(BOND_TEAM[t], REL_TEAM[b.rel]), gifts: Object.keys(d.gifts), love: !!lv, rel: b.rel, look: b.look,
+    looks: Object.keys(d.looks || {}).map(id => { const k = d.looks[id]; return { id, name: k.name, what: k.what, cost: costText(k.cost), tier: k.tier, at: BOND_NAMES[k.tier], open: t >= k.tier, ready: t >= k.tier && canPay(p, k.cost), own: b.looks.includes(id), on: b.look === id }; }),
     ask: lv && b.rel === 0 && t === BOND_TIERS.length - 1 && b.seen >= t ? { cost: costText(LOVE.ask), ready: canPay(p, LOVE.ask) } : null,      // the question can be asked
     vow: lv && b.rel === 1 ? { cost: costText(LOVE.vow), need: BOND_CAP, full: b.v >= BOND_CAP, taken, ready: b.v >= BOND_CAP && !taken && canPay(p, LOVE.vow) } : null };
 }
@@ -1074,6 +1079,15 @@ function bondTalk(p, who, now) {
   b.talk++; const n = b.rel ? 10 : 5, r = addBond(p, who, n, now), out = { ok: true, gain: n, up: r.up, tier: r.tier };
   if (b.rel && lv) { for (const k of Object.keys(lv.daily)) p.inv[k] = Math.min(k === 'potion' ? POTION_CAP : MAT_CAP, p.inv[k] + lv.daily[k]); out.present = costText(lv.daily); }      // someone who loves you sees you off with something
   return out;
+}
+/* Give them something to wear, or ask them to put on (or take off) something already given. id '' is how they first were. */
+function bondLook(p, who, id, now) {
+  fixProfile(p); const b = fixBond(p, now)[who], d = b && (BONDS[who].looks || {})[id]; if (!b) return { ok: false, msg: '沒有這個人。' };
+  if (id === '') { b.look = ''; return { ok: true, look: '' }; } if (!d) return { ok: false, msg: '沒有這樣東西。' };
+  if (b.looks.includes(id)) { b.look = id; return { ok: true, look: id }; }
+  if (tierOf(b.v) < d.tier) return { ok: false, msg: `好感到「${BOND_NAMES[d.tier]}」才能送這個。` }; if (!pay(p, d.cost)) return { ok: false, msg: `還不夠：${costText(d.cost)}。` };
+  b.looks.push(id); b.look = id; const r = addBond(p, who, d.gain, now);
+  return { ok: true, bought: true, look: id, gain: r.gain, up: r.up, tier: r.tier, msg: `送出${d.name}，好感 +${r.gain}。` };
 }
 /* Ask them to be yours, and later to take a vow. */
 function bondAsk(p, who, now) {
@@ -1552,7 +1566,7 @@ return { QUEST_TYPES, packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_
   get MAX_LEVEL() { return TUNE.maxLevel; }, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, get POTION_CAP() { return TUNE.potionCap; }, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id), MAIN_AT,
-  BONDS, BOND_TIERS, BOND_NAMES, BOND_DAY, BOND_TEAM, LOVE, REL_NAMES, REL_TEAM, bondInfo, bondTalk, bondGift, bondAsk, bondVow, bondSeen, bondTier, bondTeam, addBond,
+  BONDS, BOND_TIERS, BOND_NAMES, BOND_DAY, BOND_TEAM, LOVE, REL_NAMES, REL_TEAM, bondInfo, bondTalk, bondGift, bondLook, bondAsk, bondVow, bondSeen, bondTier, bondTeam, addBond,
   TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, get RESPEC_COST() { return TUNE.respecCost; }, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
   SLOTS, SET_SLOTS, SLOT_NAME: { w: '主手', o: '副手', a: '護甲', t: '飾品' }, WKINDS, HAND_NAME, HELD, hands, heldOf, heldFix, slotFor, wants, itemKind, kindOf, reach, canUse, needText, NEEDS, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
   runDrops, bossDrops, refit, get TOWER_LEVEL() { return DUNGEONS.tower.min; }, PORTAL };

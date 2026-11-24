@@ -29,7 +29,7 @@ const FILES = {
   '/editor.js': ['editor.js', 'text/javascript; charset=utf-8'],
   '/art/manifest.js': ['art/manifest.js', 'text/javascript; charset=utf-8']
 };
-const ART_FILE = /^\/art\/(?:[a-z0-9]{1,12}\/(?:[a-z]{1,10}_(?:down|side|up)|portrait(?:_[a-z]{1,10})?)|(?:weapon|tile|prop|deco|icon|ui)\/[A-Za-z]{1,12})\.png$/;      // the strips of frames and the portraits, and nothing else in there
+const ART_FILE = /^\/art\/(?:[a-z0-9]{1,12}\/(?:[a-z]{1,10}_(?:down|side|up)|portrait(?:-[a-z]{1,10})?(?:_[a-z]{1,10})?)|(?:weapon|tile|prop|deco|icon|ui)\/[A-Za-z]{1,12})\.png$/;      // the strips of frames and the portraits, and nothing else in there
 
 const clampInt = (v, a, b) => { v = Math.floor(Number(v)); return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : a; };
 const cleanName = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '') || '旅人';
@@ -626,9 +626,9 @@ function start(opts) {
         case 'field0': case 'fg': case 'fk': case 'fr': return onField(ws, m);
         case 'loadout': { const r = Sim.setLoadout(pc(ws.acc), pc(ws.acc).cls, m.skills); if (r.ok) { store.put(ws.acc); refit(ws); } return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'bond': {      // talk to, give to, or mark a scene seen with someone at the camp who keeps a bond
-          const c = pc(ws.acc), who = String(m.who), now = Date.now(), op = ['talk', 'gift', 'ask', 'vow'].includes(m.op) ? m.op : 'seen'; if (!Object.prototype.hasOwnProperty.call(Sim.BONDS, who)) return;
+          const c = pc(ws.acc), who = String(m.who), now = Date.now(), op = ['talk', 'gift', 'ask', 'vow', 'look'].includes(m.op) ? m.op : 'seen'; if (!Object.prototype.hasOwnProperty.call(Sim.BONDS, who)) return;
           if (op !== 'seen' && op !== 'talk' && seats.has(ws.acc.id)) return send(ws, { t: 'bond', op, who, r: { ok: false, msg: '副本裡不能送禮。' } });
-          const r = op === 'talk' ? Sim.bondTalk(c, who, now) : op === 'gift' ? Sim.bondGift(c, who, typeof m.key === 'string' ? { key: m.key } : { i: clampInt(m.i, 0, 999) }, now) : op === 'ask' ? Sim.bondAsk(c, who, now) : op === 'vow' ? Sim.bondVow(c, who, now) : Sim.bondSeen(c, who, clampInt(m.tier, 0, 9), now, Number.isInteger(m.pick) ? m.pick : -1);
+          const r = op === 'talk' ? Sim.bondTalk(c, who, now) : op === 'gift' ? Sim.bondGift(c, who, typeof m.key === 'string' ? { key: m.key } : { i: clampInt(m.i, 0, 999) }, now) : op === 'look' ? Sim.bondLook(c, who, typeof m.look === 'string' ? m.look.slice(0, 12) : '', now) : op === 'ask' ? Sim.bondAsk(c, who, now) : op === 'vow' ? Sim.bondVow(c, who, now) : Sim.bondSeen(c, who, clampInt(m.tier, 0, 9), now, Number.isInteger(m.pick) ? m.pick : -1);
           if (r.ok) { store.put(ws.acc); later(ws); if (r.up || r.rel) refit(ws); }
           return send(ws, { t: 'bond', op, who, r, profile: profileOf(ws.acc) });
         }

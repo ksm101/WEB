@@ -80,9 +80,12 @@ const SCENES = {
 };
 
 /* The faces a portrait can have besides the plain one. */
-const MOODS = { smile: '微笑', happy: '開心', angry: '生氣、不耐煩', sad: '難過', surprised: '驚訝、興奮', worried: '擔心', serious: '認真、凝重', shy: '害羞', troubled: '傷腦筋', smug: '壞笑、得意', teary: '慌了、快哭出來', dark: '笑著生氣（眼睛沒在笑）' };
-/* When someone has no portrait of a face, the nearest one they may have. */
-const ALT = { smug: 'smile', teary: 'shy', dark: 'serious', happy: 'smile' };
+const MOODS = { smile: '微笑', happy: '開心', angry: '生氣、不耐煩', sad: '難過', surprised: '驚訝、興奮', worried: '擔心', serious: '認真、凝重', shy: '害羞', troubled: '傷腦筋', smug: '壞笑、得意', teary: '慌了、快哭出來', dark: '笑著生氣（眼睛沒在笑）', laugh: '捧腹大笑', panic: '慌到手忙腳亂' };
+/* When someone has no portrait of a face, the nearest one they may have (and so on down the line). */
+const ALT = { smug: 'smile', teary: 'shy', dark: 'serious', happy: 'smile', laugh: 'smug', panic: 'teary' };
+/* Faces that are a whole other drawing, body and all, for when a feeling runs high. To the game they are faces like
+ * the rest; this list is for whoever draws them. */
+const POSES = ['laugh', 'panic'];
 
 /* What each of them says at the camp when they have nothing new for you: a line, or [line, face]. */
 const IDLE = {
@@ -98,6 +101,8 @@ const IDLE = {
  * is what they say to a gift, by how much they liked it; more[n] are extra things they say at the camp from tier n.
  * A scene may hold a choice in place of a line: { pick: [{ say: what the player does, lines: [...] }, ...] }. The lines
  * of the one chosen are spoken, then the scene goes on. sim.js (BONDS[who].picks) says what each choice is worth.
+ * looks[id] plays when that thing to wear is given; { reveal: true } in it is where she is first seen wearing it.
+ * wear is what she says when asked to put something on or take it off.
  * ask and vow play when they become your couple and when the vow is taken; dear is what they say at the camp after. */
 const BOND = {
   mira: {
@@ -131,6 +136,12 @@ const BOND = {
     vow: [['mira', '用沉鐘碎片打的戒指……敲起來，有鐘的聲音呢。', 'shy'],
           ['mira', '以前我只會等鐘響。現在我想和你一起，把它敲響。', 'serious'],
           ['mira', '往後不管潮水漲到哪裡，你回來的地方都在我這裡。約好了。', 'smile']],
+    looks: { shawl: [['mira', '披肩？哎呀，是潮紋的花樣呢。你特地去找的嗎？', 'smile'],
+          ['n', '她把披肩圍上肩膀，仔細地在胸前打了個結。'],
+          { reveal: true },
+          ['mira', '好暖和。……怎麼樣，適合姐姐嗎？', 'shy'],
+          ['mira', '我會好好珍惜的。夜裡守火的時候，就披著它。', 'smile']] },
+    wear: [['這樣可以嗎？你喜歡哪個樣子，跟姐姐說就好。', 'smile']],
     dear: [['你回來了。先讓我看看有沒有受傷……好，沒事。', 'smile'], ['今天也要平安回來。這不是拜託，是命令喔。', 'smile'], ['……手借我一下。嗯，這樣就不冷了。', 'shy']],
     gift: {
       love: [['哎呀，是給我的？謝謝你，我會好好珍惜的。', 'shy'], ['你怎麼知道我正缺這個？真貼心。', 'shy']],
@@ -149,15 +160,15 @@ const BOND = {
           { pick: [
             { say: '不理她，轉身就走', lines: [
               ['n', '你沒有笑，一句話也沒說，轉身就走。'],
-              ['jin', '欸？等、等一下！你生氣了？我換回來了啦，真的！', 'teary'],
+              ['jin', '欸？等、等一下！你生氣了？我換回來了啦，真的！', 'panic'],
               ['jin', '……不要不理我嘛。我以後會先看你臉色再鬧，好不好。', 'teary'],
               ['n', '你回頭，告訴她你沒有生氣。'],
               ['jin', '沒生氣？……哼，嚇死人了。下次不准這樣嚇我。', 'shy']] },
             { say: '灌一大口，誇張地噴出來', lines: [
               ['n', '你仰頭灌了一大口，朝天噴成一道水霧，然後直挺挺倒下。'],
-              ['jin', '噗哈哈哈！你是噴泉嗎！好髒喔～再一次、再一次！', 'smug'],
+              ['jin', '噗哈哈哈！你是噴泉嗎！好髒喔～再一次、再一次！', 'laugh'],
               ['n', '你躺在地上，一動也不動。'],
-              ['jin', '……喂？演夠了吧？喂！你不要嚇我！蜜拉姐——！', 'teary'],
+              ['jin', '……喂？演夠了吧？喂！你不要嚇我！蜜拉姐——！', 'panic'],
               ['n', '你睜開一隻眼睛，對她眨了一下。'],
               ['jin', '你、你這傢伙！居然反過來整我！……算你厲害啦。', 'angry']] },
             { say: '面不改色地喝完：「還不錯。」', lines: [
@@ -175,13 +186,19 @@ const BOND = {
           ['jin', '……騙你的。走吧，一起。', 'shy']]
     },
     ask: [['jin', '潮花？給我？……等等，這是惡作劇對吧？換你整我了對吧？', 'teary'],
-          ['jin', '不是……？欸、欸欸？是真的？', 'teary'],
+          ['jin', '不是……？欸、欸欸？是真的？', 'panic'],
           ['jin', '……好啦，答應你啦。可、可是在別人面前不准講！', 'shy'],
           ['mira', '恭喜呀。婕焰，以後可不能再欺負人家了喔？', 'smile'],
-          ['jin', '蜜拉姐妳什麼時候站在那裡的啦——！', 'teary']],
+          ['jin', '蜜拉姐妳什麼時候站在那裡的啦——！', 'panic']],
     vow: [['jin', '沉鐘碎片打的戒指？……你居然記得我喜歡這個。', 'shy'],
           ['jin', '先說好，我還是會捉弄你。一輩子都會。你逃不掉了喔～', 'smug'],
           ['jin', '所以……你也不准不理我。一輩子都不准。', 'teary']],
+    looks: { bun: [['jin', '髮圈？給我的？……你該不會偷偷在上面抹了膠水吧。', 'smug'],
+          ['n', '她左看右看，確認沒有機關，才轉過身把頭髮重新綁起來。'],
+          { reveal: true },
+          ['jin', '……怎樣啦。不、不准盯著看！好看就說好看！', 'shy'],
+          ['jin', '哼，既然你這麼想看，以後偶爾綁給你看也可以啦。', 'smug']] },
+    wear: [['換好了。……幹嘛一直看，你是不是有什麼企圖～？', 'smug']],
     dear: [['今天的惡作劇是——抱一下。……幹嘛，不行喔！', 'shy'], ['欸，慢吞吞。出門前回頭看我一眼，這是規定。', 'smug'], ['你要是受傷回來，我會真的生氣。不是鬧你的那種。', 'serious']],
     gift: {
       love: [['喔～？很懂嘛。……我、我才沒有很高興！', 'shy'], ['算你識貨～收下了。下次惡作劇放你一馬。', 'smug']],
@@ -195,5 +212,5 @@ const BOND = {
 
 const ORDER = ['prologue', 'bell', 'kick', 'craft', 'ontime', 'clean', 'lvl3', 'temper', 'lvl5'];
 
-return { CAST, SCENES, ORDER, IDLE, MOODS, ALT, BOND };
+return { CAST, SCENES, ORDER, IDLE, MOODS, ALT, POSES, BOND };
 });

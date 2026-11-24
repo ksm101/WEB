@@ -944,20 +944,28 @@ function fieldReport(t, body, what, key, pk) {
 }
 
 /* ---------- talking: a box over the world, one line per tap ---------- */
+/* The picture for what `who` says: dressed as they now are, with the face asked for or the nearest there is. A look
+ * that has no picture of a face shows its own plain one rather than a face from another look. */
+function faceOf(who, mood) {
+  const b = save.bond && save.bond[who], look = talk.hold && talk.hold.who === who ? talk.hold.look : b ? b.look : '', chain = []; for (let m = mood, n = 0; m && n < 4; m = Story.ALT[m], n++) chain.push(m);
+  if (look && PORTRAIT[who + '@' + look]) { for (const m of chain) if (PORTRAIT[who + '@' + look + ':' + m]) return PORTRAIT[who + '@' + look + ':' + m]; return PORTRAIT[who + '@' + look]; }
+  for (const m of chain) if (PORTRAIT[who + ':' + m]) return PORTRAIT[who + ':' + m]; return PORTRAIT[who] || null;
+}
 function say(lines, done, bond) { talk.lines = lines.slice(); talk.i = 0; talk.done = done || null; talk.bond = bond || ''; talk.gift = false; talk.pick = null; talk.picks = []; $('#talk-pick').hidden = true; $('#portbox').hidden = true; $('#talk').hidden = false; renderBond(); nextSay(); }
 function nextSay() {
   if (!talk.lines) return;
   if (talk.i >= talk.lines.length) return endSay();
   if (talk.pick) return;      // waiting for the player to choose
   if (talk.lines[talk.i].pick) return askPick(talk.lines[talk.i]);
+  if (talk.lines[talk.i].reveal) { talk.hold = null; talk.i++; return nextSay(); }      // from here she is seen in what she was just given
   const [who, text, mood] = talk.lines[talk.i++], c = Story.CAST[who], w = $('#talk-who');
   $('#talk').classList.toggle('narr', !c); w.hidden = !c; w.textContent = c ? c.name : ''; if (c) w.style.color = C[c.color];
   $('#talk-text').textContent = text; $('#talk-count').textContent = `${talk.i} / ${talk.lines.length}　點一下繼續`;
-  { const art = $('#talk-art'), im = c ? (mood && (PORTRAIT[who + ':' + mood] || PORTRAIT[who + ':' + Story.ALT[mood]])) || PORTRAIT[who] : null;      // whoever has a portrait is shown large beside their words, with the face the line asks for when there is one
-    if (im && art.dataset.who === who && art.getAttribute('src') !== im.src) art.src = im.src;      // the same person with another face: it changes where it stands
-    if (im && art.dataset.who !== who) { art.hidden = true; art.src = im.src; art.dataset.who = who; const px = im.naturalWidth <= 320; art.classList.toggle('px', px); art.style.width = '';
+  { const art = $('#talk-art'), im = c ? faceOf(who, mood) : null, fresh = im && art.dataset.who !== who;      // whoever has a portrait is shown large beside their words, with the face the line asks for when there is one
+    if (im && (fresh || art.getAttribute('src') !== im.src)) {      // the same person with another face or pose changes where they stand
+      if (fresh) art.hidden = true; art.src = im.src; art.dataset.who = who; const px = im.naturalWidth <= 320; art.classList.toggle('px', px); art.style.width = '';
       if (px) { const box = art.parentElement.getBoundingClientRect(), d = window.devicePixelRatio || 1, k = Math.max(1, Math.round(Math.min(box.width * .7 / im.naturalWidth, box.height * .86 / im.naturalHeight) * d)); art.style.width = im.naturalWidth * k / d + 'px'; }      // pixel art is enlarged by a whole number, so every dot stays square
-      void art.offsetWidth; }
+      if (fresh) void art.offsetWidth; }
     art.hidden = !im; talk.art = !!im; if (!im) art.dataset.who = ''; }
   talk.focus = FD.npcs.find(n => n.id === who) || null;
 }
@@ -967,7 +975,7 @@ function askPick(q) {
   q.pick.forEach((o, i) => { const bt = el('button', 'mini', o.say); bt.type = 'button'; bt.addEventListener('click', ev => { ev.stopPropagation(); if (talk.pick !== q) return; talk.pick = null; talk.picks.push(i); bx.hidden = true; $('#talk-art').style.bottom = ''; talk.lines.splice(talk.i, 1, ...o.lines); nextSay(); }); bx.appendChild(bt); });
   { const art = $('#talk-art'), over = $('#talk').offsetHeight + 10 - $('#deck').clientHeight, room = $('#stage').clientHeight - art.offsetHeight; art.style.bottom = Math.max(0, Math.min(over, room)) + 'px'; }      // the box has outgrown the deck and reaches up over the stage: lift the portrait clear of it, as far as there is room
 }
-function endSay() { const done = talk.done, picks = talk.picks || []; talk.pick = null; talk.art = false; $('#talk-pick').hidden = true; $('#gift').hidden = true; $('#talk-art').style.bottom = ''; talk.lines = null; talk.done = null; talk.focus = null; talk.bond = ''; talk.gift = false; $('#talk').hidden = true; $('#talk-art').hidden = true; $('#talk-art').dataset.who = ''; if (done) done(picks); }
+function endSay() { const done = talk.done, picks = talk.picks || []; talk.pick = null; talk.art = false; talk.hold = null; $('#talk-pick').hidden = true; $('#gift').hidden = true; $('#talk-art').style.bottom = ''; talk.lines = null; talk.done = null; talk.focus = null; talk.bond = ''; talk.gift = false; $('#talk').hidden = true; $('#talk-art').hidden = true; $('#talk-art').dataset.who = ''; if (done) done(picks); }
 function talkTo(id) {
   const main = S.questList(save, Date.now(), online).items.find(x => x.group === 'main'), sc = main && Story.SCENES[main.id];
   if (main && main.ready && sc && sc.at === id) return claimMain(main.id);      // this is who the finished quest goes back to
@@ -982,7 +990,7 @@ function talkTo(id) {
 /* ---------- bonds: the people at the camp who come to know you ---------- */
 function bondDo(o, cb) {
   if (online) { if (!net.authed) return toast('連線中，等一下再試。', [], 2500); net.bondCb = cb || null; return send(Object.assign({ t: 'bond' }, o)); }
-  const now = Date.now(), r = o.op === 'talk' ? S.bondTalk(save, o.who, now) : o.op === 'gift' ? S.bondGift(save, o.who, o.key ? { key: o.key } : { i: o.i }, now) : o.op === 'ask' ? S.bondAsk(save, o.who, now) : o.op === 'vow' ? S.bondVow(save, o.who, now) : S.bondSeen(save, o.who, o.tier, now, o.pick);
+  const now = Date.now(), r = o.op === 'talk' ? S.bondTalk(save, o.who, now) : o.op === 'gift' ? S.bondGift(save, o.who, o.key ? { key: o.key } : { i: o.i }, now) : o.op === 'look' ? S.bondLook(save, o.who, o.look || '', now) : o.op === 'ask' ? S.bondAsk(save, o.who, now) : o.op === 'vow' ? S.bondVow(save, o.who, now) : S.bondSeen(save, o.who, o.tier, now, o.pick);
   writeSave(); if (cb) cb(r);
 }
 function bondGain(who, r) { const n = FD.npcs.find(x => x.id === who); if (n && r.gain) addText(n.x, n.y - 58, `好感 +${r.gain}`, C.ember, 13, 1.6, true); if (r.up) toast(`和${Story.CAST[who].name}的好感到了「${S.BOND_NAMES[r.tier]}」。`, [], 3500); }
@@ -1011,6 +1019,11 @@ function renderBond() {
   for (const k of b.gifts) if (save.inv[k] > 0) add(`${k === 'potion' ? '潮息藥水' : S.MATS[k]} ×${save.inv[k]}`, { key: k });
   save.bag.forEach((it, i) => add(`${it.n}・${it.il}`, { i }, true));      // gear is gone for good, so it asks twice
   if (list.children.length) g.appendChild(list); else g.appendChild(el('p', '', '你身上沒有能送的東西。'));
+  const looks = b.looks.filter(k => PORTRAIT[who + '@' + k.id]);      // only what there is a picture of her wearing
+  if (looks.length) { const box = el('div', 'gifts'); g.appendChild(el('p', '', '衣服和髮飾：送了之後她會換上，之後可以請她換來換去。'));
+    for (const k of looks) { const bt = el('button', 'mini', k.own ? (k.on ? `換回原本的樣子` : `請她換上${k.name}`) : k.open ? `送${k.name}（${k.cost}）` : `${k.name}：${k.at}後可以送`); bt.type = 'button'; bt.disabled = !k.own && !k.ready;
+      bt.addEventListener('click', () => { if (!k.own && talk.sure !== bt) { talk.sure = bt; bt.textContent = '確定送出？'; bt.classList.add('go'); return; } talk.sure = null; lookStep(k.own && k.on ? '' : k.id); }); box.appendChild(bt); }
+    g.appendChild(box); }
   g.appendChild(ul); g.scrollTop = 0;      // what the bond gives comes last: the gifts are what the panel was opened for
 }
 function giveGift(what) {
@@ -1018,6 +1031,15 @@ function giveGift(what) {
   bondDo(Object.assign({ op: 'gift', who }, what), r => {
     if (!r.ok) return toast(String(r.msg || ''), [], 3000);
     renderBag(); renderEquip(); say([[who].concat(pick(Story.BOND[who].gift[r.mood] || [['……']]))], () => bondScene(who), who); bondGain(who, r);
+  });
+}
+function lookStep(id) {      // something to wear: given (her scene for it, and she is first seen in it part way through), or put on, or taken off
+  const who = talk.bond, was = (save.bond[who] || {}).look || ''; if (!who) return;
+  bondDo({ op: 'look', who, look: id }, r => {
+    if (!r.ok) return toast(String(r.msg || ''), [], 3500);
+    const st = Story.BOND[who], scene = r.bought && st.looks && st.looks[id];
+    if (scene) { talk.hold = { who, look: was }; say(scene, () => bondScene(who), who); bondGain(who, r); toast(String(r.msg || ''), [], 3000); }
+    else say([[who].concat(pick(st.wear || [['……']]))], null, who);
   });
 }
 function loveStep(op) {      // asking, or the vow: the scene written for it, then what it brings
@@ -1352,6 +1374,9 @@ for (const id of Object.keys(window.ART_MANIFEST || {})) {
   ART[id] = set;
   if (d.portrait) { const im = new Image(); im.onload = () => { PORTRAIT[id] = im; }; im.src = `art/${id}/portrait.png`; }
   for (const mood of Array.isArray(d.moods) ? d.moods : []) if (/^[a-z]{1,10}$/.test(mood)) { const im = new Image(); im.onload = () => { PORTRAIT[id + ':' + mood] = im; }; im.src = `art/${id}/portrait_${mood}.png`; }      // the same person with another face
+  for (const look of Object.keys(d.looks || {})) if (/^[a-z]{1,10}$/.test(look)) {      // the same person dressed another way: a plain picture, and its own faces
+    { const im = new Image(); im.onload = () => { PORTRAIT[id + '@' + look] = im; }; im.src = `art/${id}/portrait-${look}.png`; }
+    for (const mood of Array.isArray(d.looks[look]) ? d.looks[look] : []) if (/^[a-z]{1,10}$/.test(mood)) { const im = new Image(); im.onload = () => { PORTRAIT[id + '@' + look + ':' + mood] = im; }; im.src = `art/${id}/portrait-${look}_${mood}.png`; } }
 }
 /* ---------- the ground, what stands on it, the scatter, the icons ----------
  * All listed in art/manifest.js (_tiles, _props, _deco, _icons, _ui). Anything not listed, or not loaded yet, is drawn
