@@ -1788,7 +1788,8 @@ function drawField() {
   c.globalAlpha = 1; drawStrewn(FD, tower);
   FD.rocks.forEach((r, i) => {      // a rock is drawn about as wide as it is solid
     const name = r.r >= 30 && PROP.rockbig ? 'rockbig' : 'rock', p = PROP[name], unit = p ? p.w * .8 * propPx(c) / (c.getTransform().a || 1) : 0;
-    if (p) { shadow(r.x, r.y + r.r * .2, r.r * .8); drawProp(name, r.x, r.y + r.r * .55, i * 7 + Math.round(r.x), null, Math.max(1, Math.round(2 * r.r / unit))); }
+    if (p) { shadow(r.x, r.y + r.r * .18, r.r * .85); drawProp(name, r.x, r.y + r.r * .8,      // the picture stands on the lower edge of what blocks the way, so all of what blocks is seen
+      i * 7 + Math.round(r.x), null, Math.max(1, Math.round(2 * r.r / unit))); }
     else { c.fillStyle = C.ink; c.strokeStyle = C.line; c.lineWidth = 2; poly(r.x, r.y, r.r, r.r * .8, 5, r.x * .01); c.fill(); c.stroke(); } });
   c.globalAlpha = 1;
   for (const e of FD.exits) { const T = S.MAPS[e.to]; if (!T) continue;      // a way to another map
