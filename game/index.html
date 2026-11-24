@@ -84,6 +84,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:0;overflow:hidden;touch-action:none}
 .sk b{font-family:var(--f-display);font-weight:900;font-size:22px;line-height:1.05}
 .sk small{font-size:9px;color:var(--mute);line-height:1.1}
+.sk img.pic{width:36px;height:36px;image-rendering:pixelated;pointer-events:none} .sk.main img.pic{width:48px;height:48px} .sk.cool img.pic{opacity:.25}
+em.pic{display:inline-grid;place-items:center} em.pic img{width:24px;height:24px;image-rendering:pixelated}
+dt img.pic{width:18px;height:18px;image-rendering:pixelated;vertical-align:-4px;margin-right:4px}
 .sk::before{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(rgba(6,14,18,.82) calc(var(--cd,0)*1turn),transparent 0);pointer-events:none}
 .sk .cdn{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--f-num);font-weight:700;font-size:18px;color:var(--foam);pointer-events:none}
 .sk.main{width:88px;height:88px;right:0;bottom:0;border-color:var(--ember)}
@@ -132,6 +135,8 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
   user-select:text;-webkit-user-select:text;touch-action:auto}
 .fields input::placeholder{color:var(--mute);opacity:.7;font-size:13px}
 .cta{margin-top:auto;display:flex;flex-direction:column;gap:8px}
+#menu.pic{background:linear-gradient(to bottom,rgba(10,22,27,0) 0%,rgba(10,22,27,.42) 26%,rgba(10,22,27,.8) 58%,rgba(10,22,27,.93) 100%),url(art/ui/title.png) center top/cover no-repeat var(--ink);image-rendering:pixelated}
+#menu.pic>*{image-rendering:auto}
 #menu .cta{position:sticky;bottom:0;margin-inline:-4px;padding:14px 4px 0;background:linear-gradient(to bottom,transparent,var(--ink) 22%)}
 .btn{height:54px;border-radius:8px;border:0;background:var(--ember);color:var(--ink);font-family:var(--f-display);font-weight:900;font-size:20px;letter-spacing:.2em}
 .btn.ghost{background:transparent;border:1.5px solid var(--line);color:var(--foam);height:46px;font-size:15px}
@@ -637,6 +642,7 @@ function levelCheck(quiet) {
 
 /* ================= Canvas ================= */
 let scale = 1, fscale = 1, stageW = 360, stageH = 440, dpr = 1, offX = 0, offY = 0, floor = null;
+const TILE = {}, PROP = {}, DECO = {};      // pictures of the ground, of what stands on it and of the scatter, filled in as they load (see further down)
 const cv = $('#cv'), ctx = cv.getContext('2d');
 function resize() {
   const st = $('#stage'), cw = st.clientWidth, ch = st.clientHeight;
@@ -654,9 +660,13 @@ function paintFloor() {
   const g = c.createRadialGradient(W / 2, H * .5, 20, W / 2, H * .5, H * .75);
   g.addColorStop(0, C.glow); g.addColorStop(1, C.ink);
   c.fillStyle = g; c.fillRect(0, 0, W, H);
+  if (tileFill('stone', 0, 0, W, H, c)) {      // flagstones, darker towards the walls
+    const v = c.createRadialGradient(W / 2, H * .5, 60, W / 2, H * .5, H * .78); v.addColorStop(0, 'rgba(10,22,27,0)'); v.addColorStop(1, 'rgba(10,22,27,.78)'); c.fillStyle = v; c.fillRect(0, 0, W, H);
+  } else {
   c.strokeStyle = C.foam; c.globalAlpha = .045; c.lineWidth = 1;
   for (let x = 20; x < W; x += 40) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, H); c.stroke(); }
   for (let y = 20; y < H; y += 40) { c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke(); }
+  }
   // the sunken bell, seen from above
   c.strokeStyle = C.brass; c.globalAlpha = .13;
   for (const r of [34, 78, 84, 130]) { c.beginPath(); c.arc(W / 2, H / 2, r, 0, TAU); c.stroke(); }
@@ -1250,6 +1260,55 @@ for (const id of Object.keys(window.ART_MANIFEST || {})) {
   if (d.portrait) { const im = new Image(); im.onload = () => { PORTRAIT[id] = im; }; im.src = `art/${id}/portrait.png`; }
   for (const mood of Array.isArray(d.moods) ? d.moods : []) if (/^[a-z]{1,10}$/.test(mood)) { const im = new Image(); im.onload = () => { PORTRAIT[id + ':' + mood] = im; }; im.src = `art/${id}/portrait_${mood}.png`; }      // the same person with another face
 }
+/* ---------- the ground, what stands on it, the scatter, the icons ----------
+ * All listed in art/manifest.js (_tiles, _props, _deco, _icons, _ui). Anything not listed, or not loaded yet, is drawn
+ * the plain way it always was. Everything is drawn at the same size of pixel as the bodies. */
+const ICONS = new Set((window.ART_MANIFEST || {})._icons || []);
+{ const M = window.ART_MANIFEST || {}, ok = n => /^[A-Za-z]{1,12}$/.test(n), load = (store, n, dir, extra) => { const im = new Image(); im.onload = () => { store[n] = Object.assign({ img: im }, extra); if (store === TILE) paintFloor(); }; im.src = `art/${dir}/${n}.png`; };
+  for (const n of M._tiles || []) if (ok(n)) load(TILE, n, 'tile');
+  for (const n of Object.keys(M._props || {})) if (ok(n)) load(PROP, n, 'prop', { w: M._props[n].w > 0 ? M._props[n].w : 32, h: M._props[n].h > 0 ? M._props[n].h : 32, frames: M._props[n].frames > 0 ? M._props[n].frames : 1 });
+  for (const n of M._deco || []) if (ok(n)) load(DECO, n, 'deco'); }
+const pxScale = c => Math.max(1, Math.round(ART_ZOOM * (c.getTransform().a || 1)));      // screen pixels to one pixel of a picture
+/* Fill a box of the world with a ground tile, lined up with the world so boxes side by side meet without a seam.
+ * A strip of several squares is several looks of the same ground, picked by place; for water it is a ripple. */
+function tileFill(name, x0, y0, x1, y1, c) {
+  const t = TILE[name]; if (!t) return false; c = c || ctx;
+  const m = c.getTransform(), q = pxScale(c), T = 32 * q, ox = Math.round(m.e), oy = Math.round(m.f);
+  const a0 = Math.max(0, Math.round(m.a * x0 + m.e)), b0 = Math.max(0, Math.round(m.d * y0 + m.f)), a1 = Math.min(c.canvas.width, Math.round(m.a * x1 + m.e)), b1 = Math.min(c.canvas.height, Math.round(m.d * y1 + m.f));
+  if (a1 <= a0 || b1 <= b0) return true;
+  const n = Math.max(1, Math.round(t.img.width / 32)), wet = name === 'water' || name === 'flood', beat = reduced ? 0 : Math.floor(clock * 2.5);
+  c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.beginPath(); c.rect(a0, b0, a1 - a0, b1 - b0); c.clip(); c.imageSmoothingEnabled = false;
+  for (let j = Math.floor((b0 - oy) / T); j * T + oy < b1; j++) for (let i = Math.floor((a0 - ox) / T); i * T + ox < a1; i++) {
+    const v = wet ? (((beat + i + j * 2) % n) + n) % n : (((i * 73856093) ^ (j * 19349663)) >>> 0) % n;
+    c.drawImage(t.img, v * 32, 0, 32, 32, ox + i * T, oy + j * T, T, T); }
+  c.restore(); return true;
+}
+/* A thing standing on the ground, its foot at (x, y). `big` enlarges it by whole steps (a rock as wide as it is solid). */
+function drawProp(name, x, y, frame, alpha, big) {
+  const p = PROP[name]; if (!p) return false; const c = ctx, m = c.getTransform(), q = pxScale(c) * (big > 1 ? Math.round(big) : 1), f = (((frame | 0) % p.frames) + p.frames) % p.frames;
+  c.save(); c.setTransform(q, 0, 0, q, Math.round(m.a * x + m.e), Math.round(m.d * y + m.f) + 4 * q); c.imageSmoothingEnabled = false; if (alpha != null) c.globalAlpha = alpha;
+  c.drawImage(p.img, f * p.w, 0, p.w, p.h, -p.w / 2, -p.h, p.w, p.h); c.restore(); return true;
+}
+/* Small things strewn about, the same every time for the same map: shells and driftwood on the shore, rust and puddles in the tower. */
+const STREWN = {};
+function strewn(F, tower) {
+  const names = (tower ? ['puddle', 'rustbit', 'pebbles', 'bones', 'rope'] : ['shell', 'driftwood', 'seaweed', 'bones', 'puddle', 'rustbit', 'rope', 'pebbles']).filter(n => DECO[n]); if (!names.length) return [];
+  const key = `${F.id}:${F.w}x${F.h}:${names.length}:${(F.walls || []).length}:${(F.rocks || []).length}`; if (STREWN[key]) return STREWN[key];
+  let seed = 2166136261; for (const ch of String(F.id)) seed = Math.imul(seed ^ ch.charCodeAt(0), 16777619); const rnd = () => { seed = Math.imul(seed ^ (seed >>> 15), 2246822507) + 0x9e3779b9 | 0; return ((seed ^ (seed >>> 13)) >>> 0) / 4294967296; };
+  const out = [], want = Math.min(140, Math.round(F.w * F.h / 26000));
+  for (let i = 0; i < want * 3 && out.length < want; i++) { const x = 20 + rnd() * (F.w - 40), y = 20 + rnd() * (F.h - 40), n = names[Math.floor(rnd() * names.length)];
+    if ((F.walls || []).some(b => b.type !== 'road' && Math.abs(x - b.x) < b.w / 2 + 12 && Math.abs(y - b.y) < b.h / 2 + 12)) continue;      // not on a wall or in the water
+    if ((F.rocks || []).some(r => Math.hypot(x - r.x, y - r.y) < r.r + 12) || (F.safe && Math.hypot(x - F.safe.x, y - F.safe.y) < 70) || (F.gate && Math.hypot(x - F.gate.x, y - F.gate.y) < 70)) continue;
+    out.push({ n, x, y, flip: rnd() < .5 }); }
+  return (STREWN[key] = out);
+}
+function drawStrewn(F, tower) {
+  const c = ctx, m = c.getTransform(), q = pxScale(c), W0 = c.canvas.width, H0 = c.canvas.height;
+  for (const d of strewn(F, tower)) { const X = Math.round(m.a * d.x + m.e), Y = Math.round(m.d * d.y + m.f); if (X < -40 || Y < -40 || X > W0 + 40 || Y > H0 + 40) continue;
+    c.save(); c.setTransform(d.flip ? -q : q, 0, 0, q, X, Y); c.imageSmoothingEnabled = false; c.drawImage(DECO[d.n].img, -8, -8); c.restore(); }
+}
+const iconImg = (name, cls) => { const im = el('img', cls || 'pic'); im.src = `art/icon/${name}.png`; im.alt = ''; return im; };
+const sealEl = sk => { const e = el('em', ICONS.has(sk.id) ? 'pic' : '', ICONS.has(sk.id) ? '' : sk.seal); if (ICONS.has(sk.id)) e.appendChild(iconImg(sk.id)); return e; };
 const spriteOf = id => { const s = ART[id]; return s && (s.img.idle_down || s.img.idle_side) ? s : null; };
 /* One pixel of a picture covers a whole number of screen pixels, whatever the zoom, so it stays crisp: this is how
  * many, and how many world units that comes to. */
@@ -1408,35 +1467,40 @@ function drawEnemy(e, dt) {
   c.globalAlpha = 1;
 }
 function drawField() {
-  const c = ctx, vh = stageH / fscale;
-  c.fillStyle = C.deep; c.fillRect(0, 0, FD.w, FD.h);
-  c.strokeStyle = C.foam; c.globalAlpha = .05; c.lineWidth = 1;                    // tide marks on the sand
+  const c = ctx, vh = stageH / fscale, tower = !!V && V.mode !== 'field', GROUND = tower ? { ground: 'stone', road: 'path', water: 'flood', wall: 'brick' } : { ground: 'sand', road: 'path', water: 'water', wall: 'hull' };
+  c.fillStyle = C.deep; c.fillRect(0, 0, FD.w, FD.h); const tiled = tileFill(GROUND.ground, 0, 0, FD.w, FD.h);
+  c.strokeStyle = C.foam; c.globalAlpha = tiled ? .03 : .05; c.lineWidth = 1;                    // tide marks on the sand
   for (let y = Math.floor(cam.y / 90) * 90; y < cam.y + vh + 90; y += 90) { c.beginPath(); for (let x = 0; x <= FD.w; x += 30) c.lineTo(x, y + Math.sin((x + y) * .02) * 8); c.stroke(); }
   for (const [a, b] of [[0, 80], [FD.w, FD.w - 80]]) {                              // rusted water on both shores
     const g = c.createLinearGradient(a, 0, b, 0); g.addColorStop(0, C.rust); g.addColorStop(1, 'transparent');
     c.globalAlpha = .32; c.fillStyle = g; c.fillRect(Math.min(a, b), 0, 80, FD.h);
   }
-  c.globalAlpha = .6; c.strokeStyle = C.slate; c.lineWidth = 46; c.lineCap = 'round'; c.lineJoin = 'round';   // the trodden path from camp to the tower
+  c.globalAlpha = tiled ? .38 : .6; c.strokeStyle = C.slate; c.lineWidth = 46; c.lineCap = 'round'; c.lineJoin = 'round';   // the trodden path from camp to the tower
   c.beginPath(); for (const [x, y] of FD.path) c.lineTo(x, y); c.stroke();
   c.globalAlpha = 1; c.lineWidth = 2;
-  for (const r of FD.rocks) { c.fillStyle = C.ink; c.strokeStyle = C.line; poly(r.x, r.y, r.r, r.r * .8, 5, r.x * .01); c.fill(); c.stroke(); }
   for (const b of FD.walls) {      // boxes: roads are only paint, walls and water stop you
-    c.globalAlpha = b.type === 'road' ? .55 : b.type === 'water' ? .8 : 1; c.fillStyle = b.type === 'road' ? C.slate : b.type === 'water' ? C.glow : C.ink; c.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
-    if (b.type !== 'road') { c.globalAlpha = 1; c.strokeStyle = b.type === 'water' ? C.foam : C.line; c.lineWidth = b.type === 'water' ? 1 : 2.5; c.strokeRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
+    if (!tileFill(GROUND[b.type] || GROUND.wall, b.x - b.w / 2, b.y - b.h / 2, b.x + b.w / 2, b.y + b.h / 2)) {
+    c.globalAlpha = b.type === 'road' ? .55 : b.type === 'water' ? .8 : 1; c.fillStyle = b.type === 'road' ? C.slate : b.type === 'water' ? C.glow : C.ink; c.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
+    if (b.type !== 'road') { c.globalAlpha = b.type === 'water' ? .5 : 1; c.strokeStyle = b.type === 'water' ? C.foam : C.ink; c.lineWidth = b.type === 'water' ? 1 : 2.5; c.strokeRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
   }
+  c.globalAlpha = 1; drawStrewn(FD, tower);
+  FD.rocks.forEach((r, i) => {      // a rock is drawn about as wide as it is solid
+    const name = r.r >= 30 && PROP.rockbig ? 'rockbig' : 'rock', p = PROP[name], unit = p ? p.w * .8 * pxScale(c) / (c.getTransform().a || 1) : 0;
+    if (p) { shadow(r.x, r.y + r.r * .2, r.r * .8); drawProp(name, r.x, r.y + r.r * .55, i * 7 + Math.round(r.x), null, Math.max(1, Math.round(2 * r.r / unit))); }
+    else { c.fillStyle = C.ink; c.strokeStyle = C.line; c.lineWidth = 2; poly(r.x, r.y, r.r, r.r * .8, 5, r.x * .01); c.fill(); c.stroke(); } });
   c.globalAlpha = 1;
   for (const e of FD.exits) { const T = S.MAPS[e.to]; if (!T) continue;      // a way to another map
     c.strokeStyle = C.hex; c.lineWidth = 3; c.globalAlpha = .9; c.beginPath(); c.arc(e.x, e.y, 30 + (reduced ? 0 : Math.sin(clock * 3) * 2), 0, TAU); c.stroke(); c.globalAlpha = .18; c.fillStyle = C.hex; c.fill();
-    c.globalAlpha = 1; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText('往 ' + T.name, e.x, e.y - 40); c.fillStyle = C.foam; c.fillText('往 ' + T.name, e.x, e.y - 40); }
+    c.globalAlpha = 1; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText('往 ' + T.name, e.x, e.y - 40); c.fillStyle = C.foam; c.fillText('往 ' + T.name, e.x, e.y - 40); drawProp('signpost', e.x + 30, e.y + 10); }
   for (const m of FD.marks || []) {      // a landmark: a ring of posts and its name
     c.strokeStyle = C.brass; c.globalAlpha = .35; c.lineWidth = 1.5; c.setLineDash([3, 12]); c.beginPath(); c.arc(m.x, m.y, m.r, 0, TAU); c.stroke(); c.setLineDash([]);
-    c.globalAlpha = .8; c.font = `900 12px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText(m.name, m.x, m.y - m.r - 6); c.fillStyle = C.brass; c.fillText(m.name, m.x, m.y - m.r - 6); }
+    c.globalAlpha = .8; c.font = `900 12px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText(m.name, m.x, m.y - m.r - 6); c.fillStyle = C.brass; c.fillText(m.name, m.x, m.y - m.r - 6); c.globalAlpha = 1; drawProp('marker', m.x, m.y + 10); }
   c.globalAlpha = 1;
   if (FD.safe) { c.strokeStyle = C.brass; c.globalAlpha = .2; c.setLineDash([4, 9]); c.lineWidth = 1.5; c.beginPath(); c.arc(FD.safe.x, FD.safe.y, FD.safe.r, 0, TAU); c.stroke(); c.setLineDash([]); }
   if (FD.fire) {
   const fx = FD.fire[0], fy = FD.fire[1], fg = c.createRadialGradient(fx, fy, 4, fx, fy, 96); fg.addColorStop(0, C.ember); fg.addColorStop(1, 'transparent');
   c.globalAlpha = reduced ? .3 : .28 + .05 * Math.sin(clock * 6); c.fillStyle = fg; c.fillRect(fx - 96, fy - 96, 192, 192);
-  c.globalAlpha = 1; c.fillStyle = C.ember; poly(fx, fy, 9, 5, 4, reduced ? 0 : clock * 2); c.fill();
+  c.globalAlpha = 1; if (!drawProp('campfire', fx, fy + 9, reduced ? 0 : Math.floor(clock * 8))) { c.fillStyle = C.ember; poly(fx, fy, 9, 5, 4, reduced ? 0 : clock * 2); c.fill(); }
   }
   const en = V.evInfo;                                                               // the tide surge: open now, or coming soon
   if (en && (en.active || en.left < 90000)) {
@@ -1447,13 +1511,15 @@ function drawField() {
     c.globalAlpha = 1; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText(label, sp.x, sp.y - sp.r - 10); c.fillStyle = C.brass; c.fillText(label, sp.x, sp.y - sp.r - 10);
   }
   const g = FD.gate; if (!g) return;                                                 // the way into the dungeons
+  if (!drawProp('gate', g.x, g.y + 24)) {
   c.fillStyle = C.ink; c.strokeStyle = C.rust; c.lineWidth = 4; c.beginPath(); c.arc(g.x, g.y, g.r, Math.PI, 0); c.lineTo(g.x + g.r, g.y + 22); c.lineTo(g.x - g.r, g.y + 22); c.closePath(); c.fill(); c.stroke();
-  c.strokeStyle = C.brass; c.lineWidth = 2; c.globalAlpha = .75; c.beginPath(); c.arc(g.x, g.y - 8, 15, 0, TAU); c.stroke(); c.beginPath(); c.arc(g.x, g.y - 8, 5, 0, TAU); c.stroke();
+  c.strokeStyle = C.brass; c.lineWidth = 2; c.globalAlpha = .75; c.beginPath(); c.arc(g.x, g.y - 8, 15, 0, TAU); c.stroke(); c.beginPath(); c.arc(g.x, g.y - 8, 5, 0, TAU); c.stroke(); }
   c.globalAlpha = 1; c.fillStyle = C.brass; c.font = `900 13px ${F.display}`; c.textAlign = 'center'; c.fillText(FD.id === 'shore' ? '沉鐘塔' : '副本入口', g.x, g.y + 42);
 }
 function drawNode(n) {
   const c = ctx, { x, y } = n, ready = n.cd ? n.cd[V.me.idx] <= 0 : n.ready; c.globalAlpha = ready ? 1 : .22; c.lineCap = 'round';
-  if (n.type === 'herb') { c.strokeStyle = C.heal; c.lineWidth = 2.5; for (const a of [-2.3, -1.57, -.84]) { c.beginPath(); c.moveTo(x, y + 7); c.quadraticCurveTo(x + Math.cos(a) * 4, y - 2, x + Math.cos(a) * 13, y + 7 + Math.sin(a) * 17); c.stroke(); } }
+  if (drawProp(n.type, x, y + 10, 0, ready ? 1 : .25)) { /* its picture */ }
+  else if (n.type === 'herb') { c.strokeStyle = C.heal; c.lineWidth = 2.5; for (const a of [-2.3, -1.57, -.84]) { c.beginPath(); c.moveTo(x, y + 7); c.quadraticCurveTo(x + Math.cos(a) * 4, y - 2, x + Math.cos(a) * 13, y + 7 + Math.sin(a) * 17); c.stroke(); } }
   else if (n.type === 'wreck') { c.strokeStyle = C.rust; c.lineWidth = 5; c.beginPath(); c.moveTo(x - 13, y + 7); c.lineTo(x + 11, y - 8); c.moveTo(x - 7, y - 9); c.lineTo(x + 13, y + 8); c.stroke(); }
   else { c.fillStyle = C.foam; c.strokeStyle = C.hex; c.lineWidth = 1.5; for (const [dx, dy, r] of [[-6, 4, 6], [6, 4, 5], [0, -5, 7]]) { poly(x + dx, y + dy, r, r * .6, 3, .5); c.fill(); c.stroke(); } }
   c.globalAlpha = 1;
@@ -1462,15 +1528,18 @@ function drawNode(n) {
 const STALL_ACT = { shop: '和老錨交易', ah: '看秤婆的拍賣', mail: '打開信箱' };
 function drawStall(n) {
   const c = ctx, { x, y } = n; shadow(x, y, 14);
+  const tall = PROP[n.id === 'mail' ? 'mailbox' : 'stall'], up = tall ? (tall.h - 4) * pxScale(c) / (c.getTransform().a || 1) - 6 : 0;      // how high its picture stands, for the name over it
   if (n.id === 'mail') {      // a post with a box on it
+    if (!drawProp('mailbox', x, y + 12)) {
     c.fillStyle = C.rust; c.strokeStyle = C.ink; c.lineWidth = 2; c.beginPath(); c.rect(x - 3, y - 4, 6, 18); c.fill(); c.stroke();
-    c.fillStyle = C.brass; c.beginPath(); c.rect(x - 12, y - 18, 24, 15); c.fill(); c.stroke(); c.beginPath(); c.moveTo(x - 12, y - 18); c.lineTo(x, y - 9); c.lineTo(x + 12, y - 18); c.stroke();
-    if (net.unread) { c.fillStyle = C.ember; c.beginPath(); c.arc(x + 13, y - 19, 5, 0, Math.PI * 2); c.fill(); c.stroke(); }
-    c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; c.strokeText(n.name, x, y - 26); c.fillStyle = C.brass; c.fillText(n.name, x, y - 26); return;
+    c.fillStyle = C.brass; c.beginPath(); c.rect(x - 12, y - 18, 24, 15); c.fill(); c.stroke(); c.beginPath(); c.moveTo(x - 12, y - 18); c.lineTo(x, y - 9); c.lineTo(x + 12, y - 18); c.stroke(); }
+    if (net.unread) { c.fillStyle = C.ember; c.strokeStyle = C.ink; c.lineWidth = 2; c.beginPath(); c.arc(x + 13, y - (tall ? up - 8 : 19), 5, 0, Math.PI * 2); c.fill(); c.stroke(); }
+    c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; c.strokeText(n.name, x, y - (tall ? up : 26)); c.fillStyle = C.brass; c.fillText(n.name, x, y - (tall ? up : 26)); return;
   }
+  if (!drawProp('stall', x, y + 14, n.id === 'ah' ? 1 : 0)) {
   c.fillStyle = C.brass; c.strokeStyle = C.ink; c.lineWidth = 2; c.beginPath(); c.rect(x - 12, y - 12, 24, 24); c.fill(); c.stroke();      // a crate of goods, and its keeper
-  c.strokeStyle = C.ink; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x - 12, y); c.lineTo(x + 12, y); c.moveTo(x, y - 12); c.lineTo(x, y + 12); c.stroke();
-  c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; const t = `${n.title}　${n.name}`; c.strokeText(t, x, y - 20); c.fillStyle = C.brass; c.fillText(t, x, y - 20);
+  c.strokeStyle = C.ink; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x - 12, y); c.lineTo(x + 12, y); c.moveTo(x, y - 12); c.lineTo(x, y + 12); c.stroke(); }
+  c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; const t = `${n.title}　${n.name}`; c.strokeText(t, x, y - (tall ? up : 20)); c.fillStyle = C.brass; c.fillText(t, x, y - (tall ? up : 20));
 }
 const NPC_POSE = {};
 function drawNpc(n) {
@@ -1631,7 +1700,7 @@ function buildHud() {
   aim.on = false; $('#aim-cancel').hidden = true;
   V.me.skills.forEach((sk, i) => {
     const b = el('button', 'sk ' + posCls[i] + (sk.ult ? ' ult' : '')); b.type = 'button'; b.id = 'sk' + i;
-    const cdn = el('span', 'cdn'); b.append(el('b', '', sk.seal), el('small', '', sk.name), cdn);
+    const cdn = el('span', 'cdn'); b.append(ICONS.has(sk.id) ? iconImg(sk.id) : el('b', '', sk.seal), el('small', '', sk.name), cdn);
     b.setAttribute('aria-label', `${sk.name}：${sk.desc}${sk.needs ? '（' + S.needText(sk) + '）' : ''}`);
     let lastPD = 0;
     b.addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); lastPD = performance.now(); aimStart(ev, i, sk); });
@@ -1759,7 +1828,7 @@ function renderCreate(msg) {
     b.addEventListener('click', () => { crCls = k; renderCreate(''); }); cards.appendChild(b);
   }
   $('#cr-blurb').textContent = CLASS_BLURB[crCls];
-  for (const k of d.skills) { const li = el('li'); li.append(el('em', '', k.seal), el('b', '', k.name), el('span', '', k.desc + (k.needs ? `（${S.needText(k)}）` : ''))); kit.appendChild(li); }
+  for (const k of d.skills) { const li = el('li'); li.append(sealEl(k), el('b', '', k.name), el('span', '', k.desc + (k.needs ? `（${S.needText(k)}）` : ''))); kit.appendChild(li); }
   drawHero($('#create-cv'), crCls, name || '？', `Lv.1　${d.name}`);
   if (msg !== undefined) { $('#cr-note').textContent = msg; $('#cr-note').classList.toggle('warn', !!msg); }
 }
@@ -1816,12 +1885,15 @@ function drawScene() {
   evs.forEach((t, i) => { if (t.type !== 'heal' || (V.trigs ? V.trigs[i] && V.trigs[i].done : (V.tg >> i) & 1)) return;
     c.globalAlpha = .22 + (reduced ? 0 : .06 * Math.sin(clock * 3)); c.fillStyle = C.heal; c.beginPath(); c.arc(t.x, t.y, t.r, 0, TAU); c.fill(); c.globalAlpha = 1; c.strokeStyle = C.heal; c.lineWidth = 2; c.stroke();
     c.font = `900 12px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 3; c.strokeStyle = C.ink; c.strokeText('回復泉', t.x, t.y - t.r - 6); c.fillStyle = C.heal; c.fillText('回復泉', t.x, t.y - t.r - 6); });
-  for (const q of V.chests || []) { shadow(q.x, q.y, 13); c.lineWidth = 2; c.strokeStyle = C.ink; c.fillStyle = q.open ? C.slate : C.brass; c.beginPath(); c.rect(q.x - 13, q.y - 9, 26, 18); c.fill(); c.stroke();
-    if (!q.open) { c.beginPath(); c.moveTo(q.x - 13, q.y - 2); c.lineTo(q.x + 13, q.y - 2); c.stroke(); c.fillStyle = C.ink; c.fillRect(q.x - 2, q.y - 4, 4, 6);
+  for (const q of V.chests || []) { shadow(q.x, q.y, 13); const pic = drawProp('chest', q.x, q.y + 10, q.open ? 1 : 0);
+    if (!pic) { c.lineWidth = 2; c.strokeStyle = C.ink; c.fillStyle = q.open ? C.slate : C.brass; c.beginPath(); c.rect(q.x - 13, q.y - 9, 26, 18); c.fill(); c.stroke(); }
+    if (!q.open) { if (!pic) { c.beginPath(); c.moveTo(q.x - 13, q.y - 2); c.lineTo(q.x + 13, q.y - 2); c.stroke(); c.fillStyle = C.ink; c.fillRect(q.x - 2, q.y - 4, 4, 6); }
       c.font = `700 10px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; c.strokeText('寶箱', q.x, q.y - 16); c.fillStyle = C.brass; c.fillText('寶箱', q.x, q.y - 16); } }
 }
 function drawPortal() {
   const c = ctx, { x, y } = portalAt(), r = S.PORTAL.r, t = clock;
+  if (PROP.portal) { const up = (PROP.portal.h - 4) * pxScale(c) / (c.getTransform().a || 1); drawProp('portal', x, y + r * .62, reduced ? 0 : Math.floor(t * 6));
+    c.font = `700 11px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; c.strokeText('傳送門', x, y + r * .62 - up - 4); c.fillStyle = C.brass; c.fillText('傳送門', x, y + r * .62 - up - 4); return; }
   c.save(); c.globalAlpha = .9;
   for (let i = 0; i < 3; i++) { c.strokeStyle = i === 1 ? C.foam : C.brass; c.lineWidth = 3 - i * .7; c.beginPath(); c.ellipse(x, y, r - i * 6 + Math.sin(t * 3 + i) * 1.5, (r - i * 6) * .62, 0, t * (1.2 + i * .5), t * (1.2 + i * .5) + 4.6); c.stroke(); }
   c.globalAlpha = .28 + .1 * Math.sin(t * 4); c.fillStyle = C.brass; c.beginPath(); c.ellipse(x, y, r * .7, r * .44, 0, 0, TAU); c.fill();
@@ -1835,7 +1907,7 @@ function renderMenu(msg) {
   $('#m-lvl').textContent = `第 ${save.lvl} 層`;
   const best = save.best[save.lvl]; $('#m-best').textContent = best ? `最佳 ${fmt(best)}` : '限時 3:00';
   const kit = $('#kit'); kit.textContent = '';
-  for (const s of S.loadoutOf(save, chosen).map(id => S.SKILLS[id])) { const li = el('li'); li.append(el('em', '', s.seal), el('b', '', s.name), el('span', '', s.desc + (s.ult ? '（集滿能量才能放）' : '') + (s.needs ? `（${S.needText(s)}）` : ''))); kit.appendChild(li); }
+  for (const s of S.loadoutOf(save, chosen).map(id => S.SKILLS[id])) { const li = el('li'); li.append(sealEl(s), el('b', '', s.name), el('span', '', s.desc + (s.ult ? '（集滿能量才能放）' : '') + (s.needs ? `（${S.needText(s)}）` : ''))); kit.appendChild(li); }
   const gear = $('#gear'); gear.textContent = '';
   for (const [k, v] of [['鐘幣', save.coin], ['裝等', avgIlvl()], ['武器', save.gear.w], ['護甲', save.gear.a], ['飾品', save.gear.t], ['通關次數', save.runs]]) { const sp = el('span', '', k + ' '); sp.append(el('b', '', v)); gear.appendChild(sp); }
   $('#friends-btn').hidden = !(online && net.authed); $('#mail-btn').hidden = !(online && net.authed); mailBadge();
@@ -2141,7 +2213,7 @@ function renderBag() {
   if ($('#bag').hidden) return;
   const body = $('#bag-body'), inv = save.inv, waiting = online && !net.authed; body.textContent = '';
   const dl = el('dl', 'stats');
-  for (const [k, v] of [[S.MATS.scrap, inv.scrap], [S.MATS.salt, inv.salt], [S.MATS.herb, inv.herb], [S.MATS.shard, inv.shard], ['潮息藥水', `${inv.potion} / ${S.POTION_CAP}`], ['鐘幣', save.coin]]) { const d = el('div'); d.append(el('dt', '', k), el('dd', '', v)); dl.appendChild(d); }
+  for (const [k, v, pic] of [[S.MATS.scrap, inv.scrap, 'scrap'], [S.MATS.salt, inv.salt, 'salt'], [S.MATS.herb, inv.herb, 'herb'], [S.MATS.shard, inv.shard, 'shard'], ['潮息藥水', `${inv.potion} / ${S.POTION_CAP}`, 'potion'], ['鐘幣', save.coin, 'coin']]) { const d = el('div'), dt = el('dt', '', k); if (ICONS.has(pic)) dt.prepend(iconImg(pic)); d.append(dt, el('dd', '', v)); dl.appendChild(d); }
   body.append(dl, el('p', 'lore', `鏽鐵屑、鹽晶、潮草可以在鏽灘採到。沉鐘碎片只有塔裡有，三分鐘內通關一定掉。淬鍊的上限跟著層數走，第 ${save.lvl} 層是裝等 ${S.gearCap(save.lvl)}。`));
   { const g = el('div', 'group'), ul = el('ul', 'items'); g.append(el('h3', '', `背包裡的裝備　${save.bag.length} / ${S.BAG_CAP}`));
     save.bag.forEach((it, i) => { const mine = !notMine(it), t = mine ? S.slotFor(save, it) : {}, d = t.s ? it.il - save.gear[t.s] : 0;
@@ -2366,6 +2438,7 @@ $('#hero-btn').addEventListener('click', () => { if (inField() && !talk.lines) o
 $('#hero-close').addEventListener('click', closeHero);
 for (const id of SHEETS) $('#' + id).addEventListener('click', ev => { if (ev.target === ev.currentTarget && inField()) closeSheet(id); });
 $('#hitwarn').addEventListener('click', () => closeSheet(openSheet()));
+if (((window.ART_MANIFEST || {})._ui || []).includes('title')) $('#menu').classList.add('pic');
 $('#snd-btn').addEventListener('click', () => { SND.on = !SND.on; try { localStorage.setItem('embertide.sound', SND.on ? '1' : '0'); } catch (e) {} sndLabel(); if (SND.on) { sndWake(); setTimeout(() => sfx('hit'), 60); } });
 sndLabel();
 for (const k of HERO_TABS) $('#tab-' + k).addEventListener('click', () => openHero(k));
