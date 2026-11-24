@@ -364,7 +364,7 @@ function addFieldMate(G, m, owner) {
   removeFieldMate(G, owner); const o = G.actors[owner]; if (!m || !o || o.out) return -1;
   let idx = G.actors.findIndex(a => a.out); if (idx < 0) { if (G.actors.length >= G.cap) return -1; idx = G.actors.length; }
   const a = mkActor(m.cls, m.name, [clamp(o.x - 26, 20, G.bw - 20), clamp(o.y + 18, 20, G.bh - 20)], m.pow, null);
-  a.lvl = m.lvl > 0 ? m.lvl : 1; a.idx = idx; a.human = false; a.out = false; a.mate = owner; a.npc = m.npc; a.pid = null; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; a.seen = new Set();
+  a.lvl = m.lvl > 0 ? m.lvl : 1; if (m.held) a.held = heldFix(m.held, m.cls); a.idx = idx; a.human = false; a.out = false; a.mate = owner; a.npc = m.npc; a.pid = null; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; a.seen = new Set();
   G.actors[idx] = a; for (const n of G.nodes) n.cd[idx] = 0; return idx;
 }
 function removeFieldMate(G, owner) { for (const a of G.actors) if (a.mate === owner && !a.out) removeFieldActor(G, a.idx); }
@@ -944,7 +944,7 @@ function fixProfile(p) {   // fill in anything an older save does not have
     p.bag = bag; p.eq = eq; settle(p); }
   { const dl = {}, old = isObj(p.dl) ? p.dl : {}; for (const k of Object.keys(DUNGEONS)) if (k !== 'tower' && Number.isInteger(old[k]) && old[k] > 1) dl[k] = Math.min(50, old[k]); p.dl = dl; }      // floors reached in the other dungeons
   p.cl = Number.isInteger(p.cl) ? clamp(p.cl, 1, TUNE.maxLevel) : 1; p.xp = p.xp >= 0 && p.cl < TUNE.maxLevel ? Math.min(Math.floor(p.xp), xpNeed(p.cl)) : 0;
-  fixQuests(p); fixBond(p); p.mate = typeof p.mate === 'string' && p.bond[p.mate] && p.bond[p.mate].rel >= MATE_REL ? p.mate : '';
+  fixQuests(p); fixBond(p); p.mate = typeof p.mate === 'string' && p.bond[p.mate] && tierOf(p.bond[p.mate].v) >= MATE_TIER ? p.mate : '';
   const lo = {}, old = p.loadout && typeof p.loadout === 'object' ? p.loadout : {};      // keep only loadouts that are still allowed
   for (const k of Object.keys(CLASSES)) if (validLoadout(k, old[k], p.cl)) lo[k] = old[k].slice();
   p.loadout = lo;
@@ -1062,7 +1062,7 @@ const BONDS = {
   mira: { seat: 'heal', looks: { shawl: { name: '潮紋披肩', what: '衣服', cost: { coin: 400, salt: 5 }, tier: 2, gain: 30 } }, picks: { 2: [{ mira: 5, jin: 5 }, { mira: 8 }] }, love: { daily: { potion: 1 }, perk: ['hp', .04, '生命 +4%'] }, gifts: { herb: 12, salt: 8, potion: 8, shard: 5, scrap: 1 }, kinds: ['staff', 'bell', 'tome'], perks: [[2, 'hp', .03, '生命 +3%'], [3, 'taken', -.03, '受到的傷害 -3%'], [4, 'heal', .06, '治療量 +6%']] },
   jin: { seat: 'dps', looks: { bun: { name: '緞面髮圈', what: '髮飾', cost: { coin: 300 }, tier: 2, gain: 30 } }, picks: { 2: [{}, { jin: 10 }, { jin: 6 }] }, love: { daily: { scrap: 3 }, perk: ['dmg', .03, '造成的傷害 +3%'] }, gifts: { shard: 20, scrap: 8, potion: 6, salt: 3, herb: 1 }, kinds: ['bow', 'xbow', 'quiver'], perks: [[2, 'speed', .03, '移動速度 +3%'], [3, 'dmg', .03, '造成的傷害 +3%'], [4, 'ult', .08, '大招充能 +8%']] }
 };
-const MATE_REL = 1;      // from which stage of love she will come along into the field (1: a couple)
+const MATE_TIER = 1;      // from which tier of the bond she will come along into the field (1: the first, friends)
 const LOVE = { ask: { herb: 10, salt: 5 }, vow: { shard: 10, coin: 500 } }, REL_NAMES = ['', '情侶', '誓約'], REL_TEAM = [0, .25, .3];
 const costText = c => Object.keys(c).map(k => (k === 'coin' ? `鐘幣 ${c[k]}` : `${k === 'potion' ? '潮息藥水' : MATS[k]} ×${c[k]}`)).join('、');
 const canPay = (p, c) => Object.keys(c).every(k => (k === 'coin' ? p.coin : p.inv[k]) >= c[k]);
@@ -1075,6 +1075,9 @@ function fixBond(p, now) {
   const out = {}, old = isObj(p.bond) ? p.bond : {};
   for (const who of Object.keys(BONDS)) { const o = isObj(old[who]) ? old[who] : {}, b = { v: qInt(o.v, 0, BOND_CAP), day: qInt(o.day, 0, 1e7), talk: qInt(o.talk, 0, 99), gift: qInt(o.gift, 0, 99), run: qInt(o.run, 0, 99), seen: qInt(o.seen, 0, BOND_TIERS.length - 1), rel: BONDS[who].love ? qInt(o.rel, 0, 2) : 0, ch: {} };
     { const known = BONDS[who].looks || {}; b.looks = (Array.isArray(o.looks) ? o.looks : []).filter((k, i, a) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(known, k) && a.indexOf(k) === i); b.look = b.looks.includes(o.look) ? o.look : ''; }
+    { const kit = { gear: { w: 10, o: 10, a: 10, t: 10 }, eq: { w: { n: '', q: 0 }, o: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } } }, ok = isObj(o.kit) && isObj(o.kit.gear) && isObj(o.kit.eq);      // what she has been given to wear
+      if (ok) for (const k of SLOTS) { const e = o.kit.eq[k], n = isObj(e) && typeof e.n === 'string' ? ALIAS[e.n] || e.n : '', it = n ? fixItem({ s: NAME_SLOT[n], il: o.kit.gear[k], q: e.q, n }) : null; if (it && (it.s === k || (k === 'o' && it.s === 'w'))) { kit.gear[k] = it.il; kit.eq[k] = { n: it.n, q: it.q }; } }
+      b.kit = kit; settle({ cls: BONDS[who].seat, gear: kit.gear, eq: kit.eq }); }
     if (isObj(o.ch)) for (let t = 1; t < BOND_TIERS.length; t++) if (Number.isInteger(o.ch[t]) && o.ch[t] >= 0 && o.ch[t] < 8) b.ch[t] = o.ch[t];
     if (now != null && b.day !== dayOf(now)) { b.day = dayOf(now); b.talk = b.gift = b.run = 0; } out[who] = b; }
   p.bond = out; return out;
@@ -1089,7 +1092,8 @@ function bondInfo(p, who, now) {
     perks, team: Math.max(BOND_TEAM[t], REL_TEAM[b.rel]), gifts: Object.keys(d.gifts), love: !!lv, rel: b.rel, look: b.look,
     looks: Object.keys(d.looks || {}).map(id => { const k = d.looks[id]; return { id, name: k.name, what: k.what, cost: costText(k.cost), tier: k.tier, at: BOND_NAMES[k.tier], open: t >= k.tier, ready: t >= k.tier && canPay(p, k.cost), own: b.looks.includes(id), on: b.look === id }; }),
     ask: lv && b.rel === 0 && t === BOND_TIERS.length - 1 && b.seen >= t ? { cost: costText(LOVE.ask), ready: canPay(p, LOVE.ask) } : null,      // the question can be asked
-    mate: lv && b.rel >= MATE_REL ? { on: p.mate === who } : null,      // she can be asked along
+    mate: t >= MATE_TIER ? { on: p.mate === who, ilvl: ilvlOf(b.kit.gear), kinds: d.kinds.map(k => WKINDS[k].name),      // she can be asked along, and dressed for it
+      kit: SLOTS.map(k => { const kt = kitOf(who, b), two = k === 'o' && hands(kt).two; return { k, il: kt.gear[k], n: two ? '' : kt.eq[k].n, q: kt.eq[k].q, two, kind: WKINDS[k === 'w' ? hands(kt).w : hands(kt).o || ''] ? WKINDS[k === 'w' ? hands(kt).w : hands(kt).o].name : '', worn: !two && kt.gear[k] > 10 }; }) } : null,
     vow: lv && b.rel === 1 ? { cost: costText(LOVE.vow), need: BOND_CAP, full: b.v >= BOND_CAP, taken, ready: b.v >= BOND_CAP && !taken && canPay(p, LOVE.vow) } : null };
 }
 function bondTalk(p, who, now) {
@@ -1112,13 +1116,38 @@ function bondLook(p, who, id, now) {
 function bondMate(p, who, on, now) {
   fixProfile(p); const b = fixBond(p, now)[who]; if (!b) return { ok: false, msg: '沒有這個人。' };
   if (!on) { if (p.mate === who) p.mate = ''; return { ok: true, mate: p.mate }; }
-  if (b.rel < MATE_REL) return { ok: false, msg: `成為${REL_NAMES[MATE_REL]}之後，她才會跟你一起走。` };
+  if (tierOf(b.v) < MATE_TIER) return { ok: false, msg: `好感到「${BOND_NAMES[MATE_TIER]}」之後，她才會跟你一起走。` };
   p.mate = who; return { ok: true, mate: who };
 }
-/* Who walks with this character, as addFieldMate() wants them: about as strong as the character, a little more after a vow. */
+/* What she wears when she walks with you is yours to choose: b.kit holds it, shaped like a character's own gear, and
+ * the rules for hands are the same. She keeps to her own kinds of weapon (BONDS[who].kinds); armour and trinkets are
+ * anybody's. What she takes off comes back to your bag. */
+const kitOf = (who, b) => ({ cls: BONDS[who].seat, gear: b.kit.gear, eq: b.kit.eq });
+function bondFit(p, who, it, hand) {
+  const b = p.bond && p.bond[who], d = BONDS[who]; if (!b || !d || !it) return { msg: '沒有這個人。' };
+  if ((it.s === 'w' || it.s === 'o') && named(it.n) && !d.kinds.includes(HELD[it.n])) return { msg: `她只用自己順手的：${d.kinds.map(k => WKINDS[k].name).join('、')}。` };
+  return slotFor(kitOf(who, b), it, hand === 'o' ? 'o' : '');
+}
+function bondEquip(p, who, i, hand, now) {
+  fixProfile(p); const b = fixBond(p, now)[who]; if (!b) return { ok: false, msg: '沒有這個人。' }; if (tierOf(b.v) < MATE_TIER) return { ok: false, msg: `好感到「${BOND_NAMES[MATE_TIER]}」之後才能替她配裝。` };
+  const it = Number.isInteger(i) ? p.bag[i] : null; if (!it) return { ok: false, msg: '背包裡沒有這件。' };
+  const t = bondFit(p, who, it, hand); if (!t.s) return { ok: false, msg: t.msg }; const kt = kitOf(who, b);
+  const comes = (t.s === 'o' ? 0 : kt.gear[t.s] > 10 ? 1 : 0) + (t.s === 'o' && kt.gear.o > 10 ? 1 : 0) + (t.s === 'w' && t.two && !hands(kt).two && kt.gear.o > 10 ? 1 : 0);
+  if (p.bag.length - 1 + comes > TUNE.bagCap) return { ok: false, msg: '背包放不下她換下來的東西，先清出一格。' };
+  p.bag.splice(i, 1); const out = wear(kt, it, t.s); if (out.length) p.bag.splice(i, 0, out[0]); for (const o of out.slice(1)) p.bag.push(o);
+  return { ok: true, kit: true, msg: `替她換上了${it.n}（裝等 ${it.il}）。` };
+}
+function bondUnequip(p, who, k, now) {
+  fixProfile(p); const b = fixBond(p, now)[who]; if (!b || !SLOTS.includes(k)) return { ok: false, msg: '沒有這個人。' }; const kt = kitOf(who, b);
+  if (!(kt.gear[k] > 10) || (k === 'o' && hands(kt).two)) return { ok: false, msg: '那裡沒有東西可以拿下來。' }; if (p.bag.length >= TUNE.bagCap) return { ok: false, msg: '背包滿了，先清出一格。' };
+  p.bag.push(wornItem(kt, k)); kt.gear[k] = 10; kt.eq[k] = { n: '', q: 0 }; settle(kt);
+  return { ok: true, kit: true, msg: '拿下來，放回你的背包了。' };
+}
+/* Who walks with this character, as addFieldMate() wants them: as strong as what she wears and the character's level
+ * make her, and stronger the closer the bond. */
 function mateOf(p) {
-  const who = p.mate, b = who && p.bond ? p.bond[who] : null; if (!b || !BONDS[who] || b.rel < MATE_REL) return null; const d = BONDS[who];
-  return { npc: who, cls: d.seat, name: d.seat === 'dps' ? BOT_NAMES.dps[0] : BOT_NAMES[d.seat], lvl: p.cl, pow: charPower(p) * (.75 + REL_TEAM[b.rel]) };
+  const who = p.mate, b = who && p.bond ? p.bond[who] : null; if (!b || !BONDS[who] || !b.kit || tierOf(b.v) < MATE_TIER) return null; const d = BONDS[who], kt = kitOf(who, b);
+  return { npc: who, cls: d.seat, name: d.seat === 'dps' ? BOT_NAMES.dps[0] : BOT_NAMES[d.seat], lvl: p.cl, held: heldOf(kt), pow: powerOf(kt.gear) * lvF(p.cl) * (1 + Math.max(BOND_TEAM[tierOf(b.v)], REL_TEAM[b.rel])) };
 }
 /* Ask them to be yours, and later to take a vow. */
 function bondAsk(p, who, now) {
@@ -1597,7 +1626,7 @@ return { QUEST_TYPES, packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_
   get MAX_LEVEL() { return TUNE.maxLevel; }, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, get POTION_CAP() { return TUNE.potionCap; }, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id), MAIN_AT,
-  BONDS, BOND_TIERS, BOND_NAMES, BOND_DAY, BOND_TEAM, LOVE, REL_NAMES, REL_TEAM, bondInfo, bondTalk, bondGift, bondLook, bondAsk, bondVow, bondMate, mateOf, MATE_REL, addFieldMate, removeFieldMate, bondSeen, bondTier, bondTeam, addBond,
+  BONDS, BOND_TIERS, BOND_NAMES, BOND_DAY, BOND_TEAM, LOVE, REL_NAMES, REL_TEAM, bondInfo, bondTalk, bondGift, bondLook, bondAsk, bondVow, bondMate, bondFit, bondEquip, bondUnequip, mateOf, MATE_TIER, addFieldMate, removeFieldMate, bondSeen, bondTier, bondTeam, addBond,
   TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, get RESPEC_COST() { return TUNE.respecCost; }, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
   SLOTS, SET_SLOTS, SLOT_NAME: { w: '主手', o: '副手', a: '護甲', t: '飾品' }, WKINDS, HAND_NAME, HELD, hands, heldOf, heldFix, slotFor, wants, itemKind, kindOf, reach, canUse, needText, NEEDS, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
   runDrops, bossDrops, refit, get TOWER_LEVEL() { return DUNGEONS.tower.min; }, PORTAL };
