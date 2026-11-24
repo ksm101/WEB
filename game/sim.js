@@ -203,7 +203,7 @@ function xpForKill(kind, mobLvl, cl) {
 /* A field creature at a level, for a party of a size: more people means more health, not harder hits. */
 function scaleMob(e, lvl, size) { const k = e.maxHp ? e.hp / e.maxHp : 1; e.lvl = lvl; e.size = size || 1; e.maxHp = R(e.def.hp * lvF(lvl) * (1 + .6 * (e.size - 1))); e.hp = Math.max(1, R(e.maxHp * k)); e.dmg = e.def.dmg * lvF(lvl); }
 /* Who is actually in the field (a seat whose player left stays in the list, marked out), and the level creatures follow. */
-const present = G => G.actors.filter(a => !a.out);
+const present = G => G.actors.filter(a => !a.out && a.mate == null);      // the people here; someone's companion from the camp is not one of them
 function partyLevel(G) { const ps = present(G); return ps.length ? Math.max(1, Math.round(ps.reduce((n, a) => n + a.lvl, 0) / ps.length)) : 1; }
 /* Gear, talents or skills changed while out in the world: new strength, the same share of health. Cooldowns stay with their slots. */
 function refit(a, lvl, pow, mods, skills, held) { const k = a.maxHp ? a.hp / a.maxHp : 1; a.lvl = lvl; a.pow = pow; if (mods) a.mods = mods; if (skills) a.skills = skillSet(a.cls, skills); if (held) a.held = heldFix(held, a.cls); a.maxHp = R(a.def.hp * pow * a.mods.hp); a.hp = a.alive ? Math.max(1, R(a.maxHp * k)) : 0; }
@@ -357,6 +357,17 @@ function addFieldActor(G, p, at) {
   let idx = G.actors.findIndex(a => a.out); if (idx < 0) { if (G.actors.length >= G.cap) return -1; idx = G.actors.length; }
   G.actors[idx] = fieldSeat(G.F, p, idx, at); for (const n of G.nodes) n.cd[idx] = 0; return idx;
 }
+/* Someone from the camp who walks with one person in a field of their own: an AI that keeps by them and fights what
+ * they fight. m is what mateOf() gives; owner is that person's seat. Not counted among those present, so the
+ * creatures stay sized for one. */
+function addFieldMate(G, m, owner) {
+  removeFieldMate(G, owner); const o = G.actors[owner]; if (!m || !o || o.out) return -1;
+  let idx = G.actors.findIndex(a => a.out); if (idx < 0) { if (G.actors.length >= G.cap) return -1; idx = G.actors.length; }
+  const a = mkActor(m.cls, m.name, [clamp(o.x - 26, 20, G.bw - 20), clamp(o.y + 18, 20, G.bh - 20)], m.pow, null);
+  a.lvl = m.lvl > 0 ? m.lvl : 1; a.idx = idx; a.human = false; a.out = false; a.mate = owner; a.npc = m.npc; a.pid = null; a.calm = 0; a.downT = 0; a.gather = null; a.pick = 0; a.seen = new Set();
+  G.actors[idx] = a; for (const n of G.nodes) n.cd[idx] = 0; return idx;
+}
+function removeFieldMate(G, owner) { for (const a of G.actors) if (a.mate === owner && !a.out) removeFieldActor(G, a.idx); }
 function removeFieldActor(G, idx) {
   const a = G.actors[idx]; if (!a || a.out) return; a.out = true; a.alive = false; a.target = null; a.gather = null;
   for (const e of G.enemies) e.threat.delete(a);
@@ -591,7 +602,8 @@ function dangerVec(G, a) {
 }
 function botThink(G, a, dt) {
   const c = a.ctrl; c.mx = 0; c.my = 0; if (!a.alive) return;
-  const lead = G.layout ? G.actors.find(p => p.human && p.alive && p !== a) : null, en = G.layout && lead ? G.enemies.filter(e => e.engaged) : G.enemies; let tg = null;      // in a layout the AI follows a person and fights what that person's group is fighting
+  const own = a.mate != null ? G.actors[a.mate] : null; if (a.mate != null && (!own || own.out || !own.alive)) return;      // a companion with nobody to keep by waits
+  const lead = own || (G.layout ? G.actors.find(p => p.human && p.alive && p !== a) : null), en = own ? G.enemies.filter(e => e.engaged && (e.threat.has(own) || e.threat.has(a))) : G.layout && lead ? G.enemies.filter(e => e.engaged) : G.enemies; let tg = null;      // in a layout the AI follows a person and fights what that person's group is fighting
   if (a.cls === 'tank') {
     let ld = 1e9; for (const e of en) if (e.alive && e.target && e.target !== a) { const d = dist(a, e); if (d < ld) { ld = d; tg = e; } }
     if (!tg) tg = (G.boss && G.boss.alive) ? G.boss : (a.target && a.target.alive ? a.target : nearest(a, en));
@@ -798,12 +810,15 @@ function fieldActor(G, a, dt) {
   if (!a.alive) {
     a.gather = null; a.downT += dt;
     if (a.downT >= 3) { a.downT = 0; a.alive = true; a.hp = a.maxHp; const E = G.ev && !G.ev.done ? G.ev : null;      // during a surge you get back up at its edge, not at the far camp
-      a.x = E ? E.x + (a.idx % 2 ? 1 : -1) * 40 : G.F.spawn[0]; a.y = E ? Math.min(G.F.h - 20, E.y + E.r + 40) : G.F.spawn[1]; a.target = null; ev(G, { k: 'woke', i: a.idx, ev: E ? 1 : 0 }); }
+      a.x = E ? E.x + (a.idx % 2 ? 1 : -1) * 40 : G.F.spawn[0]; a.y = E ? Math.min(G.F.h - 20, E.y + E.r + 40) : G.F.spawn[1]; a.target = null;
+      if (a.mate != null && G.actors[a.mate]) { a.x = clamp(G.actors[a.mate].x - 22, 20, G.bw - 20); a.y = clamp(G.actors[a.mate].y + 16, 20, G.bh - 20); }      // a companion gets up beside whoever they are with
+      ev(G, { k: 'woke', i: a.idx, ev: E ? 1 : 0 }); }
     return;
   }
   const hunted = G.enemies.some(e => e.engaged && e.threat.has(a));
   a.calm = hunted ? 0 : a.calm + dt;
   if (a.calm > 3 && a.hp < a.maxHp) a.hp = Math.min(a.maxHp, a.hp + a.maxHp * .08 * dt);   // catch your breath between fights
+  if (a.mate != null) { a.gather = null; return; }      // a companion does not gather
   // gathering: stand still next to something worth picking up
   const still = Math.hypot(a.ctrl.mx, a.ctrl.my) < .05 && a.rollT <= 0; let node = null;
   if (still && !hunted) for (const n of G.nodes) if (n.cd[a.idx] <= 0 && Math.hypot(n.x - a.x, n.y - a.y) < 38) { node = n; break; }
@@ -816,8 +831,9 @@ function fieldActor(G, a, dt) {
 function stepField(G, dt) {
   G.t += dt;
   const here = present(G), size = G.ev ? 1 : Math.max(1, here.length), plv = partyLevel(G);      // in a surge field the ordinary creatures stay solo-sized
-  for (const a of here) playerThink(G, a, dt);
-  for (const a of here) updActor(G, a, dt);
+  const mates = G.actors.filter(a => !a.out && a.mate != null);
+  for (const a of here) playerThink(G, a, dt); for (const a of mates) botThink(G, a, dt);
+  for (const a of here) updActor(G, a, dt); for (const a of mates) updActor(G, a, dt);
   for (const e of G.enemies) updEnemy(G, e, dt);
   updWorld(G, dt);
   G.enemies = G.enemies.filter(e => e.alive);
@@ -909,7 +925,7 @@ const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
 const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
 const gearCap = lvl => 10 + lvl * 4 + 7;        // how far tempering can push a slot at this tower level
 const charPower = p => powerOf(p.gear) * lvF(p.cl);     // what a character brings to a fight: gear and level
-function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, o: 10, a: 10, t: 10 }, eq: { w: { n: '', q: 0 }, o: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } }, bag: [], dl: {}, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {}, coin: 0, talents: {}, bond: {} }; }
+function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, o: 10, a: 10, t: 10 }, eq: { w: { n: '', q: 0 }, o: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } }, bag: [], dl: {}, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {}, coin: 0, talents: {}, bond: {}, mate: '' }; }
 const COIN_CAP = 9999999;
 function addCoin(p, n) { n = Math.max(0, Math.round(n)); p.coin = Math.min(COIN_CAP, (p.coin || 0) + n); return n; }
 function fixProfile(p) {   // fill in anything an older save does not have
@@ -928,7 +944,7 @@ function fixProfile(p) {   // fill in anything an older save does not have
     p.bag = bag; p.eq = eq; settle(p); }
   { const dl = {}, old = isObj(p.dl) ? p.dl : {}; for (const k of Object.keys(DUNGEONS)) if (k !== 'tower' && Number.isInteger(old[k]) && old[k] > 1) dl[k] = Math.min(50, old[k]); p.dl = dl; }      // floors reached in the other dungeons
   p.cl = Number.isInteger(p.cl) ? clamp(p.cl, 1, TUNE.maxLevel) : 1; p.xp = p.xp >= 0 && p.cl < TUNE.maxLevel ? Math.min(Math.floor(p.xp), xpNeed(p.cl)) : 0;
-  fixQuests(p); fixBond(p);
+  fixQuests(p); fixBond(p); p.mate = typeof p.mate === 'string' && p.bond[p.mate] && p.bond[p.mate].rel >= MATE_REL ? p.mate : '';
   const lo = {}, old = p.loadout && typeof p.loadout === 'object' ? p.loadout : {};      // keep only loadouts that are still allowed
   for (const k of Object.keys(CLASSES)) if (validLoadout(k, old[k], p.cl)) lo[k] = old[k].slice();
   p.loadout = lo;
@@ -1046,6 +1062,7 @@ const BONDS = {
   mira: { seat: 'heal', looks: { shawl: { name: '潮紋披肩', what: '衣服', cost: { coin: 400, salt: 5 }, tier: 2, gain: 30 } }, picks: { 2: [{ mira: 5, jin: 5 }, { mira: 8 }] }, love: { daily: { potion: 1 }, perk: ['hp', .04, '生命 +4%'] }, gifts: { herb: 12, salt: 8, potion: 8, shard: 5, scrap: 1 }, kinds: ['staff', 'bell', 'tome'], perks: [[2, 'hp', .03, '生命 +3%'], [3, 'taken', -.03, '受到的傷害 -3%'], [4, 'heal', .06, '治療量 +6%']] },
   jin: { seat: 'dps', looks: { bun: { name: '緞面髮圈', what: '髮飾', cost: { coin: 300 }, tier: 2, gain: 30 } }, picks: { 2: [{}, { jin: 10 }, { jin: 6 }] }, love: { daily: { scrap: 3 }, perk: ['dmg', .03, '造成的傷害 +3%'] }, gifts: { shard: 20, scrap: 8, potion: 6, salt: 3, herb: 1 }, kinds: ['bow', 'xbow', 'quiver'], perks: [[2, 'speed', .03, '移動速度 +3%'], [3, 'dmg', .03, '造成的傷害 +3%'], [4, 'ult', .08, '大招充能 +8%']] }
 };
+const MATE_REL = 1;      // from which stage of love she will come along into the field (1: a couple)
 const LOVE = { ask: { herb: 10, salt: 5 }, vow: { shard: 10, coin: 500 } }, REL_NAMES = ['', '情侶', '誓約'], REL_TEAM = [0, .25, .3];
 const costText = c => Object.keys(c).map(k => (k === 'coin' ? `鐘幣 ${c[k]}` : `${k === 'potion' ? '潮息藥水' : MATS[k]} ×${c[k]}`)).join('、');
 const canPay = (p, c) => Object.keys(c).every(k => (k === 'coin' ? p.coin : p.inv[k]) >= c[k]);
@@ -1072,6 +1089,7 @@ function bondInfo(p, who, now) {
     perks, team: Math.max(BOND_TEAM[t], REL_TEAM[b.rel]), gifts: Object.keys(d.gifts), love: !!lv, rel: b.rel, look: b.look,
     looks: Object.keys(d.looks || {}).map(id => { const k = d.looks[id]; return { id, name: k.name, what: k.what, cost: costText(k.cost), tier: k.tier, at: BOND_NAMES[k.tier], open: t >= k.tier, ready: t >= k.tier && canPay(p, k.cost), own: b.looks.includes(id), on: b.look === id }; }),
     ask: lv && b.rel === 0 && t === BOND_TIERS.length - 1 && b.seen >= t ? { cost: costText(LOVE.ask), ready: canPay(p, LOVE.ask) } : null,      // the question can be asked
+    mate: lv && b.rel >= MATE_REL ? { on: p.mate === who } : null,      // she can be asked along
     vow: lv && b.rel === 1 ? { cost: costText(LOVE.vow), need: BOND_CAP, full: b.v >= BOND_CAP, taken, ready: b.v >= BOND_CAP && !taken && canPay(p, LOVE.vow) } : null };
 }
 function bondTalk(p, who, now) {
@@ -1088,6 +1106,19 @@ function bondLook(p, who, id, now) {
   if (tierOf(b.v) < d.tier) return { ok: false, msg: `好感到「${BOND_NAMES[d.tier]}」才能送這個。` }; if (!pay(p, d.cost)) return { ok: false, msg: `還不夠：${costText(d.cost)}。` };
   b.looks.push(id); b.look = id; const r = addBond(p, who, d.gain, now);
   return { ok: true, bought: true, look: id, gain: r.gain, up: r.up, tier: r.tier, msg: `送出${d.name}，好感 +${r.gain}。` };
+}
+/* Ask them to walk with you in the field, or to go back to the camp. One at a time. It only means anything in a field
+ * of your own: in a dungeon, and in a field shared with other people, they stay at the camp. */
+function bondMate(p, who, on, now) {
+  fixProfile(p); const b = fixBond(p, now)[who]; if (!b) return { ok: false, msg: '沒有這個人。' };
+  if (!on) { if (p.mate === who) p.mate = ''; return { ok: true, mate: p.mate }; }
+  if (b.rel < MATE_REL) return { ok: false, msg: `成為${REL_NAMES[MATE_REL]}之後，她才會跟你一起走。` };
+  p.mate = who; return { ok: true, mate: who };
+}
+/* Who walks with this character, as addFieldMate() wants them: about as strong as the character, a little more after a vow. */
+function mateOf(p) {
+  const who = p.mate, b = who && p.bond ? p.bond[who] : null; if (!b || !BONDS[who] || b.rel < MATE_REL) return null; const d = BONDS[who];
+  return { npc: who, cls: d.seat, name: d.seat === 'dps' ? BOT_NAMES.dps[0] : BOT_NAMES[d.seat], lvl: p.cl, pow: charPower(p) * (.75 + REL_TEAM[b.rel]) };
 }
 /* Ask them to be yours, and later to take a vow. */
 function bondAsk(p, who, now) {
@@ -1566,7 +1597,7 @@ return { QUEST_TYPES, packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_
   get MAX_LEVEL() { return TUNE.maxLevel; }, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, get POTION_CAP() { return TUNE.potionCap; }, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
   weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id), MAIN_AT,
-  BONDS, BOND_TIERS, BOND_NAMES, BOND_DAY, BOND_TEAM, LOVE, REL_NAMES, REL_TEAM, bondInfo, bondTalk, bondGift, bondLook, bondAsk, bondVow, bondSeen, bondTier, bondTeam, addBond,
+  BONDS, BOND_TIERS, BOND_NAMES, BOND_DAY, BOND_TEAM, LOVE, REL_NAMES, REL_TEAM, bondInfo, bondTalk, bondGift, bondLook, bondAsk, bondVow, bondMate, mateOf, MATE_REL, addFieldMate, removeFieldMate, bondSeen, bondTier, bondTeam, addBond,
   TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, get RESPEC_COST() { return TUNE.respecCost; }, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
   SLOTS, SET_SLOTS, SLOT_NAME: { w: '主手', o: '副手', a: '護甲', t: '飾品' }, WKINDS, HAND_NAME, HELD, hands, heldOf, heldFix, slotFor, wants, itemKind, kindOf, reach, canUse, needText, NEEDS, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
   runDrops, bossDrops, refit, get TOWER_LEVEL() { return DUNGEONS.tower.min; }, PORTAL };

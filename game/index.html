@@ -881,6 +881,8 @@ function startField(then, pos, map) {
   G = S.createField({ map: FD.id, lvl: save.lvl, player: { cls: save.cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', skills: S.loadoutOf(save, save.cls), mods: S.modsFor(save, save.cls), held: S.heldOf(save) } });
   V = G; V.me = G.actors[0]; meIdx = 0;
   if (online && net.authed) send({ t: 'field0', map: FD.id });
+  if (pos) { V.me.x = pos[0]; V.me.y = pos[1]; }
+  mateSync(true);
   if (pos) { V.me.x = pos[0]; V.me.y = pos[1]; }      // stepping back out of a surge: same place, no fanfare
   enterRun(); Object.assign(cam, camGoal()); renderQuests(); if (pos) return; banner(FD.name, 1500);
   const pro = Story.SCENES.prologue, go = () => { if (then) then(); else linkOffer(); };
@@ -890,6 +892,16 @@ function startField(then, pos, map) {
 function linkOffer() {
   if (!inviteRoom || net.linkDone || !online || !net.authed) return; net.linkDone = true;
   toast(`朋友給了你房號 ${inviteRoom}`, [['去他們的野外', () => goField(inviteRoom)], ['一起進塔', () => goOnline(inviteRoom)], ['略過', null]], 20000);
+}
+/* Whoever walks with you is only there in a field of your own (this device runs it): not in a dungeon, and not in a
+ * field shared with other people. While she is out with you she is not standing at the camp. */
+const mateActor = id => (V && V.mode === 'field' && mode === 'field' ? V.actors.find(a => a.npc === id && !a.out) : null) || null;
+const npcSpot = id => mateActor(id) || FD.npcs.find(n => n.id === id) || null;
+function mateSync(quiet) {
+  if (mode !== 'field' || !G || G.mode !== 'field') return; const m = S.mateOf(save), cur = G.actors.find(a => a.mate === 0 && !a.out);
+  if (m && cur && cur.npc === m.npc) return; if (!m && !cur) return;
+  if (m) S.addFieldMate(G, m, 0); else S.removeFieldMate(G, 0);
+  if (!quiet) buildHud();
 }
 function fieldFrame(dt) {
   S.step(G, simDt(dt));
@@ -917,7 +929,7 @@ function fieldView(dt) {
     if (!V.event && d < en.spot.r && net.evSkip !== en.cycle && (!net.evJoin || t - net.evJoin > 3000)) { net.evJoin = t; net.home = { code: mode === 'online' ? V.code : '' }; send({ t: 'join', event: true, x: me.x, y: me.y }); }
     else if (V.event && d > en.spot.r + 150) return goHome('你離開了漲潮');
   }
-  nearNpc = null; for (const n of FD.npcs) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearNpc = n;
+  nearNpc = null; for (const n of FD.npcs) if (!mateActor(n.id) && Math.hypot(n.x - me.x, n.y - me.y) < 58) nearNpc = n;
   nearStall = null; for (const n of FD.stalls) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearStall = n;
   if (nearNpc && nearStall) { if (Math.hypot(nearNpc.x - me.x, nearNpc.y - me.y) <= Math.hypot(nearStall.x - me.x, nearStall.y - me.y)) nearStall = null; else nearNpc = null; }      // a person and a stall both in reach: the button is for the nearer one
   nearGate = !!FD.gate && Math.hypot(FD.gate.x - me.x, FD.gate.y - me.y) < FD.gate.r + 34;
@@ -967,7 +979,7 @@ function nextSay() {
       if (px) { const box = art.parentElement.getBoundingClientRect(), d = window.devicePixelRatio || 1, k = Math.max(1, Math.round(Math.min(box.width * .7 / im.naturalWidth, box.height * .86 / im.naturalHeight) * d)); art.style.width = im.naturalWidth * k / d + 'px'; }      // pixel art is enlarged by a whole number, so every dot stays square
       if (fresh) void art.offsetWidth; }
     art.hidden = !im; talk.art = !!im; if (!im) art.dataset.who = ''; }
-  talk.focus = FD.npcs.find(n => n.id === who) || null;
+  talk.focus = npcSpot(who);
 }
 /* The talk stops for the player to choose what to do. The lines of what they chose are put where the choice was. */
 function askPick(q) {
@@ -990,10 +1002,10 @@ function talkTo(id) {
 /* ---------- bonds: the people at the camp who come to know you ---------- */
 function bondDo(o, cb) {
   if (online) { if (!net.authed) return toast('連線中，等一下再試。', [], 2500); net.bondCb = cb || null; return send(Object.assign({ t: 'bond' }, o)); }
-  const now = Date.now(), r = o.op === 'talk' ? S.bondTalk(save, o.who, now) : o.op === 'gift' ? S.bondGift(save, o.who, o.key ? { key: o.key } : { i: o.i }, now) : o.op === 'look' ? S.bondLook(save, o.who, o.look || '', now) : o.op === 'ask' ? S.bondAsk(save, o.who, now) : o.op === 'vow' ? S.bondVow(save, o.who, now) : S.bondSeen(save, o.who, o.tier, now, o.pick);
+  const now = Date.now(), r = o.op === 'talk' ? S.bondTalk(save, o.who, now) : o.op === 'gift' ? S.bondGift(save, o.who, o.key ? { key: o.key } : { i: o.i }, now) : o.op === 'look' ? S.bondLook(save, o.who, o.look || '', now) : o.op === 'mate' ? S.bondMate(save, o.who, !!o.on, now) : o.op === 'ask' ? S.bondAsk(save, o.who, now) : o.op === 'vow' ? S.bondVow(save, o.who, now) : S.bondSeen(save, o.who, o.tier, now, o.pick);
   writeSave(); if (cb) cb(r);
 }
-function bondGain(who, r) { const n = FD.npcs.find(x => x.id === who); if (n && r.gain) addText(n.x, n.y - 58, `好感 +${r.gain}`, C.ember, 13, 1.6, true); if (r.up) toast(`和${Story.CAST[who].name}的好感到了「${S.BOND_NAMES[r.tier]}」。`, [], 3500); }
+function bondGain(who, r) { const n = npcSpot(who); if (n && r.gain) addText(n.x, n.y - 58, `好感 +${r.gain}`, C.ember, 13, 1.6, true); if (r.up) toast(`和${Story.CAST[who].name}的好感到了「${S.BOND_NAMES[r.tier]}」。`, [], 3500); }
 /* A tier reached whose scene has not been shown: show it, one tier at a time, and say what it brings. */
 function bondScene(who) {
   const b = S.bondInfo(save, who, Date.now()), st = Story.BOND[who]; if (!b || !st || b.seen >= b.tier || !inField()) return false;
@@ -1012,6 +1024,8 @@ function renderBond() {
   for (const p of b.perks) ul.appendChild(el('li', p.on ? 'on' : '', `${p.on ? '✓' : '・'} ${p.at}：${p.text}`));
   ul.appendChild(el('li', b.team ? 'on' : '', `${b.team ? '✓' : '・'} 信賴起：${name}當你的隊友時更強${b.team ? `（現在 +${Math.round(b.team * 100)}%）` : ''}`));
   const step = (label, op, ready, why) => { const bt = el('button', 'mini' + (ready ? ' go' : ''), label); bt.type = 'button'; bt.disabled = !ready; bt.addEventListener('click', () => { if (talk.sure !== bt) { talk.sure = bt; bt.textContent = '確定嗎？再點一次'; return; } talk.sure = null; loveStep(op); }); g.appendChild(bt); if (!ready && why) g.appendChild(el('p', '', why)); };
+  if (b.mate) { const bt = el('button', 'mini' + (b.mate.on ? '' : ' go'), b.mate.on ? `請${name}回營地等` : `請${name}一起走`); bt.type = 'button'; bt.addEventListener('click', () => mateStep(!b.mate.on)); g.appendChild(bt);
+    g.appendChild(el('p', '', '她只會在你自己的野外跟著你、幫你打。進副本，或是和朋友組隊到野外時，她會留在營地。')); }
   if (b.ask) step(`送上潮花，告白（${b.ask.cost}）`, 'ask', b.ask.ready, '材料還不夠。');
   if (b.vow) step(`遞出鐘戒，立下誓約（${b.vow.cost}）`, 'vow', b.vow.ready, b.vow.taken ? '誓約只能和一個人立，你已經立過了。' : !b.vow.full ? `好感到 ${b.vow.need} 才能立誓約。` : '材料還不夠。');
   g.appendChild(el('p', '', b.giftLeft ? `今天還能送 ${b.giftLeft} 次。每個人喜歡的東西不一樣，送了才知道。` : '今天已經送過 3 次了，明天再來。'));
@@ -1040,6 +1054,15 @@ function lookStep(id) {      // something to wear: given (her scene for it, and 
     const st = Story.BOND[who], scene = r.bought && st.looks && st.looks[id];
     if (scene) { talk.hold = { who, look: was }; say(scene, () => bondScene(who), who); bondGain(who, r); toast(String(r.msg || ''), [], 3000); }
     else say([[who].concat(pick(st.wear || [['……']]))], null, who);
+  });
+}
+function mateStep(on) {      // ask her along, or back to the camp
+  const who = talk.bond; if (!who) return;
+  bondDo({ op: 'mate', who, on }, r => {
+    if (!r.ok) return toast(String(r.msg || ''), [], 3500);
+    const st = Story.BOND[who], party = mode !== 'field'; mateSync();
+    say([[who].concat(pick((on ? st.come : st.stay) || [['……']]))], null, who);
+    if (on) toast(party ? '現在和朋友在一起，她先留在營地；你自己到野外時她就會跟上。' : `${Story.CAST[who].name}會在野外跟著你。點上方她的名牌可以和她說話。`, [], 4500);
   });
 }
 function loveStep(op) {      // asking, or the vow: the scene written for it, then what it brings
@@ -1135,7 +1158,7 @@ function applyProfile(m, quiet) {   // the server's word on this account
     box.cur = box.chars[m.cur] ? m.cur : -1; quiet = true;
   }
   const p = m.profile, c = box.chars[box.cur];
-  if (p && c) { Object.assign(c, { nick: p.name, cls: p.cls, lvl: p.lvl, cl: p.cl, xp: p.xp || 0, gear: p.gear, eq: p.eq, bag: p.bag || [], dl: p.dl || {}, best: p.best, runs: p.runs, inv: p.inv, q: p.q, loadout: p.loadout, coin: p.coin || 0, talents: p.talents || {}, bond: p.bond || {} }); S.fixProfile(c); c.ilvl = S.ilvlOf(c.gear); }
+  if (p && c) { Object.assign(c, { nick: p.name, cls: p.cls, lvl: p.lvl, cl: p.cl, xp: p.xp || 0, gear: p.gear, eq: p.eq, bag: p.bag || [], dl: p.dl || {}, best: p.best, runs: p.runs, inv: p.inv, q: p.q, loadout: p.loadout, coin: p.coin || 0, talents: p.talents || {}, bond: p.bond || {}, mate: p.mate || '' }); S.fixProfile(c); c.ilvl = S.ilvlOf(c.gear); }
   save = c || blankChar(); chosen = save.cls;
   writeSave(); levelCheck(quiet);
 }
@@ -1535,7 +1558,7 @@ function drawSprite(set, o, dt, striking, hit) {
   return true;
 }
 function drawActor(a, dt) {
-  const c = ctx, { x, y, r } = a, fl = flashing(a, dt), me = a === V.me, guard = a.wallT > 0 || a.shield > 0, art = spriteOf(a.cls), up = spriteTop(art, r);
+  const c = ctx, { x, y, r } = a, fl = flashing(a, dt), me = a === V.me, guard = a.wallT > 0 || a.shield > 0, art = (a.npc && spriteOf(a.npc)) || spriteOf(a.cls), up = spriteTop(art, r);
   if (!a.alive) { c.globalAlpha = .55; c.fillStyle = C.line; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); c.strokeStyle = C.mute; c.lineWidth = 2; c.beginPath(); c.moveTo(x - 5, y - 5); c.lineTo(x + 5, y + 5); c.moveTo(x + 5, y - 5); c.lineTo(x - 5, y + 5); c.stroke(); c.globalAlpha = 1; return; }
   shadow(x, y, r);
   if (guard) { c.strokeStyle = C.tank; c.globalAlpha = .8; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, r + 5, 0, TAU); c.stroke(); c.globalAlpha = 1; }
@@ -1668,6 +1691,7 @@ function drawStall(n) {
 }
 const NPC_POSE = {};
 function drawNpc(n) {
+  if (mateActor(n.id)) return;      // she is out walking with you
   const c = ctx, cls = NPC_CLS[n.id], d = CLASSES[cls], cast = Story.CAST[n.id], r = 12, { x, y } = n, face = Math.atan2(V.me.y - y, V.me.x - x), art = spriteOf(n.id), up = spriteTop(art, r);
   shadow(x, y, r);
   if (talk.focus === n) { c.strokeStyle = C.brass; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r + 6, 0, TAU); c.stroke(); }
@@ -1817,6 +1841,7 @@ function buildHud() {
     const hp = el('span', 'hp'), fill = el('i'); hp.append(fill); b.append(nm, hp);
     b.setAttribute('aria-label', `${a.name} ${a.def.role}`);
     b.addEventListener('pointerdown', ev => { ev.preventDefault(); if (V && V.me && V.me.cls === 'heal') act({ h: a.idx }); });
+    if (a.npc) b.addEventListener('click', () => { if (inField() && !talk.lines && V.me.alive && !(V.me.cls === 'heal' && a.hp < a.maxHp)) talkTo(a.npc); });      // whoever walks with you: her frame is how you talk to her
     party.appendChild(b); frames.push({ a, el: b, hp: fill, tag });
   });
   $('#pot').hidden = !(V.me.potions > 0);   // only shown when you brought one

@@ -105,7 +105,8 @@ const IDLE = {
  * A scene may hold a choice in place of a line: { pick: [{ say: what the player does, lines: [...] }, ...] }. The lines
  * of the one chosen are spoken, then the scene goes on. sim.js (BONDS[who].picks) says what each choice is worth.
  * looks[id] plays when that thing to wear is given; { reveal: true } in it is where she is first seen wearing it.
- * wear is what she says when asked to put something on or take it off.
+ * wear is what she says when asked to put something on or take it off; come and stay, when asked to walk with you
+ * in the field or to go back to the camp.
  * ask and vow play when they become your couple and when the vow is taken; dear is what they say at the camp after. */
 const BOND = {
   mira: {
@@ -146,6 +147,8 @@ const BOND = {
           ['mira', '好暖和。……怎麼樣，適合我嗎？', 'shy'],
           ['mira', '我會好好珍惜的。夜裡守火的時候，就披著它。', 'smile']] },
     wear: [['這樣可以嗎？你喜歡哪個樣子，跟我說就好。', 'smile']],
+    come: [['好，我跟你走。走慢一點也沒關係，我會看著你的背後。', 'smile'], ['藥我都帶了。你只管往前，後面有我。', 'smile']],
+    stay: [['那我回火邊等你。要平安回來，知道嗎？', 'smile']],
     dear: [['你回來了。先讓我看看有沒有受傷……好，沒事。', 'smile'], ['今天也要平安回來。這不是拜託，是命令喔。', 'smile'], ['……手借我一下。嗯，這樣就不冷了。', 'shy'],
       { lines: [['你今天跟誰聊得那麼開心呀？', 'darkside'], ['不高興？我沒有呀。……啊，藥杵怎麼被我握斷了。', 'smile']] }],
     gift: {
@@ -206,6 +209,8 @@ const BOND = {
           ['jin', '……怎樣啦。不、不准盯著看！好看就說好看！', 'shy'],
           ['jin', '哼，既然你這麼想看，以後偶爾綁給你看也可以啦。', 'smug']] },
     wear: [['換好了。……幹嘛一直看，你是不是有什麼企圖～？', 'smug']],
+    come: [['欸～這麼想要我陪？好啦好啦。別拖我後腿喔，慢吞吞。', 'smug'], ['走啊。先說好，看到螃蟹我可是會先跑的喔～騙你的。', 'smug']],
+    stay: [['蛤？要我回去？……哼，隨便你啦。早點回來。', 'angry']],
     dear: [['今天的惡作劇是——抱一下。……幹嘛，不行喔！', 'shy'], ['欸，慢吞吞。出門前回頭看我一眼，這是規定。', 'smug'], ['你要是受傷回來，我會真的生氣。不是鬧你的那種。', 'serious']],
     gift: {
       love: [['喔～？很懂嘛。……我、我才沒有很高興！', 'shy'], ['算你識貨～收下了。下次惡作劇放你一馬。', 'smug']],

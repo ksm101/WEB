@@ -40,7 +40,7 @@ const cleanId = s => typeof s === 'string' && /^[a-f0-9]{16}$/.test(s) ? s : '';
  * skills) belongs to a character; friends belong to the account. rec.name mirrors the name of the character in use. */
 const MAX_CHARS = 4;
 const pc = r => r.chars[r.cur] || null;        // the character this account is playing
-const charProfile = c => ({ name: c.name, cls: c.cls, lvl: c.lvl, cl: c.cl, xp: c.xp, gear: c.gear, eq: c.eq, bag: c.bag, dl: c.dl, best: c.best, runs: c.runs, inv: c.inv, q: c.q, loadout: c.loadout, coin: c.coin, talents: c.talents, bond: c.bond });
+const charProfile = c => ({ name: c.name, cls: c.cls, lvl: c.lvl, cl: c.cl, xp: c.xp, gear: c.gear, eq: c.eq, bag: c.bag, dl: c.dl, best: c.best, runs: c.runs, inv: c.inv, q: c.q, loadout: c.loadout, coin: c.coin, talents: c.talents, bond: c.bond, mate: c.mate });
 const profileOf = r => { const c = pc(r); return c ? charProfile(c) : null; };
 const rosterOf = r => r.chars.map(c => ({ name: c.name, cls: c.cls, cl: c.cl, lvl: c.lvl, ilvl: Sim.ilvlOf(c.gear) }));
 const charName = s => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '';
@@ -59,7 +59,7 @@ function normChar(b) {
   // a backup from before there was an off hand carries none: the rules then give it one as good as its weapon
   const c = { name: cleanName(b.name), cls: SEATS.includes(b.cls) ? b.cls : 'dps', made: clampInt(b.made, 0, 9e15), lvl: clampInt(b.lvl, 1, 50), cl: clampInt(b.cl, 1, Sim.MAX_LEVEL), xp: clampInt(b.xp, 0, 1e9),
     gear: Object.assign({ w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) }, g.o >= 10 ? { o: clampInt(g.o, 10, 999) } : null), best: {}, runs: clampInt(b.runs, 0, 1e9),
-    inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) }, q: b.q, loadout: b.loadout, coin: clampInt(b.coin, 0, 9999999), talents: b.talents, eq: b.eq, bag: b.bag, dl: b.dl, bond: b.bond };
+    inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) }, q: b.q, loadout: b.loadout, coin: clampInt(b.coin, 0, 9999999), talents: b.talents, eq: b.eq, bag: b.bag, dl: b.dl, bond: b.bond, mate: b.mate };
   if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const n = Number(b.best[k]); if (/^([a-z][a-z0-9]{1,11}:)?\d+$/.test(k) && Number.isFinite(n)) c.best[k] = n; }
   return Sim.fixProfile(c);
 }
@@ -626,9 +626,9 @@ function start(opts) {
         case 'field0': case 'fg': case 'fk': case 'fr': return onField(ws, m);
         case 'loadout': { const r = Sim.setLoadout(pc(ws.acc), pc(ws.acc).cls, m.skills); if (r.ok) { store.put(ws.acc); refit(ws); } return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'bond': {      // talk to, give to, or mark a scene seen with someone at the camp who keeps a bond
-          const c = pc(ws.acc), who = String(m.who), now = Date.now(), op = ['talk', 'gift', 'ask', 'vow', 'look'].includes(m.op) ? m.op : 'seen'; if (!Object.prototype.hasOwnProperty.call(Sim.BONDS, who)) return;
-          if (op !== 'seen' && op !== 'talk' && seats.has(ws.acc.id)) return send(ws, { t: 'bond', op, who, r: { ok: false, msg: '副本裡不能送禮。' } });
-          const r = op === 'talk' ? Sim.bondTalk(c, who, now) : op === 'gift' ? Sim.bondGift(c, who, typeof m.key === 'string' ? { key: m.key } : { i: clampInt(m.i, 0, 999) }, now) : op === 'look' ? Sim.bondLook(c, who, typeof m.look === 'string' ? m.look.slice(0, 12) : '', now) : op === 'ask' ? Sim.bondAsk(c, who, now) : op === 'vow' ? Sim.bondVow(c, who, now) : Sim.bondSeen(c, who, clampInt(m.tier, 0, 9), now, Number.isInteger(m.pick) ? m.pick : -1);
+          const c = pc(ws.acc), who = String(m.who), now = Date.now(), op = ['talk', 'gift', 'ask', 'vow', 'look', 'mate'].includes(m.op) ? m.op : 'seen'; if (!Object.prototype.hasOwnProperty.call(Sim.BONDS, who)) return;
+          if (op !== 'seen' && op !== 'talk' && op !== 'mate' && seats.has(ws.acc.id)) return send(ws, { t: 'bond', op, who, r: { ok: false, msg: '副本裡不能送禮。' } });
+          const r = op === 'talk' ? Sim.bondTalk(c, who, now) : op === 'gift' ? Sim.bondGift(c, who, typeof m.key === 'string' ? { key: m.key } : { i: clampInt(m.i, 0, 999) }, now) : op === 'look' ? Sim.bondLook(c, who, typeof m.look === 'string' ? m.look.slice(0, 12) : '', now) : op === 'mate' ? Sim.bondMate(c, who, !!m.on, now) : op === 'ask' ? Sim.bondAsk(c, who, now) : op === 'vow' ? Sim.bondVow(c, who, now) : Sim.bondSeen(c, who, clampInt(m.tier, 0, 9), now, Number.isInteger(m.pick) ? m.pick : -1);
           if (r.ok) { store.put(ws.acc); later(ws); if (r.up || r.rel) refit(ws); }
           return send(ws, { t: 'bond', op, who, r, profile: profileOf(ws.acc) });
         }
