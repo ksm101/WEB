@@ -38,8 +38,8 @@ window.ART_MANIFEST = Object.assign({
   _weapons: ['sword', 'hammer', 'maul', 'spear', 'hook', 'xbow', 'bow', 'staff', 'bell', 'shield', 'tome', 'quiver'],      // the bow has no string in its picture: the game draws the string
   _tiles: ['sand', 'path', 'water', 'hull', 'stone', 'flood', 'brick'],
   _deco: ['shell', 'driftwood', 'seaweed', 'bones', 'puddle', 'rustbit', 'rope', 'pebbles'],
-  _props: { campfire: { w: 32, h: 32, frames: 4 }, rock: { w: 32, h: 32, frames: 3 }, rockbig: { w: 48, h: 48, frames: 2 }, herb: { w: 32, h: 32, frames: 1 }, wreck: { w: 32, h: 32, frames: 1 }, salt: { w: 32, h: 32, frames: 1 }, chest: { w: 32, h: 32, frames: 2 }, portal: { w: 48, h: 64, frames: 4 }, gate: { w: 64, h: 64, frames: 1 }, mailbox: { w: 32, h: 48, frames: 1 }, stall: { w: 48, h: 48, frames: 2 }, signpost: { w: 32, h: 48, frames: 1 }, marker: { w: 32, h: 48, frames: 1 } },
+  _props: { campfire: { w: 64, h: 64, frames: 4 }, rock: { w: 64, h: 64, frames: 3 }, rockbig: { w: 96, h: 96, frames: 2 }, herb: { w: 64, h: 64, frames: 1 }, wreck: { w: 64, h: 64, frames: 1 }, salt: { w: 64, h: 64, frames: 1 }, chest: { w: 64, h: 64, frames: 2 }, portal: { w: 96, h: 128, frames: 4 }, gate: { w: 128, h: 128, frames: 1 }, mailbox: { w: 64, h: 96, frames: 1 }, stall: { w: 96, h: 96, frames: 2 }, signpost: { w: 64, h: 96, frames: 1 }, marker: { w: 64, h: 96, frames: 1 } },
   _icons: ['scrap', 'salt', 'shard', 'herb', 'potion', 'coin', 'armor', 'trinket', 'taunt', 'wall', 'bash', 'charge', 'quake', 'guard', 'tankUlt', 'anchor', 'mend', 'ring', 'seal', 'wave', 'pool', 'barrier', 'healUlt', 'surge', 'blast', 'roll', 'snipe', 'pierce', 'volley', 'mark', 'dpsUlt', 'sunshot'],
   _ui: ['title'],
-  _fine: ['weapon'],
+  _fine: ['weapon', 'prop', 'deco'],
 },window.ART_MANIFEST);
