@@ -17,7 +17,7 @@
 
 const CAST = {
   kol: { lvl: 28, name: '柯爾', color: 'tank' },     // the shield: a shipwright before the tide, blunt, means well
-  mira: { lvl: 31, name: '蜜拉', color: 'heal' },    // the healer, 27: everyone's gentle big sister, knows the tower's past. There is a dark streak in her that she herself does not know of: her face falls into shadow and she says something chilling in the kindest voice, meaning every word well, and is honestly puzzled when people turn pale. Never write her as joking, hinting or aware of it. Frightening when angry, and the one person Jieyan obeys
+  mira: { lvl: 31, name: '蜜拉', color: 'heal' },    // the healer, 21, the same age as Jieyan: gentle and grown-up in her ways, the one who looks after Jieyan (and everyone), but nobody's elder sister and never calls herself one; knows the tower's past. There is a dark streak in her that she herself does not know of: her face falls into shadow and she says something chilling in the kindest voice, meaning every word well, and is honestly puzzled when people turn pale. Never write her as joking, hinting or aware of it. Frightening when angry, and the one person Jieyan obeys
   jin: { lvl: 24, name: '婕焰', color: 'ember' },    // the archer, 21: a grown woman who acts the brat. Teases and plays tricks, but measures them; kind underneath; and when a joke goes too far she turns meek, afraid of being ignored
   wu: { lvl: 12, name: '小霧', color: 'brass' },     // the youngest: a lamp-keeper's apprentice, curious
   mog: { lvl: 40, name: '莫葛', color: 'rust' }      // the warden: once the bell-ringer
@@ -92,11 +92,11 @@ const POSES = ['laugh', 'panic'];
 const IDLE = {
   kol: ['火別讓它滅了。潮氣一上來，鐵就開始爛。', '灘上的殘骸可以拆，都是好鐵。', '塔門在北邊，沿著踩出來的路走就到。'],
   mira: [['今天的潮聲很低，像有人在水底嘆氣。', 'sad'], '潮草長在水邊。兩把草加一塊鹽晶，就能熬一瓶藥。', ['累了就回火邊坐著。有我在，這一圈牠們不敢進來。', 'smile'],
-    ['有沒有好好吃飯？不可以騙姐姐喔。', 'fake'], { lines: [['婕焰又捉弄你了？那我今晚去陪她聊聊。聊到她哭出來為止。', 'darkgrin'], ['……咦？是聊到她笑出來為止。我剛剛說了什麼嗎？', 'smile']] },
+    ['有沒有好好吃飯？不可以騙我喔。', 'fake'], { lines: [['婕焰又捉弄你了？那我今晚去陪她聊聊。聊到她哭出來為止。', 'darkgrin'], ['……咦？是聊到她笑出來為止。我剛剛說了什麼嗎？', 'smile']] },
     { lines: [['柯爾昨天嫌我的藥苦。所以今天他那碗，我多熬了半個時辰。', 'dark'], ['苦一點才好得快呀。……你怎麼用那種眼神看我？', 'smile']] },
     { lines: [['不聽話的病人？有呀。後來他們都變得很聽話。', 'darkflat'], ['咦，你怎麼退了一步？是因為我照顧得很用心呀。', 'smile']] }],
   jin: [['從這裡跑到塔門，我最快四十秒。你呢～？要不要讓你十秒？', 'smug'], ['你背後有螃蟹喔。……騙你的，嘻嘻。回頭的樣子好好笑。', 'smug'],
-    '學徒一念咒就打斷牠，跟塔裡一樣。這句我可沒在鬧你。', ['噓——別跟蜜拉姐說在這看到我。我在躲她。', 'teary']],
+    '學徒一念咒就打斷牠，跟塔裡一樣。這句我可沒在鬧你。', ['噓——別跟蜜拉說在這看到我。我在躲她。', 'teary']],
   wu: ['我在燈塔學過看霧。霧往哪邊飄，潮就從哪邊來。', ['鹽晶會發光！晚上看最清楚。', 'surprised'], ['柯爾叔嘴巴很兇，可是他會偷偷幫我修弓。', 'smile']]
 };
 
@@ -111,15 +111,15 @@ const BOND = {
   mira: {
     scenes: {
       1: [['mira', '又來看我了？真乖。這裡很少有人會特地繞過來陪我說話呢。', 'smile'],
-          ['mira', '我在熬藥，潮草快用完了。你要是順路，能幫姐姐帶幾株回來嗎？']],
+          ['mira', '我在熬藥，潮草快用完了。你要是順路，能幫我帶幾株回來嗎？']],
       2: [['jin', '噗，你背上被我貼了「我是慢吞吞」耶，繞了整個營地都沒發現～', 'smug'],
           ['mira', '婕焰。', 'dark'],
-          ['jin', '蜜、蜜拉姐……我撕！我現在就撕掉！', 'teary'],
+          ['jin', '蜜、蜜拉……我撕！我現在就撕掉！', 'teary'],
           { pick: [
             { say: '「算了啦，我不介意。」', lines: [
               ['mira', '你人真好。可是太縱容她，她會得寸進尺的喔。', 'fake'],
               ['jin', '得救了……慢吞吞，這次算我欠你的。', 'shy']] },
-            { say: '「蜜拉姐，交給妳了。」', lines: [
+            { say: '「蜜拉，交給妳了。」', lines: [
               ['mira', '好。婕焰，今晚的鍋子妳一個人洗，洗到照得出臉為止。', 'darkgrin'],
               ['jin', '嗚……你給我記住啦——！', 'teary']] }] },
           ['mira', '咦，你們臉色怎麼都這麼白？我只是叫了她的名字呀。', 'smile'],
@@ -132,10 +132,10 @@ const BOND = {
           ['mira', '我一直在照顧別人，都忘了被人掛念是什麼感覺。是你讓我想起來的。', 'shy'],
           ['mira', '等鐘再響的那一天，我想站在你旁邊聽。說好了喔。', 'smile']]
     },
-    ask: [['mira', '這束潮花……是給我的？等等，讓姐姐先深呼吸一下。', 'shy'],
+    ask: [['mira', '這束潮花……是給我的？等等，讓我先深呼吸一下。', 'shy'],
           ['mira', '我很愛操心，大家還說我有時很可怕……雖然我自己不覺得。這樣也可以嗎？', 'serious'],
           ['mira', '……那以後，請多指教了。不准反悔喔。', 'shy'],
-          ['jin', '欸——！蜜拉姐臉好紅！我要去跟柯爾大叔說！', 'smug'],
+          ['jin', '欸——！蜜拉臉好紅！我要去跟柯爾大叔說！', 'smug'],
           ['mira', '婕焰。', 'dark']],
     vow: [['mira', '用沉鐘碎片打的戒指……敲起來，有鐘的聲音呢。', 'shy'],
           ['mira', '以前我只會等鐘響。現在我想和你一起，把它敲響。', 'serious'],
@@ -143,9 +143,9 @@ const BOND = {
     looks: { shawl: [['mira', '披肩？哎呀，是潮紋的花樣呢。你特地去找的嗎？', 'smile'],
           ['n', '她把披肩圍上肩膀，仔細地在胸前打了個結。'],
           { reveal: true },
-          ['mira', '好暖和。……怎麼樣，適合姐姐嗎？', 'shy'],
+          ['mira', '好暖和。……怎麼樣，適合我嗎？', 'shy'],
           ['mira', '我會好好珍惜的。夜裡守火的時候，就披著它。', 'smile']] },
-    wear: [['這樣可以嗎？你喜歡哪個樣子，跟姐姐說就好。', 'smile']],
+    wear: [['這樣可以嗎？你喜歡哪個樣子，跟我說就好。', 'smile']],
     dear: [['你回來了。先讓我看看有沒有受傷……好，沒事。', 'smile'], ['今天也要平安回來。這不是拜託，是命令喔。', 'smile'], ['……手借我一下。嗯，這樣就不冷了。', 'shy'],
       { lines: [['你今天跟誰聊得那麼開心呀？', 'darkside'], ['不高興？我沒有呀。……啊，藥杵怎麼被我握斷了。', 'smile']] }],
     gift: {
@@ -155,7 +155,7 @@ const BOND = {
       meh: [['……嗯？這是婕焰教你送的吧。我會好好謝謝她的。', 'darkgrin']]
     },
     more: { 1: ['潮草我永遠不嫌多。鹽晶和藥水也用得上。'],
-      2: [['你今天氣色不錯。這樣姐姐就放心了。', 'smile'], { lines: [['誰欺負你了？把名字告訴我。我去送他一碗藥。', 'darkflat'], ['當然是補身體的藥呀。……不然還有哪一種？', 'smile']] }],
+      2: [['你今天氣色不錯。這樣我就放心了。', 'smile'], { lines: [['誰欺負你了？把名字告訴我。我去送他一碗藥。', 'darkflat'], ['當然是補身體的藥呀。……不然還有哪一種？', 'smile']] }],
       3: [['你一來，火好像比較暖。……是我的錯覺吧。', 'shy']] }
   },
   jin: {
@@ -175,7 +175,7 @@ const BOND = {
               ['n', '你仰頭灌了一大口，朝天噴成一道水霧，然後直挺挺倒下。'],
               ['jin', '噗哈哈哈！你是噴泉嗎！好髒喔～再一次、再一次！', 'laugh'],
               ['n', '你躺在地上，一動也不動。'],
-              ['jin', '……喂？演夠了吧？喂！你不要嚇我！蜜拉姐——！', 'panic'],
+              ['jin', '……喂？演夠了吧？喂！你不要嚇我！蜜拉——！快來啦——！', 'panic'],
               ['n', '你睜開一隻眼睛，對她眨了一下。'],
               ['jin', '你、你這傢伙！居然反過來整我！……算你厲害啦。', 'angry']] },
             { say: '面不改色地喝完：「還不錯。」', lines: [
@@ -196,7 +196,7 @@ const BOND = {
           ['jin', '不是……？欸、欸欸？是真的？', 'panic'],
           ['jin', '……好啦，答應你啦。可、可是在別人面前不准講！', 'shy'],
           ['mira', '恭喜呀。婕焰，以後可不能再欺負人家了喔？', 'smile'],
-          ['jin', '蜜拉姐妳什麼時候站在那裡的啦——！', 'panic']],
+          ['jin', '蜜拉妳什麼時候站在那裡的啦——！', 'panic']],
     vow: [['jin', '沉鐘碎片打的戒指？……你居然記得我喜歡這個。', 'shy'],
           ['jin', '先說好，我還是會捉弄你。一輩子都會。你逃不掉了喔～', 'smug'],
           ['jin', '所以……你也不准不理我。一輩子都不准。', 'teary']],
