@@ -216,6 +216,11 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 #talk-bond .bar i{display:block;height:100%;width:0;background:var(--ember);transition:width .4s}
 #gift{position:absolute;inset:0;z-index:4;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:12px var(--gr) 14px var(--gl);background:var(--deep);border-top:1.5px solid var(--brass)}
 #gift[hidden]{display:none}
+#dbg-body{display:flex;flex-direction:column;gap:14px}
+#dbg-body h3{margin:0 0 6px;font-size:14px;color:var(--brass);letter-spacing:.06em}
+#dbg-body p{margin:0 0 6px;font-size:12px;line-height:1.6;color:var(--mute)}
+#dbg-body .acts{display:flex;flex-wrap:wrap;gap:6px}
+#dbg-body .acts .mini{height:38px}
 #gift .tabs{display:flex;gap:6px}
 #gift .tabs .mini{flex:1;height:38px}
 #gift .tabs .mini.on{border-color:var(--brass);color:var(--brass)}
@@ -396,6 +401,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
         <button class="chip" id="friends-btn" type="button" hidden>好友<b id="fr-badge" hidden></b></button>
         <button class="chip" id="mail-btn" type="button" hidden>信箱<b id="mail-badge" hidden></b></button>
         <button class="chip" id="ed-open" type="button">編輯器</button>
+        <button class="chip" id="dbg-open" type="button">測試</button>
         <button class="chip" id="snd-btn" type="button">音效 開</button>
       </div>
       <div class="lvrow"><b id="m-cl">Lv.1</b><span class="xpbar"><i id="m-xpbar"></i></span><small id="m-xp"></small></div>
@@ -515,7 +521,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     <div class="wrap">
       <div class="head">
         <div><p class="eyebrow" id="hero-eyebrow"></p><h2 id="hero-name">角色</h2></div>
-        <button class="chip" id="hero-close" type="button">關閉</button>
+        <div style="display:flex;gap:8px"><button class="chip" id="dbg-open2" type="button">測試</button><button class="chip" id="hero-close" type="button">關閉</button></div>
       </div>
       <div class="tabs big" id="hero-tabs">
         <button class="mini" id="tab-equip" type="button">裝備</button>
@@ -535,6 +541,15 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
         <div class="cards four" id="lo-slots"></div>
         <div class="pane" id="lo-body"></div>
       </div>
+    </div>
+  </section>
+  <section id="dbg" class="overlay top" hidden>
+    <div class="wrap">
+      <div class="head">
+        <div><p class="eyebrow">改的是這台裝置上的存檔</p><h2>測試工具</h2></div>
+        <button class="chip" id="dbg-close" type="button">關閉</button>
+      </div>
+      <div id="dbg-body"></div>
     </div>
   </section>
   <section id="shop" class="overlay top" hidden>
@@ -2608,6 +2623,54 @@ for (const id of ['ed-open', 'ed-open2']) $('#' + id).addEventListener('click', 
 window.__editorClosed = () => { if (online && window.__dataLocal) S.applyData(window.__baseData); if (!$('#menu').hidden) renderMenu(); else if (!$('#chars').hidden) showChars(); renderFinder(); };
 $('#hero-btn').addEventListener('click', () => { if (inField() && !talk.lines) openHero(); });
 $('#hero-close').addEventListener('click', closeHero);
+/* ---------- test tools ----------
+ * A panel for trying things without playing for days: it changes the save on this device. Where a server keeps the
+ * account its word stands, so there the panel only explains itself. */
+function openDbg() { closeHero(); $('#dbg').hidden = false; renderDbg(); }
+function dbgApply(msg) {
+  S.fixProfile(save); writeSave(); levelCheck(); if (mode === 'field' && V && V.me) { S.setLevel(V.me, save.cl, S.charPower(save)); refitMe(); mateSync(false, true); buildHud(); }
+  renderBag(); renderEquip(); renderQuests(); if (!$('#menu').hidden) renderMenu(); renderDbg(); if (msg) toast(msg, [], 2200);
+}
+function renderDbg() {
+  const body = $('#dbg-body'); body.textContent = '';
+  const group = (title, note, acts) => { const g = el('div'), row = el('div', 'acts'); g.appendChild(el('h3', '', title)); if (note) g.appendChild(el('p', '', note));
+    for (const [label, fn] of acts) { const bt = el('button', 'mini', label); bt.type = 'button'; bt.addEventListener('click', fn); row.appendChild(bt); } g.appendChild(row); body.appendChild(g); };
+  if (online) { body.appendChild(el('p', '', '現在連著伺服器，帳號的數值由伺服器決定，這裡改不了。離線版（沒有伺服器時）才能用測試工具。')); return; }
+  const now = Date.now(), cap = S.MAX_LEVEL, nameOf = k => Object.keys(S.HELD).find(n => S.HELD[n] === k);
+  group('角色', `Lv.${save.cl}　鐘幣 ${save.coin}　平均裝等 ${S.ilvlOf(save.gear)}　背包 ${save.bag.length} / ${S.BAG_CAP}`, [
+    ['等級 +1', () => { save.cl = Math.min(cap, save.cl + 1); save.xp = 0; dbgApply(); }],
+    ['等級 +5', () => { save.cl = Math.min(cap, save.cl + 5); save.xp = 0; dbgApply(); }],
+    ['鐘幣 +1000', () => { S.addCoin(save, 1000); dbgApply('鐘幣 +1000'); }],
+    ['材料各 +20', () => { S.grant(save, { scrap: 20, salt: 20, shard: 20, herb: 20 }); dbgApply('材料各 +20'); }],
+    ['藥水補滿', () => { save.inv.potion = S.POTION_CAP; dbgApply('藥水補滿了'); }],
+    ['給一批裝備', () => { const il = S.ilvlOf(save.gear) + 6, add = it => { if (it && it.n && save.bag.length < S.BAG_CAP) save.bag.push(it); };
+      for (const sl of ['w', 'a', 't']) add(S.rollItem(il, sl, 0, save.cls)); for (const k of ['bow', 'xbow', 'quiver', 'staff', 'bell', 'tome']) add({ s: S.WKINDS[k].hand === 'off' ? 'o' : 'w', il, q: 1, n: nameOf(k) });
+      dbgApply('裝備放進背包了（含兩位同伴能用的武器）'); }]
+  ]);
+  for (const who of Object.keys(S.BONDS)) {
+    const b = save.bond[who], info = S.bondInfo(save, who, now), name = Story.CAST[who].name, set = fn => () => { fn(save.bond[who]); dbgApply(); }, T = S.BOND_TIERS;
+    group(`好感：${name}`, `${info.v} 分（${S.BOND_NAMES[info.tier]}${info.rel ? '・' + S.REL_NAMES[info.rel] : ''}）　劇情看到第 ${b.seen} 級　今天：說話 ${b.talk}/${S.BOND_DAY.talk}、送禮 ${b.gift}/${S.BOND_DAY.gift}、同行通關 ${b.run}/${S.BOND_DAY.run}`, [
+      ['+50', set(x => { x.v = Math.min(1000, x.v + 50); })],
+      ['到下一級', set(x => { x.v = info.tier < T.length - 1 ? T[info.tier + 1] : 1000; })],
+      ['重置今天的次數', set(x => { x.talk = x.gift = x.run = 0; })],
+      ['重看這一級的劇情', set(x => { x.seen = Math.max(0, Math.min(x.seen, info.tier) - 1); })],
+      ['重看全部劇情', set(x => { x.seen = 0; x.ch = {}; })],
+      ['成為情侶', set(x => { x.v = Math.max(x.v, T[T.length - 1]); x.seen = T.length - 1; x.rel = 1; })],
+      ['立下誓約', set(x => { for (const k of Object.keys(save.bond)) if (save.bond[k].rel === 2) save.bond[k].rel = 1; x.v = 1000; x.seen = T.length - 1; x.rel = 2; })],
+      ['解除關係', set(x => { x.rel = 0; })],
+      ['解鎖造型', set(x => { x.looks = Object.keys(S.BONDS[who].looks || {}); })],
+      ['好感歸零', set(x => { x.v = 0; x.seen = 0; x.rel = 0; x.ch = {}; x.talk = x.gift = x.run = 0; })],
+      ['看她所有表情', () => { if (!inField()) return toast('先進入世界，再回來按這個。', [], 2600); $('#dbg').hidden = true;
+        say([[who, '一般的臉']].concat(Object.keys(Story.MOODS).map(m => [who, `${m}：${Story.MOODS[m]}${PORTRAIT[who + ':' + m] ? '' : '　（這張還沒有圖，先用別張頂著）'}`, m]))); }]
+    ]);
+  }
+  group('劇情和任務', '', [
+    ['重看序章', () => { box.intro = false; writeSave(); toast('下次進入世界會再播一次序章。', [], 2600); }],
+    ['完成目前的主線', () => { const main = S.questList(save, now, online).items.find(x => x.group === 'main'); if (!main) return toast('主線已經做完了。', [], 2200); save.q.mp = main.need; dbgApply(`「${main.title}」可以回營地領獎了（有些主線看的是實際等級或層數，這招沒用）。`); }]
+  ]);
+}
+for (const id of ['dbg-open', 'dbg-open2']) $('#' + id).addEventListener('click', openDbg);
+$('#dbg-close').addEventListener('click', () => { $('#dbg').hidden = true; });
 for (const id of SHEETS) $('#' + id).addEventListener('click', ev => { if (ev.target === ev.currentTarget && inField()) closeSheet(id); });
 $('#hitwarn').addEventListener('click', () => closeSheet(openSheet()));
 if (((window.ART_MANIFEST || {})._ui || []).includes('title')) $('#menu').classList.add('pic');
