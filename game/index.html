@@ -981,7 +981,7 @@ function talkTo(id) {
   if (main && main.ready && sc && sc.at === id) return claimMain(main.id);      // this is who the finished quest goes back to
   const bond = S.BONDS[id] && Story.BOND[id] ? id : ''; if (bond && bondScene(id)) return;      // a tier reached since last time: that comes first
   let idle = Story.IDLE[id] || ['……']; if (bond) { const t = S.bondTier(save, id), more = Story.BOND[id].more || {}; for (const k of Object.keys(more)) if (t >= +k) idle = idle.concat(more[k]); if (save.bond[id] && save.bond[id].rel && Story.BOND[id].dear) idle = Story.BOND[id].dear.concat(Story.BOND[id].dear, idle); }      // someone who loves you mostly talks like it
-  const lines = [[id].concat(pick(idle))];      // an idle line is a line, or [line, face]
+  const said = pick(idle), lines = said && said.lines ? said.lines.map(l => [id].concat(l)) : [[id].concat(said)];      // an idle line is a line, or [line, face], or several of them said one after another
   if (main && sc && sc.at === id) lines.push([id, `你手上那件事還沒完：${main.goal}。做完再來。`]);
   else if (main && main.ready && sc && Story.CAST[sc.at]) lines.push([id, `${Story.CAST[sc.at].name}在找你，像是有東西要給你。`]);
   say(lines, bond ? () => bondScene(id) : null, bond);

@@ -17,7 +17,7 @@
 
 const CAST = {
   kol: { lvl: 28, name: '柯爾', color: 'tank' },     // the shield: a shipwright before the tide, blunt, means well
-  mira: { lvl: 31, name: '蜜拉', color: 'heal' },    // the healer, 27: everyone's gentle big sister, knows the tower's past; frightening when she smiles in anger, and the one person Jieyan obeys
+  mira: { lvl: 31, name: '蜜拉', color: 'heal' },    // the healer, 27: everyone's gentle big sister, knows the tower's past. There is a scheming streak in her that slips out without her noticing: her face falls into shadow, she says something sweet with an edge to it, and then she is all smiles again. Frightening when angry, and the one person Jieyan obeys
   jin: { lvl: 24, name: '婕焰', color: 'ember' },    // the archer, 21: a grown woman who acts the brat. Teases and plays tricks, but measures them; kind underneath; and when a joke goes too far she turns meek, afraid of being ignored
   wu: { lvl: 12, name: '小霧', color: 'brass' },     // the youngest: a lamp-keeper's apprentice, curious
   mog: { lvl: 40, name: '莫葛', color: 'rust' }      // the warden: once the bell-ringer
@@ -80,18 +80,21 @@ const SCENES = {
 };
 
 /* The faces a portrait can have besides the plain one. */
-const MOODS = { smile: '微笑', happy: '開心', angry: '生氣、不耐煩', sad: '難過', surprised: '驚訝、興奮', worried: '擔心', serious: '認真、凝重', shy: '害羞', troubled: '傷腦筋', smug: '壞笑、得意', teary: '慌了、快哭出來', dark: '笑著生氣（眼睛沒在笑）', laugh: '捧腹大笑', panic: '慌到手忙腳亂' };
+const MOODS = { smile: '微笑', happy: '開心', angry: '生氣、不耐煩', sad: '難過', surprised: '驚訝、興奮', worried: '擔心', serious: '認真、凝重', shy: '害羞', troubled: '傷腦筋', smug: '壞笑、得意', teary: '慌了、快哭出來', dark: '腹黑：臉的上半罩一層陰影，眼睛沒有光，嘴還在微笑', laugh: '捧腹大笑', panic: '慌到手忙腳亂' };
 /* When someone has no portrait of a face, the nearest one they may have (and so on down the line). */
 const ALT = { smug: 'smile', teary: 'shy', dark: 'serious', happy: 'smile', laugh: 'smug', panic: 'teary' };
 /* Faces that are a whole other drawing, body and all, for when a feeling runs high. To the game they are faces like
  * the rest; this list is for whoever draws them. */
 const POSES = ['laugh', 'panic'];
 
-/* What each of them says at the camp when they have nothing new for you: a line, or [line, face]. */
+/* What each of them says at the camp when they have nothing new for you: a line, or [line, face], or, for something
+ * said in more than one breath, { lines: [[line, face], ...] }. */
 const IDLE = {
   kol: ['火別讓它滅了。潮氣一上來，鐵就開始爛。', '灘上的殘骸可以拆，都是好鐵。', '塔門在北邊，沿著踩出來的路走就到。'],
   mira: [['今天的潮聲很低，像有人在水底嘆氣。', 'sad'], '潮草長在水邊。兩把草加一塊鹽晶，就能熬一瓶藥。', ['累了就回火邊坐著。有我在，這一圈牠們不敢進來。', 'smile'],
-    ['有沒有好好吃飯？不可以騙姐姐喔。', 'smile'], ['婕焰又捉弄你了？跟我說，我會好好「請她喝茶」的。', 'dark']],
+    ['有沒有好好吃飯？不可以騙姐姐喔。', 'smile'], ['婕焰又捉弄你了？跟我說，我會好好「請她喝茶」的。', 'dark'],
+    { lines: [['柯爾昨天嫌我的藥苦。所以今天他那碗，我多熬了半個時辰喔。', 'dark'], ['……嗯？怎麼了？我臉上沾到什麼了嗎？', 'smile']] },
+    { lines: [['不聽話的病人？有呀。後來他們都變得很聽話。', 'dark'], ['哎呀，你怎麼退了一步？我只是在說換藥的事呀。', 'smile']] }],
   jin: [['從這裡跑到塔門，我最快四十秒。你呢～？要不要讓你十秒？', 'smug'], ['你背後有螃蟹喔。……騙你的，嘻嘻。回頭的樣子好好笑。', 'smug'],
     '學徒一念咒就打斷牠，跟塔裡一樣。這句我可沒在鬧你。', ['噓——別跟蜜拉姐說在這看到我。我在躲她。', 'teary']],
   wu: ['我在燈塔學過看霧。霧往哪邊飄，潮就從哪邊來。', ['鹽晶會發光！晚上看最清楚。', 'surprised'], ['柯爾叔嘴巴很兇，可是他會偷偷幫我修弓。', 'smile']]
@@ -142,14 +145,17 @@ const BOND = {
           ['mira', '好暖和。……怎麼樣，適合姐姐嗎？', 'shy'],
           ['mira', '我會好好珍惜的。夜裡守火的時候，就披著它。', 'smile']] },
     wear: [['這樣可以嗎？你喜歡哪個樣子，跟姐姐說就好。', 'smile']],
-    dear: [['你回來了。先讓我看看有沒有受傷……好，沒事。', 'smile'], ['今天也要平安回來。這不是拜託，是命令喔。', 'smile'], ['……手借我一下。嗯，這樣就不冷了。', 'shy']],
+    dear: [['你回來了。先讓我看看有沒有受傷……好，沒事。', 'smile'], ['今天也要平安回來。這不是拜託，是命令喔。', 'smile'], ['……手借我一下。嗯，這樣就不冷了。', 'shy'],
+      { lines: [['你今天跟誰聊得那麼開心呀？……沒有，我只是問問。', 'dark'], ['真的只是問問喔。來，先喝藥。', 'smile']] }],
     gift: {
       love: [['哎呀，是給我的？謝謝你，我會好好珍惜的。', 'shy'], ['你怎麼知道我正缺這個？真貼心。', 'shy']],
       like: [['這個用得上呢。謝謝，我收下了。', 'smile'], ['你有心了。', 'smile']],
       ok: [['謝謝。我會想辦法用上的。']],
       meh: [['……嗯？這是婕焰教你送的吧。沒關係，我不生氣喔。', 'dark']]
     },
-    more: { 1: ['潮草我永遠不嫌多。鹽晶和藥水也用得上。'], 2: [['你今天氣色不錯。這樣姐姐就放心了。', 'smile']], 3: [['你一來，火好像比較暖。……是我的錯覺吧。', 'shy']] }
+    more: { 1: ['潮草我永遠不嫌多。鹽晶和藥水也用得上。'],
+      2: [['你今天氣色不錯。這樣姐姐就放心了。', 'smile'], { lines: [['誰欺負你了，把名字告訴我就好。我只是想「關心」他一下。', 'dark'], ['……開玩笑的喔。大概。', 'smile']] }],
+      3: [['你一來，火好像比較暖。……是我的錯覺吧。', 'shy']] }
   },
   jin: {
     scenes: {

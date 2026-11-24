@@ -54,7 +54,8 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
     if (id !== 'prologue') assert.ok(Sim.FIELD.npcs.some(n => n.id === sc.at), `${id}: nobody at the camp hands this in`);
     for (const [who, text, face] of sc.lines) { assert.ok(who === 'n' || Story.CAST[who], `${id}: unknown speaker ${who}`); assert.ok(text.length > 0 && text.length <= 48, `${id}: line too long (${text.length})`); assert.ok(face === undefined || (who !== 'n' && Story.MOODS[face]), `${id}: unknown face ${face}`); }
   }
-  for (const n of Sim.FIELD.npcs) { assert.ok(Story.CAST[n.id] && Story.IDLE[n.id].length >= 2, n.id); for (const t of Story.IDLE[n.id]) { const [line, face] = [].concat(t); assert.ok(typeof line === 'string' && line.length <= 48, line); assert.ok(face === undefined || Story.MOODS[face], `unknown face ${face}`); } }
+  const said = t => { for (const one of t && t.lines ? t.lines : [t]) { const [line, face] = [].concat(one); assert.ok(typeof line === 'string' && line.length > 0 && line.length <= 48, String(line)); assert.ok(face === undefined || Story.MOODS[face], `unknown face ${face}`); } };      // something said at the camp: a line, [line, face], or several
+  for (const n of Sim.FIELD.npcs) { assert.ok(Story.CAST[n.id] && Story.IDLE[n.id].length >= 2, n.id); for (const t of Story.IDLE[n.id]) said(t); }
   ok('story: a scene for the prologue and for every main quest, each handed in by someone at the camp, short lines');
 
   // bonds: talking, gifts, tiers, what a tier brings, and the lines that go with it
@@ -82,9 +83,9 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
           const [w, text, face] = ln; assert.ok(w === 'n' || Story.CAST[w]); assert.ok(text.length <= 48, `${who} ${t}: line too long (${text.length})`); assert.ok(face === undefined || Story.MOODS[face]); } };
         walk(st.scenes[t]); assert.ok(picks <= 1, 'one choice to a scene'); assert.strictEqual(picks, (Sim.BONDS[who].picks || {})[t] ? 1 : 0, `${who} ${t}: a choice the rules do not know, or the other way round`); }
       for (const key of ['ask', 'vow']) if (Sim.BONDS[who].love) { assert.ok(st[key] && st[key].length >= 2, `${who}: nothing written for ${key}`); for (const [w, text, face] of st[key]) { assert.ok(Story.CAST[w]); assert.ok(text.length <= 48, `${who} ${key}: line too long`); assert.ok(face === undefined || Story.MOODS[face]); } }
-      for (const t of st.dear || []) { const [line, face] = [].concat(t); assert.ok(typeof line === 'string' && line.length <= 48 && (face === undefined || Story.MOODS[face]), line); }
+      for (const t of st.dear || []) said(t);
       for (const m of ['love', 'like', 'ok', 'meh']) { assert.ok(st.gift[m].length, `${who}: nothing to say to a ${m} gift`); for (const [text, face] of st.gift[m]) assert.ok(text.length <= 48 && (face === undefined || Story.MOODS[face])); }
-      for (const k of Object.keys(st.more || {})) for (const t of st.more[k]) { const [line, face] = [].concat(t); assert.ok(typeof line === 'string' && line.length <= 48 && (face === undefined || Story.MOODS[face]), line); } }
+      for (const k of Object.keys(st.more || {})) for (const t of st.more[k]) said(t); }
     { const c = Sim.fixProfile(Sim.newProfile()), tc = 3e12; c.bond.jin.v = 250; c.bond.jin.seen = 1; const res = Sim.bondSeen(c, 'jin', 2, tc, 1); assert.deepStrictEqual(res.gains, { jin: 10 }); assert.ok(c.bond.jin.v === 260 && c.bond.jin.seen === 2 && c.bond.jin.ch[2] === 1, 'what you chose in a scene counts, and is remembered');
       assert.ok(!Sim.bondSeen(c, 'jin', 2, tc, 1).gains && c.bond.jin.v === 260, 'once'); c.bond.mira.v = 250; c.bond.mira.seen = 1; Sim.bondSeen(c, 'mira', 2, tc, 0); assert.ok(c.bond.mira.v === 255 && c.bond.jin.v === 265, 'a choice may please more than one');
       const d = Sim.fixProfile(Sim.newProfile()); d.bond.jin.v = 250; d.bond.jin.seen = 1; Sim.bondSeen(d, 'jin', 2, tc, 9); assert.ok(d.bond.jin.seen === 2 && d.bond.jin.v === 250 && d.bond.jin.ch[2] === undefined, 'a choice that is not there is no choice');
