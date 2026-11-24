@@ -80,9 +80,9 @@ const SCENES = {
 };
 
 /* The faces a portrait can have besides the plain one. */
-const MOODS = { smile: '微笑', happy: '開心', angry: '生氣、不耐煩', sad: '難過', surprised: '驚訝、興奮', worried: '擔心', serious: '認真、凝重', shy: '害羞', troubled: '傷腦筋', smug: '壞笑、得意', teary: '慌了、快哭出來', dark: '腹黑：臉的上半罩一層陰影，眼睛沒有光，嘴還在微笑', darkflat: '腹黑：陰影臉，嘴是一條平線，眼睛睜著直直地看', darkgrin: '腹黑：陰影臉，眼睛笑成彎線，嘴角揚得更高', darkside: '腹黑：陰影臉，眼珠斜斜看向旁邊', fake: '嘴在笑但眉眼沒在笑（眉毛是平的），沒有陰影', laugh: '捧腹大笑', panic: '慌到手忙腳亂' };
+const MOODS = { smile: '微笑', happy: '開心', angry: '生氣、不耐煩', sad: '難過', surprised: '驚訝、興奮', worried: '擔心', serious: '認真、凝重', shy: '害羞', troubled: '傷腦筋', smug: '壞笑、得意', teary: '慌了、快哭出來', dark: '腹黑：臉的上半罩一層陰影，眼睛沒有光，嘴還在微笑', darkflat: '腹黑：陰影臉，嘴是一條平線，眼睛睜著直直地看', darkgrin: '腹黑：陰影臉，眼睛笑成彎線，嘴角揚得更高', darkside: '腹黑：陰影臉，眼珠斜斜看向旁邊', fake: '嘴在笑但眉眼沒在笑（眉毛是平的），沒有陰影', blank: '傻眼、無言：聽到不耐煩又不好意思打斷，兩眼無光', laugh: '捧腹大笑', panic: '慌到手忙腳亂' };
 /* When someone has no portrait of a face, the nearest one they may have (and so on down the line). */
-const ALT = { smug: 'smile', teary: 'shy', dark: 'serious', darkflat: 'dark', darkgrin: 'dark', darkside: 'dark', fake: 'smile', happy: 'smile', laugh: 'smug', panic: 'teary' };
+const ALT = { smug: 'smile', teary: 'shy', dark: 'serious', darkflat: 'dark', darkgrin: 'dark', darkside: 'dark', fake: 'smile', blank: 'serious', happy: 'smile', laugh: 'smug', panic: 'teary' };
 /* Faces that are a whole other drawing, body and all, for when a feeling runs high. To the game they are faces like
  * the rest; this list is for whoever draws them. */
 const POSES = ['laugh', 'panic'];
@@ -93,6 +93,7 @@ const IDLE = {
   kol: ['火別讓它滅了。潮氣一上來，鐵就開始爛。', '灘上的殘骸可以拆，都是好鐵。', '塔門在北邊，沿著踩出來的路走就到。'],
   mira: [['今天的潮聲很低，像有人在水底嘆氣。', 'sad'], '潮草長在水邊。兩把草加一塊鹽晶，就能熬一瓶藥。', ['累了就回火邊坐著。有我在，這一圈牠們不敢進來。', 'smile'],
     ['有沒有好好吃飯？不可以騙我喔。', 'fake'], { lines: [['婕焰又捉弄你了？那我今晚去陪她聊聊。聊到她哭出來為止。', 'darkgrin'], ['……咦？是聊到她笑出來為止。我剛剛說了什麼嗎？', 'smile']] },
+    { lines: [['婕焰剛才跟我說了半個時辰，螃蟹為什麼橫著走。', 'blank'], ['……我都有在聽喔。她說得很開心，我不忍心打斷。', 'smile']] },
     { lines: [['柯爾昨天嫌我的藥苦。所以今天他那碗，我多熬了半個時辰。', 'dark'], ['苦一點才好得快呀。……你怎麼用那種眼神看我？', 'smile']] },
     { lines: [['不聽話的病人？有呀。後來他們都變得很聽話。', 'darkflat'], ['咦，你怎麼退了一步？是因為我照顧得很用心呀。', 'smile']] }],
   jin: [['從這裡跑到塔門，我最快四十秒。你呢～？要不要讓你十秒？', 'smug'], ['你背後有螃蟹喔。……騙你的，嘻嘻。回頭的樣子好好笑。', 'smug'],
@@ -137,6 +138,7 @@ const BOND = {
           ['mira', '我很愛操心，大家還說我有時很可怕……雖然我自己不覺得。這樣也可以嗎？', 'serious'],
           ['mira', '……那以後，請多指教了。不准反悔喔。', 'shy'],
           ['jin', '欸——！蜜拉臉好紅！我要去跟柯爾大叔說！', 'smug'],
+          ['mira', '……', 'blank'],
           ['mira', '婕焰。', 'dark']],
     vow: [['mira', '用沉鐘碎片打的戒指……敲起來，有鐘的聲音呢。', 'shy'],
           ['mira', '以前我只會等鐘響。現在我想和你一起，把它敲響。', 'serious'],
