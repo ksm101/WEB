@@ -255,11 +255,11 @@ function createRun(opts) {
   const D = DUNGEONS[did], lay = D.type === 'layout' && !!D.F;
   const G = { mode: 'dungeon', did, D, layout: lay, F: lay ? D.F : null, limit: D.time || TIME_LIMIT, chests: [], trigs: [], calm: 0, portal: null, bossN: 0, bw: lay ? D.F.w : W, bh: lay ? D.F.h : H, t: 0, lvl, elvl: recLevel(lvl), es: Math.pow(TUNE.towerStep, lvl - 1), state: 'countdown', cd: 3, wave: -1, gap: null, actors: [], enemies: [], zones: [], shots: [], events: [],
     boss: null, result: null, nextId: 1, grace: opts.grace || 0, auto: !!opts.auto, drops: 0 };
-  const pending = (opts.players || []).slice(); let dpsN = 0;
+  const pending = (opts.players || []).slice(), team = pending.length === 1 && isObj(pending[0].team) ? pending[0].team : {}; let dpsN = 0;      // alone with the camp: those who trust you fight harder
   ROSTER.forEach((c, i) => {
-    const k = pending.findIndex(p => p.cls === c), p = k >= 0 ? pending.splice(k, 1)[0] : null;
+    const k = pending.findIndex(p => p.cls === c), p = k >= 0 ? pending.splice(k, 1)[0] : null, lift = !p && (c !== 'dps' || dpsN === 0) && team[c] > 0 ? 1 + Math.min(.5, team[c]) : 1;
     const at = lay ? [clamp(D.F.spawn[0] + (SPOTS[i][0] - 180) * .5, 20, D.F.w - 20), clamp(D.F.spawn[1] + (SPOTS[i][1] - 340) * .5, 20, D.F.h - 20)] : SPOTS[i];      // in a layout the party starts around its entrance
-    const a = mkActor(c, p ? p.name : (c === 'dps' ? BOT_NAMES.dps[dpsN++] : BOT_NAMES[c]), at, p ? p.pow : botPow, p ? p.mods : null);
+    const a = mkActor(c, p ? p.name : (c === 'dps' ? BOT_NAMES.dps[dpsN++] : BOT_NAMES[c]), at, p ? p.pow : botPow * lift, p ? p.mods : null);
     a.lvl = p && p.lvl > 0 ? p.lvl : G.elvl;   // a player shows their own level; a bot shows the level the floor is meant for
     a.idx = i; a.human = !!p; a.pid = p ? p.id : null; a.potions = p && p.potions > 0 ? 1 : 0; if (p && p.skills) a.skills = skillSet(c, p.skills); if (p && p.held) a.held = heldFix(p.held, c); G.actors.push(a);   // one potion per run
   });
@@ -909,7 +909,7 @@ const powerOf = gear => 1 + (ilvlOf(gear) - 10) * .02;
 const forgeIlvl = lvl => 10 + lvl * 4 + 3;      // what the forge makes at this tower level: a good drop, never the best
 const gearCap = lvl => 10 + lvl * 4 + 7;        // how far tempering can push a slot at this tower level
 const charPower = p => powerOf(p.gear) * lvF(p.cl);     // what a character brings to a fight: gear and level
-function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, o: 10, a: 10, t: 10 }, eq: { w: { n: '', q: 0 }, o: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } }, bag: [], dl: {}, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {}, coin: 0, talents: {} }; }
+function newProfile() { return { lvl: 1, cl: 1, xp: 0, gear: { w: 10, o: 10, a: 10, t: 10 }, eq: { w: { n: '', q: 0 }, o: { n: '', q: 0 }, a: { n: '', q: 0 }, t: { n: '', q: 0 } }, bag: [], dl: {}, best: {}, runs: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 }, q: null, loadout: {}, coin: 0, talents: {}, bond: {} }; }
 const COIN_CAP = 9999999;
 function addCoin(p, n) { n = Math.max(0, Math.round(n)); p.coin = Math.min(COIN_CAP, (p.coin || 0) + n); return n; }
 function fixProfile(p) {   // fill in anything an older save does not have
@@ -928,7 +928,7 @@ function fixProfile(p) {   // fill in anything an older save does not have
     p.bag = bag; p.eq = eq; settle(p); }
   { const dl = {}, old = isObj(p.dl) ? p.dl : {}; for (const k of Object.keys(DUNGEONS)) if (k !== 'tower' && Number.isInteger(old[k]) && old[k] > 1) dl[k] = Math.min(50, old[k]); p.dl = dl; }      // floors reached in the other dungeons
   p.cl = Number.isInteger(p.cl) ? clamp(p.cl, 1, TUNE.maxLevel) : 1; p.xp = p.xp >= 0 && p.cl < TUNE.maxLevel ? Math.min(Math.floor(p.xp), xpNeed(p.cl)) : 0;
-  fixQuests(p);
+  fixQuests(p); fixBond(p);
   const lo = {}, old = p.loadout && typeof p.loadout === 'object' ? p.loadout : {};      // keep only loadouts that are still allowed
   for (const k of Object.keys(CLASSES)) if (validLoadout(k, old[k], p.cl)) lo[k] = old[k].slice();
   p.loadout = lo;
@@ -1020,8 +1020,53 @@ function setCount(p) { const n = {}, seen = new Set(); for (const k of SLOTS) { 
 function modsFor(p, cls) {
   const m = modsOf(p.talents, cls), n = setCount(p);
   for (const id of Object.keys(n)) { const d = SETS[id]; if (n[id] >= 2) m[d.two[0]] += d.two[1]; if (n[id] >= 3) m[d.three[0]] += d.three[1]; }
+  for (const who of Object.keys(BONDS)) for (const [tier, key, val] of BONDS[who].perks) if (bondTier(p, who) >= tier) m[key] += val;      // what the people who trust you give you
   return m;
 }
+/* ---------- bonds: how well a character and some of the camp know each other ----------
+ * A bond is a number from 0 to 1000 that only goes up. It rises a little by talking (once a day), more by gifts
+ * (three a day, and each of them has things they love and things they do not), by going into a dungeon together,
+ * by handing them a main quest, and by their own quests. It is counted in tiers; reaching one brings a scene, at
+ * some a lasting bonus for you, and from the second on they fight harder at your side as an AI teammate.
+ * p.bond[who] = { v, day, talk, gift, run, seen }: day is the day the three counters are for, seen the last tier
+ * whose scene has been shown. */
+const BOND_TIERS = [0, 100, 250, 450, 700], BOND_NAMES = ['初識', '熟識', '信賴', '親近', '知心'], BOND_CAP = 1000, BOND_TEAM = [0, 0, .08, .12, .2], BOND_DAY = { talk: 1, gift: 3, run: 3 };
+const BONDS = {
+  mira: { seat: 'heal', gifts: { herb: 12, salt: 8, potion: 8, shard: 5, scrap: 1 }, kinds: ['staff', 'bell', 'tome'], perks: [[2, 'hp', .03, '生命 +3%'], [3, 'taken', -.03, '受到的傷害 -3%'], [4, 'heal', .06, '治療量 +6%']] },
+  jin: { seat: 'dps', gifts: { shard: 20, scrap: 8, potion: 6, salt: 3, herb: 1 }, kinds: ['bow', 'xbow', 'quiver'], perks: [[2, 'speed', .03, '移動速度 +3%'], [3, 'dmg', .03, '造成的傷害 +3%'], [4, 'ult', .08, '大招充能 +8%']] }
+};
+const MAIN_AT = { bell: 'mira', kick: 'kol', craft: 'kol', ontime: 'jin', clean: 'wu', lvl3: 'mira', temper: 'kol', lvl5: 'mira' };      // who each main quest is handed to; story.js says the same, and the test holds them together
+const dayOf = now => Math.floor((now + 8 * 3600000) / 86400000);
+const tierOf = v => { let t = 0; for (let i = 0; i < BOND_TIERS.length; i++) if (v >= BOND_TIERS[i]) t = i; return t; };
+const bondTier = (p, who) => (p.bond && p.bond[who] ? tierOf(p.bond[who].v || 0) : 0);
+function fixBond(p, now) {
+  const out = {}, old = isObj(p.bond) ? p.bond : {};
+  for (const who of Object.keys(BONDS)) { const o = isObj(old[who]) ? old[who] : {}, b = { v: qInt(o.v, 0, BOND_CAP), day: qInt(o.day, 0, 1e7), talk: qInt(o.talk, 0, 99), gift: qInt(o.gift, 0, 99), run: qInt(o.run, 0, 99), seen: qInt(o.seen, 0, BOND_TIERS.length - 1) };
+    if (now != null && b.day !== dayOf(now)) { b.day = dayOf(now); b.talk = b.gift = b.run = 0; } out[who] = b; }
+  p.bond = out; return out;
+}
+function addBond(p, who, n, now) { const b = fixBond(p, now)[who]; if (!b) return { gain: 0, up: false, tier: 0 }; const t0 = tierOf(b.v); n = Math.max(0, Math.round(n)); b.v = Math.min(BOND_CAP, b.v + n); return { gain: n, up: tierOf(b.v) > t0, tier: tierOf(b.v) }; }
+/* Everything a screen needs about one bond. */
+function bondInfo(p, who, now) {
+  const b = fixBond(p, now)[who]; if (!b) return null; const t = tierOf(b.v), d = BONDS[who];
+  return { who, v: b.v, tier: t, name: BOND_NAMES[t], from: BOND_TIERS[t], to: BOND_TIERS[t + 1] || BOND_CAP, top: t === BOND_TIERS.length - 1, talkLeft: b.talk < BOND_DAY.talk, giftLeft: Math.max(0, BOND_DAY.gift - b.gift), seen: b.seen,
+    perks: d.perks.map(x => ({ tier: x[0], at: BOND_NAMES[x[0]], text: x[3], on: t >= x[0] })), team: BOND_TEAM[t], gifts: Object.keys(d.gifts) };
+}
+function bondTalk(p, who, now) { fixProfile(p); const b = fixBond(p, now)[who]; if (!b) return { ok: false, msg: '沒有這個人。' }; if (b.talk >= BOND_DAY.talk) return { ok: true, gain: 0, up: false, tier: tierOf(b.v) }; b.talk++; const r = addBond(p, who, 5, now); return { ok: true, gain: 5, up: r.up, tier: r.tier }; }
+/* what: { key } for a material or a potion, or { i } for the bag item at that place. */
+function bondGift(p, who, what, now) {
+  fixProfile(p); const b = fixBond(p, now)[who], d = BONDS[who]; if (!b) return { ok: false, msg: '沒有這個人。' };
+  if (b.gift >= BOND_DAY.gift) return { ok: false, msg: `今天已經送過 ${BOND_DAY.gift} 次了，明天再來。` };
+  let gain = 0, name = '';
+  if (what && typeof what.key === 'string' && Object.prototype.hasOwnProperty.call(d.gifts, what.key)) { if (!(p.inv[what.key] > 0)) return { ok: false, msg: '你身上沒有這個。' }; p.inv[what.key]--; gain = d.gifts[what.key]; name = what.key === 'potion' ? '潮息藥水' : MATS[what.key]; }
+  else if (what && Number.isInteger(what.i) && p.bag[what.i]) { const it = p.bag[what.i]; p.bag.splice(what.i, 1); name = it.n;
+    gain = clamp(Math.round((6 + (it.il - 10) / 3 + it.q * 4) * (d.kinds.includes(HELD[it.n]) ? 2 : 1)), 4, 60); }      // gear is worth more the better it is, and twice that when it is their kind of thing
+  else return { ok: false, msg: '這個不能送。' };
+  b.gift++; const r = addBond(p, who, gain, now);
+  return { ok: true, gain, mood: gain >= 12 ? 'love' : gain >= 6 ? 'like' : gain >= 3 ? 'ok' : 'meh', name, up: r.up, tier: r.tier, msg: `送出${name}，好感 +${gain}。` };
+}
+function bondSeen(p, who, tier, now) { const b = fixBond(p, now)[who]; if (b && Number.isInteger(tier) && tier > b.seen && tier <= tierOf(b.v)) b.seen = tier; return { ok: !!b }; }
+const bondTeam = p => { const o = {}; for (const who of Object.keys(BONDS)) o[BONDS[who].seat] = BOND_TEAM[bondTier(p, who)]; return o; };      // how much harder each of them fights beside this character
 /* For the bag screen: every set, which pieces are on, and what it gives. */
 function setList(p) { const n = setCount(p); return Object.keys(SETS).map(id => { const d = SETS[id]; return { id, name: d.name, have: n[id] || 0, pieces: SET_SLOTS.map(k => ({ s: k, n: d.pieces[k], on: !!p.eq && SLOTS.some(h => p.eq[h].n === d.pieces[k]) })), two: d.two[2], three: d.three[2] }; }); }
 /* Put an item in the bag. With no room left it is sold on the spot: returns the coins it became, 0 when it was kept. */
@@ -1081,6 +1126,7 @@ function applyResult(p, lvl, r, o) {
   const x = addXp(p, r.win ? (100 + 50 * lvl) * (r.onTime ? 1.25 : 1) : 25), coin = addCoin(p, r.win ? (20 + 10 * lvl) * (r.onTime ? 1.25 : 1) : 5);
   if (!r.win) return { loot: [], mats, xp: x.xp, ups: x.ups, coin };
   p.runs++;
+  if (!o.share) { const now = o.now || Date.now(), bonds = fixBond(p, now); for (const who of Object.keys(bonds)) if (bonds[who].run < BOND_DAY.run) { bonds[who].run++; addBond(p, who, 3, now); } }      // cleared with the camp at your side
   // alone, the first piece leans towards your weakest slot
   const weak = Math.random() < .5 ? SLOTS.filter(k => !(k === 'o' && hands(p).two)).reduce((m, k) => p.gear[k] < p.gear[m] ? k : m, 'w') : null;
   const loot = o.share ? [] : runDrops(lvl, r, 1, clamp(o.trash | 0, 0, 6), weak, p.cls).map(it => giveItem(p, it));
@@ -1183,6 +1229,10 @@ const SIDE = [
   { id: 's-level', title: '站穩腳步', goal: '升到 5 級', need: 5, reward: { coin: 60, shard: 2, potion: 1 }, upd: (v, ev, p) => p.cl, have: v => v },
   { id: 's-gather', title: '拾荒', goal: '在鏽灘採集 6 次', need: 6, reward: { coin: 40, xp: 150, scrap: 6, herb: 2 }, upd: (v, ev) => ev.type === 'gather' ? Math.min(6, v + 1) : v },
   { id: 's-hunt', title: '清灘', goal: '在鏽灘擊倒 12 隻怪物', need: 12, reward: { coin: 50, xp: 200, salt: 4, scrap: 6 }, upd: (v, ev) => ev.type === 'kill' ? Math.min(12, v + 1) : v },
+  { id: 'b-mira1', title: '蜜拉的藥草', goal: '替蜜拉採 6 株潮草', need: 6, bond: ['mira', 1], bondGain: ['mira', 40], reward: { potion: 2, xp: 150 }, upd: (v, ev) => ev.type === 'gather' && ev.node === 'herb' ? Math.min(6, v + 1) : v },
+  { id: 'b-mira2', title: '趕在潮前', goal: '在限時內通關沉鐘塔 3 次', need: 3, bond: ['mira', 3], bondGain: ['mira', 60], reward: { coin: 150, shard: 2 }, upd: (v, ev) => isRun(ev) && ev.win && ev.onTime ? Math.min(3, v + 1) : v },
+  { id: 'b-jin1', title: '吵死人的學徒', goal: '在鏽灘擊倒 8 隻鹽咒學徒', need: 8, bond: ['jin', 1], bondGain: ['jin', 40], reward: { scrap: 10, xp: 150 }, upd: (v, ev) => ev.type === 'kill' && ev.kind === 'acolyte' ? Math.min(8, v + 1) : v },
+  { id: 'b-jin2', title: '一秒都不多給', goal: '在副本裡打斷 10 次讀條', need: 10, bond: ['jin', 3], bondGain: ['jin', 60], reward: { coin: 150, shard: 2 }, upd: (v, ev) => isRun(ev) ? Math.min(10, v + (ev.kicks || 0)) : v },
   { id: 's-friend', title: '留個名字', goal: '和一位玩家互相加為好友', need: 1, online: true, reward: { coin: 30, xp: 100, salt: 3 }, upd: (v, ev) => ev.type === 'friend' ? 1 : v }
 ];
 const weekOf = now => Math.floor((Math.floor((now + 8 * 3600000) / 86400000) + 3) / 7);
@@ -1223,8 +1273,9 @@ function questList(p, now, online) {
   for (const d of SIDE) {
     if (d.online && !online) continue;
     if (d.after && !questDone(q, d.after)) continue;
+    if (d.bond && bondTier(p, d.bond[0]) < d.bond[1] && q.side[d.id] !== -1) continue;      // theirs to ask once they know you well enough
     const v = d.id === 's-level' && q.side[d.id] !== -1 ? p.cl : q.side[d.id] || 0, claimed = v === -1, have = claimed ? d.need : Math.min(d.need, d.have ? d.have(v) : v);
-    items.push({ id: d.id, group: 'side', title: d.title, tally: d.type === 'item' && d.item ? d.item : d.title, goal: d.goal, have, need: d.need, ready: !claimed && have >= d.need, claimed, reward: rewardText(d.reward) });
+    items.push({ id: d.id, group: 'side', title: d.title, tally: d.type === 'item' && d.item ? d.item : d.title, goal: d.goal, have, need: d.need, ready: !claimed && have >= d.need, claimed, from: d.bond ? d.bond[0] : '', reward: rewardText(d.reward) + (d.bondGain ? `、好感 +${d.bondGain[1]}` : '') });
   }
   return { items, mainDone: q.main, mainTotal: MAIN.length };
 }
@@ -1234,7 +1285,7 @@ function questEvent(p, ev, now) {
   if (isRun(ev)) { ev.kicks = qInt(ev.kicks, 0, 50); ev.hits = qInt(ev.hits, 0, 999); }
   if (m && m.inc) q.mp = Math.min(m.need, q.mp + (m.inc(ev) || 0));
   for (const d of WEEK) if (!q.week.c[d.id]) { const v = Math.min(d.need, (q.week.p[d.id] || 0) + (d.inc(ev) || 0)); if (v > 0) q.week.p[d.id] = v; }
-  for (const d of SIDE) if (q.side[d.id] !== -1 && !(d.after && !questDone(q, d.after))) { const v = d.upd(q.side[d.id] || 0, ev, p); if (v > 0) q.side[d.id] = v; }
+  for (const d of SIDE) if (q.side[d.id] !== -1 && !(d.after && !questDone(q, d.after)) && !(d.bond && bondTier(p, d.bond[0]) < d.bond[1])) { const v = d.upd(q.side[d.id] || 0, ev, p); if (v > 0) q.side[d.id] = v; }
 }
 function questClaim(p, id, now) {
   const q = fixQuests(p, now), it = questList(p, now, true).items.find(x => x.id === id);
@@ -1243,6 +1294,7 @@ function questClaim(p, id, now) {
   if (!it.ready) return { ok: false, msg: `「${it.title}」還沒完成。` };
   const d = MAIN.concat(WEEK, SIDE).find(x => x.id === id);
   for (const k of Object.keys(d.reward)) { if (k === 'xp') addXp(p, d.reward.xp); else if (k === 'coin') addCoin(p, d.reward.coin); else p.inv[k] = Math.min(k === 'potion' ? TUNE.potionCap : MAT_CAP, p.inv[k] + d.reward[k]); }
+  if (d.bondGain) addBond(p, d.bondGain[0], d.bondGain[1], now); if (it.group === 'main' && BONDS[MAIN_AT[id]]) addBond(p, MAIN_AT[id], 30, now);      // their own quest, or a main one handed to them
   if (it.group === 'main') { q.main++; q.mp = 0; } else if (it.group === 'week') q.week.c[id] = 1; else q.side[id] = -1;
   return { ok: true, msg: `「${it.title}」完成，領到 ${it.reward}。` };
 }
@@ -1458,7 +1510,8 @@ return { QUEST_TYPES, packTag, exportData, applyData, LIM, TEXT, MOD_KEYS, NODE_
   FIELD, get GATHER_TIME() { return TUNE.gatherTime; }, get NODE_RESPAWN() { return TUNE.nodeRespawn; }, createField, addFieldActor, removeFieldActor, present, pushOut, fieldYield, grant, fieldGain, eventReward,
   get MAX_LEVEL() { return TUNE.maxLevel; }, lvF, xpNeed, recLevel, mobLevel, xpForKill, addXp, setLevel, charPower,
   MATS, RECIPES, get POTION_CAP() { return TUNE.potionCap; }, ilvlOf, powerOf, gearCap, newProfile, fixProfile, applyResult, recipeInfo, craft,
-  weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id),
+  weekOf, fixQuests, questList, questEvent, questClaim, MAIN_IDS: MAIN.map(m => m.id), MAIN_AT,
+  BONDS, BOND_TIERS, BOND_NAMES, BOND_DAY, BOND_TEAM, bondInfo, bondTalk, bondGift, bondSeen, bondTier, bondTeam, addBond,
   TALENTS, NO_MODS, talentPoints, talentSpent, modsOf, learnTalent, resetTalents, get RESPEC_COST() { return TUNE.respecCost; }, SHOP, shopBuy, shopSell, itemName, addCoin, threatList,
   SLOTS, SET_SLOTS, SLOT_NAME: { w: '主手', o: '副手', a: '護甲', t: '飾品' }, WKINDS, HAND_NAME, HELD, hands, heldOf, heldFix, slotFor, wants, itemKind, kindOf, reach, canUse, needText, NEEDS, get BAG_CAP() { return TUNE.bagCap; }, QUALITY, SETS, DROP, get TRASH_DROP() { return TUNE.trashDrop; }, rollItem, fixItem, itemPrice, itemSet, itemText, wornItem, setCount, setList, modsFor, giveItem, equipItem, sellItem,
   runDrops, bossDrops, refit, get TOWER_LEVEL() { return DUNGEONS.tower.min; }, PORTAL };

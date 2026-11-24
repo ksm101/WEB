@@ -57,6 +57,36 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   for (const n of Sim.FIELD.npcs) { assert.ok(Story.CAST[n.id] && Story.IDLE[n.id].length >= 2, n.id); for (const t of Story.IDLE[n.id]) { const [line, face] = [].concat(t); assert.ok(typeof line === 'string' && line.length <= 48, line); assert.ok(face === undefined || Story.MOODS[face], `unknown face ${face}`); } }
   ok('story: a scene for the prologue and for every main quest, each handed in by someone at the camp, short lines');
 
+  // bonds: talking, gifts, tiers, what a tier brings, and the lines that go with it
+  { const day = 86400000, t0 = 1e12, p = Sim.fixProfile(Object.assign(Sim.newProfile(), { cls: 'dps' }));
+    for (const id of Sim.MAIN_IDS) assert.strictEqual(Sim.MAIN_AT[id], Story.SCENES[id].at, `${id}: the rules and the story disagree about who takes it`);
+    assert.deepStrictEqual(Sim.bondInfo(p, 'mira', t0).tier, 0); assert.strictEqual(Sim.bondInfo(p, 'kol', t0), null, 'not everyone keeps one');
+    assert.strictEqual(Sim.bondTalk(p, 'mira', t0).gain, 5); assert.strictEqual(Sim.bondTalk(p, 'mira', t0).gain, 0, 'talking counts once a day'); assert.strictEqual(Sim.bondTalk(p, 'mira', t0 + day).gain, 5, 'and again the next day');
+    p.inv.herb = 9; p.inv.scrap = 9; const love = Sim.bondGift(p, 'mira', { key: 'herb' }, t0 + day), meh = Sim.bondGift(p, 'mira', { key: 'scrap' }, t0 + day);
+    assert.ok(love.ok && love.mood === 'love' && love.gain === 12 && p.inv.herb === 8); assert.ok(meh.ok && meh.mood === 'meh' && meh.gain === 1, 'each of them has their own taste');
+    assert.strictEqual(Sim.bondGift(p, 'jin', { key: 'herb' }, t0 + day).gain, 1, 'what one loves another does not');
+    assert.ok(!Sim.bondGift(p, 'mira', { key: 'shard' }, t0 + day).ok, 'nothing to give, nothing given'); assert.ok(Sim.bondGift(p, 'mira', { key: 'herb' }, t0 + day).ok); assert.ok(!Sim.bondGift(p, 'mira', { key: 'herb' }, t0 + day).ok, 'three gifts a day'); assert.strictEqual(p.inv.herb, 6);
+    const nameOf = k => Object.keys(Sim.HELD).find(n => Sim.HELD[n] === k); p.bag.push({ s: 'w', il: 16, q: 1, n: nameOf('staff') }, { s: 'w', il: 16, q: 1, n: nameOf('sword') }); const n0 = p.bag.length, hers = Sim.bondGift(p, 'mira', { i: n0 - 2 }, t0 + 2 * day), other = Sim.bondGift(p, 'mira', { i: n0 - 2 }, t0 + 2 * day);
+    assert.ok(hers.ok && other.ok && p.bag.length === n0 - 2, 'gear given is gone'); assert.strictEqual(hers.gain, other.gain * 2, 'her kind of thing is worth twice as much');
+    assert.ok(!Sim.questList(p, t0, false).items.some(x => x.id === 'b-mira1'), 'her own quest waits for the first tier');
+    const up = Sim.addBond(p, 'mira', 100, t0); assert.ok(up.up && up.tier === 1); assert.ok(Sim.questList(p, t0, false).items.some(x => x.id === 'b-mira1' && x.from === 'mira'));
+    for (let i = 0; i < 6; i++) Sim.questEvent(p, { type: 'gather', node: 'herb' }, t0); const v0 = p.bond.mira.v; assert.ok(Sim.questClaim(p, 'b-mira1', t0).ok); assert.strictEqual(p.bond.mira.v, v0 + 40, 'her quest brings you closer');
+    p.bond.mira.v = 249; assert.strictEqual(Sim.modsFor(p, 'dps').hp, 1); Sim.addBond(p, 'mira', 1, t0); assert.ok(Math.abs(Sim.modsFor(p, 'dps').hp - 1.03) < 1e-9, 'trust gives something lasting'); assert.strictEqual(Sim.bondTeam(p).heal, .08);
+    Sim.bondSeen(p, 'mira', 9, t0); assert.strictEqual(p.bond.mira.seen, 0, 'a scene cannot be marked past the tier reached'); Sim.bondSeen(p, 'mira', 2, t0); assert.strictEqual(p.bond.mira.seen, 2);
+    const mk = team => Sim.createRun({ lvl: 3, players: [{ cls: 'dps', name: 'x', pow: 1, id: 'a', lvl: 3, team }] }).actors.find(a => a.cls === 'heal'), plain = mk(null), close = mk({ heal: .2 });
+    assert.ok(close.pow > plain.pow * 1.19 && close.pow < plain.pow * 1.21, 'someone who trusts you fights harder at your side');
+    p.bond.mira.v = 5000; p.bond.zzz = { v: 9 }; Sim.fixProfile(p); assert.strictEqual(p.bond.mira.v, 1000); assert.ok(!p.bond.zzz, 'a saved bond is put back into shape');
+    const r0 = Sim.fixProfile(Sim.newProfile()); Sim.applyResult(r0, 1, { win: true, onTime: true, t: 100 }, { now: t0 }); assert.strictEqual(r0.bond.mira.v, 3); assert.strictEqual(r0.bond.jin.v, 3, 'a tower cleared with them counts');
+    for (const who of Object.keys(Sim.BONDS)) { const st = Story.BOND[who]; assert.ok(Story.CAST[who] && Sim.FIELD.npcs.some(n => n.id === who) && st, who);
+      for (let t = 1; t < Sim.BOND_TIERS.length; t++) { assert.ok(st.scenes[t] && st.scenes[t].length >= 2, `${who}: no scene for tier ${t}`); for (const [w, text, face] of st.scenes[t]) { assert.ok(w === 'n' || Story.CAST[w]); assert.ok(text.length <= 48, `${who} ${t}: line too long (${text.length})`); assert.ok(face === undefined || Story.MOODS[face]); } }
+      for (const m of ['love', 'like', 'ok', 'meh']) { assert.ok(st.gift[m].length, `${who}: nothing to say to a ${m} gift`); for (const [text, face] of st.gift[m]) assert.ok(text.length <= 48 && (face === undefined || Story.MOODS[face])); }
+      for (const k of Object.keys(st.more || {})) for (const t of st.more[k]) { const [line, face] = [].concat(t); assert.ok(typeof line === 'string' && line.length <= 48 && (face === undefined || Story.MOODS[face]), line); } }
+    const B = await named(port, '送禮人', 'dps'); B.send({ t: 'bond', op: 'talk', who: 'jin' }); let br = await B.wait('bond'); assert.ok(br.r.ok && br.r.gain === 5 && br.profile.bond.jin.v === 5);
+    B.send({ t: 'bond', op: 'gift', who: 'jin', key: 'shard' }); br = await B.wait('bond', m => m.op === 'gift'); assert.ok(!br.r.ok, 'the server checks you have it');
+    B.send({ t: 'bond', op: 'gift', who: 'nobody', key: 'shard' }); B.send({ t: 'bond', op: 'talk', who: 'mira' }); br = await B.wait('bond', m => m.who === 'mira'); assert.strictEqual(br.profile.bond.mira.v, 5); B.ws.close();
+    ok('bonds: talk once a day, three gifts with their own tastes, tiers open their quests, bonuses and scenes, and the server keeps the count');
+  }
+
   // levels: experience curve, level cap, creatures that follow the player inside a range, shrinking experience from weak ones
   assert.ok(Sim.xpNeed(1) < Sim.xpNeed(2) && Sim.xpNeed(10) < Sim.xpNeed(20)); assert.strictEqual(Sim.xpNeed(Sim.MAX_LEVEL), 0);
   { const pr = Sim.fixProfile(Sim.newProfile()); assert.strictEqual(Sim.addXp(pr, Sim.xpNeed(1) + Sim.xpNeed(2) + 5).ups, 2); assert.strictEqual(pr.cl, 3); assert.strictEqual(pr.xp, 5);
@@ -100,7 +130,7 @@ const boot = async o => { const s = start(Object.assign({ port: 0, speed: 12, lo
   // accounts
   const A = await named(port, '小明', 'dps'), B = await named(port, '<b>壞</b>名字超級長', 'heal');
   assert.match(A.me.id, /^[a-f0-9]{16}$/); assert.notStrictEqual(A.me.id, B.me.id);
-  { const { q, loadout, talents, eq, bag, dl, ...rest } = A.me.profile; assert.deepStrictEqual(dl, {}); assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(talents, {}); assert.deepStrictEqual(bag, []); assert.deepStrictEqual(eq.w, { n: '', q: 0 }); assert.deepStrictEqual(rest, { name: '小明', cls: 'dps', lvl: 1, cl: 1, xp: 0, gear: { w: 10, o: 10, a: 10, t: 10 }, best: {}, runs: 0, coin: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
+  { const { q, loadout, talents, eq, bag, dl, bond, ...rest } = A.me.profile; assert.deepStrictEqual(Object.keys(bond).sort(), Object.keys(Sim.BONDS).sort()); assert.deepStrictEqual(dl, {}); assert.deepStrictEqual(loadout, {}); assert.deepStrictEqual(talents, {}); assert.deepStrictEqual(bag, []); assert.deepStrictEqual(eq.w, { n: '', q: 0 }); assert.deepStrictEqual(rest, { name: '小明', cls: 'dps', lvl: 1, cl: 1, xp: 0, gear: { w: 10, o: 10, a: 10, t: 10 }, best: {}, runs: 0, coin: 0, inv: { scrap: 0, salt: 0, shard: 0, herb: 0, potion: 0 } }); assert.strictEqual(q.main, 0); }
   assert.strictEqual(B.me.profile.name, 'b壞/b名字超級');
   const forged = client(port, { id: A.me.id, token: 'x'.repeat(32) }); await forged.ready;
   assert.notStrictEqual(forged.me.id, A.me.id, 'a wrong token must not open someone else\'s account'); forged.ws.close();

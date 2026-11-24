@@ -208,6 +208,16 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
 #talk.narr p{color:var(--mute)}
 #talk .row{display:flex;justify-content:space-between;align-items:center;margin-top:auto;font-size:11px;color:var(--mute)}
 #talk .mini{height:30px;font-size:12px}
+#talk-bond{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);cursor:default}
+#talk-bond b{font-size:12px;letter-spacing:.06em;color:var(--brass);white-space:nowrap}
+#talk-bond .bar{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden}
+#talk-bond .bar i{display:block;height:100%;width:0;background:var(--ember);transition:width .4s}
+#gift{display:flex;flex-direction:column;gap:6px;max-height:38vh;overflow:auto;padding-top:6px;border-top:1px solid var(--line);cursor:default}
+#gift p{font-size:12px;line-height:1.6;color:var(--mute)}
+#gift ul{margin:0;padding:0;list-style:none;font-size:12px;line-height:1.7;color:var(--mute)}
+#gift li.on{color:var(--foam)}
+#gift .gifts{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+#gift .gifts .mini{height:40px;font-size:13px;overflow:hidden;text-overflow:ellipsis}
 #portbox{gap:8px;padding:14px}
 #portbox p{margin:0 0 2px;font-size:13px;color:var(--mute)}
 #portbox p b{font-family:var(--f-display);font-size:17px;color:var(--foam);letter-spacing:.08em}
@@ -337,6 +347,8 @@ h2{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1.1;m
     <img id="talk-art" alt="" hidden>
     <div id="talk" hidden>
       <b id="talk-who"></b><p id="talk-text" aria-live="polite"></p>
+      <div id="talk-bond" hidden><b id="tb-name"></b><span class="bar"><i id="tb-bar"></i></span><span id="tb-num"></span><button class="mini go" id="tb-gift" type="button">送禮</button></div>
+      <div id="gift" hidden></div>
       <div class="row"><span id="talk-count"></span><button class="mini" id="talk-skip" type="button">跳過</button></div>
     </div>
     <button id="endchip" type="button" hidden>戰利品</button>
@@ -799,7 +811,7 @@ function startSolo(cls, d) {
   markOrigin(); if (net.authed && mode === 'online') send({ t: 'leave' }); else leaveQueue();
   clearQueue(); closePort(); $('#endchip').hidden = true;
   mode = lastMode = 'solo'; save.cls = cls; writeSave();
-  G = S.createRun({ dungeon: did, lvl: floorNow(did), auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsFor(save, cls), held: S.heldOf(save) }] });
+  G = S.createRun({ dungeon: did, lvl: floorNow(did), auto: AUTO, players: [{ cls, name: save.nick || '你', lvl: save.cl, pow: S.charPower(save), id: 'me', potions: save.inv.potion, skills: S.loadoutOf(save, cls), mods: S.modsFor(save, cls), held: S.heldOf(save), team: S.bondTeam(save) }] });
   V = G; V.me = G.actors.find(a => a.human); meIdx = V.me.idx;
   if (net.authed) send({ t: 'solo0', lvl: floorNow(did), cls, d: did });
   if (G.layout) FD = G.F;      // a laid-out dungeon is a map of its own
@@ -897,6 +909,7 @@ function fieldView(dt) {
   }
   nearNpc = null; for (const n of FD.npcs) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearNpc = n;
   nearStall = null; for (const n of FD.stalls) if (Math.hypot(n.x - me.x, n.y - me.y) < 58) nearStall = n;
+  if (nearNpc && nearStall) { if (Math.hypot(nearNpc.x - me.x, nearNpc.y - me.y) <= Math.hypot(nearStall.x - me.x, nearStall.y - me.y)) nearStall = null; else nearNpc = null; }      // a person and a stall both in reach: the button is for the nearer one
   nearGate = !!FD.gate && Math.hypot(FD.gate.x - me.x, FD.gate.y - me.y) < FD.gate.r + 34;
   nearExit = null; for (const e of FD.exits) if (S.MAPS[e.to] && Math.hypot(e.x - me.x, e.y - me.y) < 46) nearExit = e;
   const btn = $('#act'), label = talk.lines || !me.alive ? '' : nearStall ? STALL_ACT[nearStall.id] : nearNpc ? `和${Story.CAST[nearNpc.id] ? Story.CAST[nearNpc.id].name : '他們'}說話` : nearExit ? `前往${S.MAPS[nearExit.to].name}` : nearGate ? (FD.id === 'shore' ? '進入沉鐘塔' : '進入副本') : '';
@@ -921,7 +934,7 @@ function fieldReport(t, body, what, key, pk) {
 }
 
 /* ---------- talking: a box over the world, one line per tap ---------- */
-function say(lines, done) { talk.lines = lines; talk.i = 0; talk.done = done || null; $('#portbox').hidden = true; $('#talk').hidden = false; nextSay(); }
+function say(lines, done, bond) { talk.lines = lines; talk.i = 0; talk.done = done || null; talk.bond = bond || ''; talk.gift = false; $('#portbox').hidden = true; $('#talk').hidden = false; renderBond(); nextSay(); }
 function nextSay() {
   if (!talk.lines) return;
   if (talk.i >= talk.lines.length) return endSay();
@@ -936,14 +949,61 @@ function nextSay() {
     art.hidden = !im; if (!im) art.dataset.who = ''; }
   talk.focus = FD.npcs.find(n => n.id === who) || null;
 }
-function endSay() { const done = talk.done; talk.lines = null; talk.done = null; talk.focus = null; $('#talk').hidden = true; $('#talk-art').hidden = true; $('#talk-art').dataset.who = ''; if (done) done(); }
+function endSay() { const done = talk.done; talk.lines = null; talk.done = null; talk.focus = null; talk.bond = ''; talk.gift = false; $('#talk').hidden = true; $('#talk-art').hidden = true; $('#talk-art').dataset.who = ''; if (done) done(); }
 function talkTo(id) {
   const main = S.questList(save, Date.now(), online).items.find(x => x.group === 'main'), sc = main && Story.SCENES[main.id];
   if (main && main.ready && sc && sc.at === id) return claimMain(main.id);      // this is who the finished quest goes back to
-  const lines = [[id].concat(pick(Story.IDLE[id] || ['……']))];      // an idle line is a line, or [line, face]
+  const bond = S.BONDS[id] && Story.BOND[id] ? id : ''; if (bond && bondScene(id)) return;      // a tier reached since last time: that comes first
+  let idle = Story.IDLE[id] || ['……']; if (bond) { const t = S.bondTier(save, id), more = Story.BOND[id].more || {}; for (const k of Object.keys(more)) if (t >= +k) idle = idle.concat(more[k]); }
+  const lines = [[id].concat(pick(idle))];      // an idle line is a line, or [line, face]
   if (main && sc && sc.at === id) lines.push([id, `你手上那件事還沒完：${main.goal}。做完再來。`]);
   else if (main && main.ready && sc && Story.CAST[sc.at]) lines.push([id, `${Story.CAST[sc.at].name}在找你，像是有東西要給你。`]);
-  say(lines);
+  say(lines, bond ? () => bondScene(id) : null, bond);
+  if (bond) bondDo({ op: 'talk', who: id }, r => { if (r.gain) { bondGain(id, r); renderBond(); } });      // the first words of the day count for something
+}
+/* ---------- bonds: the people at the camp who come to know you ---------- */
+function bondDo(o, cb) {
+  if (online) { if (!net.authed) return toast('連線中，等一下再試。', [], 2500); net.bondCb = cb || null; return send(Object.assign({ t: 'bond' }, o)); }
+  const now = Date.now(), r = o.op === 'talk' ? S.bondTalk(save, o.who, now) : o.op === 'gift' ? S.bondGift(save, o.who, o.key ? { key: o.key } : { i: o.i }, now) : S.bondSeen(save, o.who, o.tier, now);
+  writeSave(); if (cb) cb(r);
+}
+function bondGain(who, r) { const n = FD.npcs.find(x => x.id === who); if (n && r.gain) addText(n.x, n.y - 58, `好感 +${r.gain}`, C.ember, 13, 1.6, true); if (r.up) toast(`和${Story.CAST[who].name}的好感到了「${S.BOND_NAMES[r.tier]}」。`, [], 3500); }
+/* A tier reached whose scene has not been shown: show it, one tier at a time, and say what it brings. */
+function bondScene(who) {
+  const b = S.bondInfo(save, who, Date.now()), st = Story.BOND[who]; if (!b || !st || b.seen >= b.tier || !inField()) return false;
+  const t = b.seen + 1, name = Story.CAST[who].name, perk = b.perks.find(x => x.tier === t), gets = [];
+  if (perk) gets.push(`你的${perk.text}`); if (S.BOND_TEAM[t] > S.BOND_TEAM[t - 1]) gets.push(`${name}當你的隊友時實力 +${Math.round(S.BOND_TEAM[t] * 100)}%`);
+  if (S.questList(save, Date.now(), online).items.some(x => x.from === who && !x.claimed && !x.have)) gets.push(`${name}有事拜託你（任務 → 支線）`);
+  say((st.scenes[t] || []).concat([['n', `和${name}的好感到了「${S.BOND_NAMES[t]}」${gets.length ? '：' + gets.join('；') : ''}。`]]), () => bondDo({ op: 'seen', who, tier: t }, () => { refitMe(); renderQuests(); bondScene(who); }));
+  return true;
+}
+function renderBond() {
+  const who = talk.bond, b = who ? S.bondInfo(save, who, Date.now()) : null, g = $('#gift'); $('#talk-bond').hidden = !b; g.hidden = !b || !talk.gift; if (!b) return;
+  $('#tb-name').textContent = `好感・${b.name}`; $('#tb-bar').style.width = clamp((b.v - b.from) / (b.to - b.from), 0, 1) * 100 + '%'; $('#tb-num').textContent = `${b.v} / ${b.to}`; $('#tb-gift').textContent = talk.gift ? '收起' : '送禮';
+  if (!talk.gift) return;
+  const name = Story.CAST[who].name, ul = el('ul'), list = el('div', 'gifts'); g.textContent = '';
+  for (const p of b.perks) ul.appendChild(el('li', p.on ? 'on' : '', `${p.on ? '✓' : '・'} ${p.at}：${p.text}`));
+  ul.appendChild(el('li', b.team ? 'on' : '', `${b.team ? '✓' : '・'} 信賴起：${name}當你的隊友時更強${b.team ? `（現在 +${Math.round(b.team * 100)}%）` : ''}`)); g.appendChild(ul);
+  g.appendChild(el('p', '', b.giftLeft ? `今天還能送 ${b.giftLeft} 次。每個人喜歡的東西不一樣，送了才知道。` : '今天已經送過 3 次了，明天再來。'));
+  const add = (label, what, sure) => { const bt = el('button', 'mini', label); bt.type = 'button'; bt.disabled = !b.giftLeft; bt.addEventListener('click', () => { if (sure && talk.sure !== bt) { talk.sure = bt; bt.textContent = '確定送出？'; bt.classList.add('go'); return; } talk.sure = null; giveGift(what); }); list.appendChild(bt); };
+  for (const k of b.gifts) if (save.inv[k] > 0) add(`${k === 'potion' ? '潮息藥水' : S.MATS[k]} ×${save.inv[k]}`, { key: k });
+  save.bag.forEach((it, i) => add(`${it.n}・${it.il}`, { i }, true));      // gear is gone for good, so it asks twice
+  if (list.children.length) g.appendChild(list); else g.appendChild(el('p', '', '你身上沒有能送的東西。'));
+}
+function giveGift(what) {
+  const who = talk.bond; if (!who) return;
+  bondDo(Object.assign({ op: 'gift', who }, what), r => {
+    if (!r.ok) return toast(String(r.msg || ''), [], 3000);
+    renderBag(); renderEquip(); say([[who].concat(pick(Story.BOND[who].gift[r.mood] || [['……']]))], () => bondScene(who), who); bondGain(who, r);
+  });
+}
+function talkTap(ev) {      // a tap on the dialogue box, or on the world while someone is talking
+  const t = ev && ev.target && ev.target.closest ? ev.target : null;
+  if (t && t.closest('#talk-skip')) return endSay();
+  if (t && t.closest('#tb-gift')) { talk.gift = !talk.gift; talk.sure = null; return renderBond(); }
+  if (t && (t.closest('#gift') || t.closest('#talk-bond'))) return;
+  if (talk.gift) { talk.gift = false; return renderBond(); }
+  nextSay();
 }
 function claimMain(id) {
   if (online) { if (!net.authed) return toast('連線中，等一下再試。', [], 2500); net.claiming = id; return send({ t: 'claim', id }); }
@@ -1021,7 +1081,7 @@ function applyProfile(m, quiet) {   // the server's word on this account
     box.cur = box.chars[m.cur] ? m.cur : -1; quiet = true;
   }
   const p = m.profile, c = box.chars[box.cur];
-  if (p && c) { Object.assign(c, { nick: p.name, cls: p.cls, lvl: p.lvl, cl: p.cl, xp: p.xp || 0, gear: p.gear, eq: p.eq, bag: p.bag || [], dl: p.dl || {}, best: p.best, runs: p.runs, inv: p.inv, q: p.q, loadout: p.loadout, coin: p.coin || 0, talents: p.talents || {} }); S.fixProfile(c); c.ilvl = S.ilvlOf(c.gear); }
+  if (p && c) { Object.assign(c, { nick: p.name, cls: p.cls, lvl: p.lvl, cl: p.cl, xp: p.xp || 0, gear: p.gear, eq: p.eq, bag: p.bag || [], dl: p.dl || {}, best: p.best, runs: p.runs, inv: p.inv, q: p.q, loadout: p.loadout, coin: p.coin || 0, talents: p.talents || {}, bond: p.bond || {} }); S.fixProfile(c); c.ilvl = S.ilvlOf(c.gear); }
   save = c || blankChar(); chosen = save.cls;
   writeSave(); levelCheck(quiet);
 }
@@ -1065,6 +1125,7 @@ function onMsg(m) {
       break;
     }
     case 'loadout': applyProfile(m); if (!m.ok) toast(String(m.msg || ''), [], 4000); refitMe(); renderLoadout(); if (!$('#menu').hidden) renderMenu(); break;
+    case 'bond': { const cb = net.bondCb; net.bondCb = null; if (m.profile) applyProfile(m); if (cb && m.r) cb(m.r); break; }
     case 'claimed': { const id = net.claiming; net.claiming = ''; applyProfile(m); toast(String(m.msg || ''), [], 3500); renderBag(); renderMenu(); if (m.ok && inField() && Story.SCENES[id]) say(Story.SCENES[id].lines); break; }
     case 'fy': { const done = newlyDone(() => applyProfile(m)); if (inField() && m.ok) showYield(m.mats || {}, done, m.xp, m.coin, m.item); if (m.item && m.item.up) refitMe(); break; }
     case 'loot': onLoot(m); break;
@@ -1268,25 +1329,31 @@ const ICONS = new Set((window.ART_MANIFEST || {})._icons || []);
   for (const n of M._tiles || []) if (ok(n)) load(TILE, n, 'tile');
   for (const n of Object.keys(M._props || {})) if (ok(n)) load(PROP, n, 'prop', { w: M._props[n].w > 0 ? M._props[n].w : 32, h: M._props[n].h > 0 ? M._props[n].h : 32, frames: M._props[n].frames > 0 ? M._props[n].frames : 1 });
   for (const n of M._deco || []) if (ok(n)) load(DECO, n, 'deco'); }
-const pxScale = c => Math.max(1, Math.round(ART_ZOOM * (c.getTransform().a || 1)));      // screen pixels to one pixel of a picture
+/* Pictures come in two finenesses: the first ones, and ones drawn at twice as many pixels to the same size (a body
+ * with cell 64 and scale 0.5; a ground tile 64 high; and the kinds of thing listed under _fine). A fine pixel covers a
+ * whole number of screen pixels and a coarse one exactly two of those, so the two can stand side by side. */
+const FINE = new Set((window.ART_MANIFEST || {})._fine || []);
+const finePx = c => Math.max(1, Math.floor(ART_ZOOM * ((c || ctx).getTransform().a || 1) / 2 + .65));
+const pxScale = (c, fine) => finePx(c) * (fine ? 1 : 2);      // screen pixels to one pixel of a picture
+const propPx = c => pxScale(c, FINE.has('prop'));      // screen pixels to one of a prop's listed pixels
 /* Fill a box of the world with a ground tile, lined up with the world so boxes side by side meet without a seam.
  * A strip of several squares is several looks of the same ground, picked by place; for water it is a ripple. */
 function tileFill(name, x0, y0, x1, y1, c) {
   const t = TILE[name]; if (!t) return false; c = c || ctx;
-  const m = c.getTransform(), q = pxScale(c), T = 32 * q, ox = Math.round(m.e), oy = Math.round(m.f);
+  const cell = t.img.height >= 64 ? 64 : 32, m = c.getTransform(), q = pxScale(c, cell === 64), T = cell * q, ox = Math.round(m.e), oy = Math.round(m.f);
   const a0 = Math.max(0, Math.round(m.a * x0 + m.e)), b0 = Math.max(0, Math.round(m.d * y0 + m.f)), a1 = Math.min(c.canvas.width, Math.round(m.a * x1 + m.e)), b1 = Math.min(c.canvas.height, Math.round(m.d * y1 + m.f));
   if (a1 <= a0 || b1 <= b0) return true;
-  const n = Math.max(1, Math.round(t.img.width / 32)), wet = name === 'water' || name === 'flood', beat = reduced ? 0 : Math.floor(clock * 2.5);
+  const n = Math.max(1, Math.round(t.img.width / cell)), wet = name === 'water' || name === 'flood', beat = reduced ? 0 : Math.floor(clock * 2.5);
   c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.beginPath(); c.rect(a0, b0, a1 - a0, b1 - b0); c.clip(); c.imageSmoothingEnabled = false;
   for (let j = Math.floor((b0 - oy) / T); j * T + oy < b1; j++) for (let i = Math.floor((a0 - ox) / T); i * T + ox < a1; i++) {
     const v = wet ? (((beat + i + j * 2) % n) + n) % n : (((i * 73856093) ^ (j * 19349663)) >>> 0) % n;
-    c.drawImage(t.img, v * 32, 0, 32, 32, ox + i * T, oy + j * T, T, T); }
+    c.drawImage(t.img, v * cell, 0, cell, cell, ox + i * T, oy + j * T, T, T); }
   c.restore(); return true;
 }
 /* A thing standing on the ground, its foot at (x, y). `big` enlarges it by whole steps (a rock as wide as it is solid). */
 function drawProp(name, x, y, frame, alpha, big) {
-  const p = PROP[name]; if (!p) return false; const c = ctx, m = c.getTransform(), q = pxScale(c) * (big > 1 ? Math.round(big) : 1), f = (((frame | 0) % p.frames) + p.frames) % p.frames;
-  c.save(); c.setTransform(q, 0, 0, q, Math.round(m.a * x + m.e), Math.round(m.d * y + m.f) + 4 * q); c.imageSmoothingEnabled = false; if (alpha != null) c.globalAlpha = alpha;
+  const p = PROP[name]; if (!p) return false; const c = ctx, m = c.getTransform(), fine = FINE.has('prop'), q = pxScale(c, fine) * (big > 1 ? Math.round(big) : 1), f = (((frame | 0) % p.frames) + p.frames) % p.frames;
+  c.save(); c.setTransform(q, 0, 0, q, Math.round(m.a * x + m.e), Math.round(m.d * y + m.f) + (fine ? 8 : 4) * q); c.imageSmoothingEnabled = false; if (alpha != null) c.globalAlpha = alpha;
   c.drawImage(p.img, f * p.w, 0, p.w, p.h, -p.w / 2, -p.h, p.w, p.h); c.restore(); return true;
 }
 /* Small things strewn about, the same every time for the same map: shells and driftwood on the shore, rust and puddles in the tower. */
@@ -1303,9 +1370,9 @@ function strewn(F, tower) {
   return (STREWN[key] = out);
 }
 function drawStrewn(F, tower) {
-  const c = ctx, m = c.getTransform(), q = pxScale(c), W0 = c.canvas.width, H0 = c.canvas.height;
+  const c = ctx, m = c.getTransform(), q = pxScale(c, FINE.has('deco')), W0 = c.canvas.width, H0 = c.canvas.height;
   for (const d of strewn(F, tower)) { const X = Math.round(m.a * d.x + m.e), Y = Math.round(m.d * d.y + m.f); if (X < -40 || Y < -40 || X > W0 + 40 || Y > H0 + 40) continue;
-    c.save(); c.setTransform(d.flip ? -q : q, 0, 0, q, X, Y); c.imageSmoothingEnabled = false; c.drawImage(DECO[d.n].img, -8, -8); c.restore(); }
+    c.save(); c.setTransform(d.flip ? -q : q, 0, 0, q, X, Y); c.imageSmoothingEnabled = false; const im = DECO[d.n].img; c.drawImage(im, -(im.width >> 1), -(im.height >> 1)); c.restore(); }
 }
 const iconImg = (name, cls) => { const im = el('img', cls || 'pic'); im.src = `art/icon/${name}.png`; im.alt = ''; return im; };
 const sealEl = sk => { const e = el('em', ICONS.has(sk.id) ? 'pic' : '', ICONS.has(sk.id) ? '' : sk.seal); if (ICONS.has(sk.id)) e.appendChild(iconImg(sk.id)); return e; };
@@ -1313,7 +1380,7 @@ const spriteOf = id => { const s = ART[id]; return s && (s.img.idle_down || s.im
 /* One pixel of a picture covers a whole number of screen pixels, whatever the zoom, so it stays crisp: this is how
  * many, and how many world units that comes to. */
 const ART_ZOOM = 1.3;
-const artPx = set => { const k = ctx.getTransform().a || 1; return Math.max(1, Math.round(set.scale * ART_ZOOM * k)); };
+const artPx = set => finePx(ctx) * Math.max(1, Math.round(set.scale * 2));
 const spriteTop = (set, r) => set ? (set.cell - set.foot) * artPx(set) / (ctx.getTransform().a || 1) - r * .7 - 2 : r;      // how far above its centre the picture reaches
 /* Draw o from its strips. It walks when it has moved, strikes for as long as `striking` says (or for a moment after
  * o._atk is set), and flinches when `hit`. Returns false when there was nothing to draw. */
@@ -1328,7 +1395,7 @@ function wpnSheet(w, h, parts, gx, gy, len) {
   for (const [x, y, rw, rh, col] of parts) { g.fillStyle = col; g.fillRect(x + 1, y + 1, rw, rh); }
   const d = g.getImageData(0, 0, cv.width, cv.height).data, W = cv.width, H = cv.height, edge = [];
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { if (d[(y * W + x) * 4 + 3]) continue; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H && d[(ny * W + nx) * 4 + 3]) { edge.push([x, y]); break; } } }
-  g.fillStyle = C.ink; for (const [x, y] of edge) g.fillRect(x, y, 1, 1); return { cv, gx, gy, len };
+  g.fillStyle = C.ink; for (const [x, y] of edge) g.fillRect(x, y, 1, 1); return { cv, w: cv.width, h: cv.height, d: 1, gx, gy, len };
 }
 function buildWeapons() {
   WPN.sword = wpnSheet(7, 20, [[3, 0, 1, 1, WC.steel], [2, 1, 3, 12, WC.steel], [2, 1, 1, 12, WC.hi], [4, 2, 1, 11, WC.steelD], [0, 13, 7, 2, C.brass], [3, 15, 1, 4, WC.woodD], [2, 19, 3, 1, C.brass]], 4.5, 17, 16);
@@ -1343,7 +1410,7 @@ function buildWeapons() {
   WPN.tome = wpnSheet(9, 8, [[0, 0, 9, 8, C.heal], [1, 1, 3, 6, WC.page], [5, 1, 3, 6, WC.page], [4, 0, 1, 8, C.brass], [2, 3, 1, 1, C.ink], [6, 3, 1, 1, C.ink], [2, 5, 1, 1, C.ink], [6, 5, 1, 1, C.ink]], 5.5, 5, 0);
   WPN.quiver = wpnSheet(6, 12, [[0, 0, 1, 3, C.ember], [2, 0, 1, 3, C.ember], [4, 0, 1, 3, C.ember], [0, 3, 6, 9, WC.woodD], [0, 4, 6, 1, C.brass], [1, 6, 4, 5, WC.wood]], 4, 7, 0);
   for (const k of (window.ART_MANIFEST && window.ART_MANIFEST._weapons) || []) if (S.WKINDS[k]) { const im = new Image(), hold = ['off', 'x'].includes(S.WKINDS[k].hand) && S.WKINDS[k].move !== 'swing';
-    im.onload = () => { WPN[k] = { cv: im, gx: im.width / 2, gy: hold ? im.height / 2 : im.height - 6, len: Math.max(0, im.height - 10), real: true }; }; im.src = `art/weapon/${k}.png`; }
+    im.onload = () => { const d = FINE.has('weapon') ? 2 : 1, w = im.width / d, h = im.height / d; WPN[k] = { cv: im, w, h, d, gx: w / 2, gy: hold ? h / 2 : h - 6, len: Math.max(0, h - 10), real: true }; }; im.src = `art/weapon/${k}.png`; }
 }
 buildWeapons();
 const HC = document.createElement('canvas'); HC.width = HC.height = 72; const hg = HC.getContext('2d'); hg.imageSmoothingEnabled = false;
@@ -1360,7 +1427,8 @@ function strikeAnim(a) { if (!a.held) return; const d = S.WKINDS[a.held[1]]; a._
 /* Draw what `a` holds: pass 0 is what sits behind the body, pass 1 what sits in front. (X, Y) is where its feet are on the screen. */
 function drawHeld(a, set, pass, X, Y, q) {
   const held = a.held; if (!held) return; const aim = a.face || 0, ux = Math.cos(aim), uy = Math.sin(aim), px = -uy, py = ux, t = a._wt == null ? 9 : a._wt, guard = a.wallT > 0 || a.shield > 0, k = set.cell / 32;
-  let drew = false; hg.setTransform(1, 0, 0, 1, 0, 0); hg.clearRect(0, 0, 72, 72);
+  const O = Math.ceil(36 * k); if (HC.width !== O * 2) { HC.width = HC.height = O * 2; hg.imageSmoothingEnabled = false; }      // the scratch sheet is in the body's pixels
+  let drew = false; hg.setTransform(1, 0, 0, 1, 0, 0); hg.clearRect(0, 0, O * 2, O * 2);
   for (let hand = 0; hand < 2; hand++) {
     const id = held[hand], kd = S.WKINDS[id], w = WPN[id]; if (!kd || (!w && id !== 'bow')) continue;
     const side = hand ? -1 : 1, live = t < .4 && (a._wh || 0) === hand, bob = reduced ? 0 : Math.sin(clock * 3 + hand) * .6;
@@ -1374,21 +1442,21 @@ function drawHeld(a, set, pass, X, Y, q) {
       pull = since < every * 1.8 ? 5 * clamp((since - .12) / Math.max(.2, every - .2), 0, 1) : 0; hx = ux * 6 + px * 2 * side; hy = uy * 4 + py * side; if (since < .1) { hx -= ux * 2; hy -= uy * 2; } }
     else if (kd.move === 'cast') { const up = -Math.PI / 2, p = live ? clamp(t / .35, 0, 1) : 1; ang = live ? mix(up + ux * .5, up + ux * .2, p) : up + ux * .2; glow = live ? 1 - p : 0; hx = (ux >= 0 ? 6 : -6) * side; hy = (live ? -3 * Math.sin(Math.PI * p) : bob); behind = false; }
     if ((behind ? 0 : 1) !== pass) continue; drew = true;
-    hg.save(); hg.translate(36 + Math.round(hx * k), 36 + Math.round(hy * k));
+    hg.save(); hg.translate(O + Math.round(hx * k), O + Math.round(hy * k)); hg.scale(k, k);
     if (id === 'bow' && !(w && w.real)) {      // the plain bow is drawn fresh, because its string moves
       hg.rotate(aim); const pts = []; for (let i = -7; i <= 7; i++) pts.push([Math.round(-i * i * .09), i]);
       hg.fillStyle = C.ink; for (const [x, y] of pts) hg.fillRect(x - 1, y - 1, 3, 3); hg.fillStyle = WC.wood; for (const [x, y] of pts) hg.fillRect(x, y, 1, 1); hg.fillStyle = C.ember; hg.fillRect(0, -1, 1, 3);
       const ex = pts[0][0]; hg.strokeStyle = C.foam; hg.lineWidth = 1; hg.beginPath(); hg.moveTo(ex + .5, -7); hg.lineTo(ex - pull + .5, 0); hg.lineTo(ex + .5, 7); hg.stroke();
       if (pull > 1.5) { hg.fillStyle = WC.wood; hg.fillRect(Math.round(ex - pull), 0, 9, 1); hg.fillStyle = WC.steel; hg.fillRect(Math.round(ex - pull) + 9, -1, 2, 3); hg.fillStyle = C.ember; hg.fillRect(Math.round(ex - pull) - 1, -1, 2, 3); }      // the arrow on the string
-    } else { if (!upright) hg.rotate(ang + Math.PI / 2); hg.drawImage(w.cv, -w.gx, -w.gy);
+    } else { if (!upright) hg.rotate(ang + Math.PI / 2); hg.drawImage(w.cv, -w.gx, -w.gy, w.w, w.h);
       if (id === 'bow') {      // a bow's picture has no string: it runs between the two tips on the bottom row, and is drawn back from the middle
-        const ty = w.cv.height - 1 - w.gy + .5, x0 = 1 - w.gx + .5, x1 = w.cv.width - 2 - w.gx + .5; hg.strokeStyle = C.foam; hg.lineWidth = 1; hg.beginPath(); hg.moveTo(x0, ty); hg.lineTo(0, ty + pull); hg.lineTo(x1, ty); hg.stroke();
+        const ty = w.h - .5 / w.d - w.gy, x0 = 1.5 / w.d - w.gx, x1 = w.w - 1.5 / w.d - w.gx; hg.strokeStyle = C.foam; hg.lineWidth = 1; hg.beginPath(); hg.moveTo(x0, ty); hg.lineTo(0, ty + pull); hg.lineTo(x1, ty); hg.stroke();
         if (pull > 1.5) { const ay = Math.round(ty + pull); hg.fillStyle = WC.wood; hg.fillRect(-.5, ay - 9, 1, 9); hg.fillStyle = WC.steel; hg.fillRect(-1.5, ay - 11, 3, 2); hg.fillStyle = C.ember; hg.fillRect(-1.5, ay - 1, 3, 2); } }
       if (glow > 0) { hg.globalAlpha = .55 * glow; hg.fillStyle = C.heal; hg.beginPath(); hg.arc(0, -w.gy + 3, 3 + 5 * glow, 0, TAU); hg.fill(); hg.globalAlpha = 1; } }
     hg.restore();
-    if (pass === 1 && kd.move === 'swing' && live && t < .2 && !reduced) { const arc = id === 'hook' ? 1.3 : 1.9, f = (a._wf || 1) * side; hg.globalAlpha = (1 - t / .2) * .85; hg.strokeStyle = C[a.def.color] || C.foam; hg.lineWidth = 3; hg.beginPath(); hg.arc(36, 36, (w.len + 5), aim - arc * f, aim + arc * f * .9, f < 0); hg.stroke(); hg.globalAlpha = 1; }
+    if (pass === 1 && kd.move === 'swing' && live && t < .2 && !reduced) { const arc = id === 'hook' ? 1.3 : 1.9, f = (a._wf || 1) * side; hg.globalAlpha = (1 - t / .2) * .85; hg.strokeStyle = C[a.def.color] || C.foam; hg.lineWidth = 3 * k; hg.beginPath(); hg.arc(O, O, (w.len + 5) * k, aim - arc * f, aim + arc * f * .9, f < 0); hg.stroke(); hg.globalAlpha = 1; }
   }
-  if (!drew) return; const c = ctx; c.save(); c.setTransform(q, 0, 0, q, X - 36 * q, Y - (36 + Math.round(11 * k)) * q); c.imageSmoothingEnabled = false; c.drawImage(HC, 0, 0); c.restore();
+  if (!drew) return; const c = ctx; c.save(); c.setTransform(q, 0, 0, q, X - O * q, Y - (O + Math.round(11 * k)) * q); c.imageSmoothingEnabled = false; c.drawImage(HC, 0, 0); c.restore();
 }
 const WHITE = new Map();
 function whiteOf(img) { let w = WHITE.get(img); if (!w) { w = document.createElement('canvas'); w.width = img.width; w.height = img.height; const g = w.getContext('2d'); g.drawImage(img, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = '#fff'; g.fillRect(0, 0, w.width, w.height); WHITE.set(img, w); } return w; }
@@ -1485,7 +1553,7 @@ function drawField() {
   }
   c.globalAlpha = 1; drawStrewn(FD, tower);
   FD.rocks.forEach((r, i) => {      // a rock is drawn about as wide as it is solid
-    const name = r.r >= 30 && PROP.rockbig ? 'rockbig' : 'rock', p = PROP[name], unit = p ? p.w * .8 * pxScale(c) / (c.getTransform().a || 1) : 0;
+    const name = r.r >= 30 && PROP.rockbig ? 'rockbig' : 'rock', p = PROP[name], unit = p ? p.w * .8 * propPx(c) / (c.getTransform().a || 1) : 0;
     if (p) { shadow(r.x, r.y + r.r * .2, r.r * .8); drawProp(name, r.x, r.y + r.r * .55, i * 7 + Math.round(r.x), null, Math.max(1, Math.round(2 * r.r / unit))); }
     else { c.fillStyle = C.ink; c.strokeStyle = C.line; c.lineWidth = 2; poly(r.x, r.y, r.r, r.r * .8, 5, r.x * .01); c.fill(); c.stroke(); } });
   c.globalAlpha = 1;
@@ -1528,7 +1596,7 @@ function drawNode(n) {
 const STALL_ACT = { shop: '和老錨交易', ah: '看秤婆的拍賣', mail: '打開信箱' };
 function drawStall(n) {
   const c = ctx, { x, y } = n; shadow(x, y, 14);
-  const tall = PROP[n.id === 'mail' ? 'mailbox' : 'stall'], up = tall ? (tall.h - 4) * pxScale(c) / (c.getTransform().a || 1) - 6 : 0;      // how high its picture stands, for the name over it
+  const tall = PROP[n.id === 'mail' ? 'mailbox' : 'stall'], up = tall ? (tall.h * (FINE.has('prop') ? .5 : 1) - 4) * pxScale(c) / (c.getTransform().a || 1) - 6 : 0;      // how high its picture stands, for the name over it
   if (n.id === 'mail') {      // a post with a box on it
     if (!drawProp('mailbox', x, y + 12)) {
     c.fillStyle = C.rust; c.strokeStyle = C.ink; c.lineWidth = 2; c.beginPath(); c.rect(x - 3, y - 4, 6, 18); c.fill(); c.stroke();
@@ -1892,7 +1960,7 @@ function drawScene() {
 }
 function drawPortal() {
   const c = ctx, { x, y } = portalAt(), r = S.PORTAL.r, t = clock;
-  if (PROP.portal) { const up = (PROP.portal.h - 4) * pxScale(c) / (c.getTransform().a || 1); drawProp('portal', x, y + r * .62, reduced ? 0 : Math.floor(t * 6));
+  if (PROP.portal) { const up = (PROP.portal.h * (FINE.has('prop') ? .5 : 1) - 4) * pxScale(c) / (c.getTransform().a || 1); drawProp('portal', x, y + r * .62, reduced ? 0 : Math.floor(t * 6));
     c.font = `700 11px ${F.display}`; c.textAlign = 'center'; c.lineWidth = 2.5; c.strokeStyle = C.ink; c.strokeText('傳送門', x, y + r * .62 - up - 4); c.fillStyle = C.brass; c.fillText('傳送門', x, y + r * .62 - up - 4); return; }
   c.save(); c.globalAlpha = .9;
   for (let i = 0; i < 3; i++) { c.strokeStyle = i === 1 ? C.foam : C.brass; c.lineWidth = 3 - i * .7; c.beginPath(); c.ellipse(x, y, r - i * 6 + Math.sin(t * 3 + i) * 1.5, (r - i * 6) * .62, 0, t * (1.2 + i * .5), t * (1.2 + i * .5) + 4.6); c.stroke(); }
@@ -2381,7 +2449,7 @@ deck.addEventListener('pointermove', ev => {
 const stickEnd = ev => { if (ev.pointerId !== stickId) return; stickId = null; stick.x = 0; stick.y = 0; base.hidden = true; };
 deck.addEventListener('pointerup', stickEnd); deck.addEventListener('pointercancel', stickEnd);
 cv.addEventListener('pointerdown', ev => {
-  if (talk.lines) return nextSay();
+  if (talk.lines) return talkTap();
   if (!V || !V.me || !V.me.alive) return;
   const r = cv.getBoundingClientRect(), field = V.mode === 'field' || !!V.layout;
   const p = field ? { x: (ev.clientX - r.left) / fscale + cam.x, y: (ev.clientY - r.top) / fscale + cam.y } : { x: (ev.clientX - r.left - offX) / scale, y: (ev.clientY - r.top - offY) / scale };
@@ -2449,7 +2517,7 @@ $('#shop-close').addEventListener('click', () => { $('#shop').hidden = true; });
 $('#go-field').addEventListener('click', () => startField());
 $('#gate-party').addEventListener('click', () => { $('#finder').hidden = true; chosen = save.cls; goOnline(V.code); });
 $('#act').addEventListener('click', doAct);
-$('#talk').addEventListener('click', ev => { if (ev.target.closest('#talk-skip')) endSay(); else nextSay(); });   // tap the box, or the world, for the next line
+$('#talk').addEventListener('click', talkTap);   // tap the box, or the world, for the next line
 $('#port-cancel').addEventListener('click', closePort);
 $('#port-back').addEventListener('click', () => exitTower(true));
 $('#port-gate').addEventListener('click', () => exitTower(false));

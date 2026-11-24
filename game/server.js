@@ -18,7 +18,7 @@ const MAX_ROOMS = 200, MAX_FRIENDS = 50;
 /* Mail and the auction house. Mail belongs to the account; what is attached comes from, and goes to, the character in use. */
 const MAIL_CAP = 30, MAIL_FEE = 5, MAIL_TEXT = 80;
 const AH_MAX = 8, AH_CUT = .05, AH_HOURS = 24, AH_SHOW = 80, AH_PRICE = 999999;
-const NEEDS_CHAR = ['join', 'name', 'loadout', 'claim', 'craft', 'solo0', 'solo1', 'field0', 'fg', 'fk', 'fr', 'talent', 'talent-reset', 'shop', 'item', 'mail-send', 'mail-take', 'ah'];
+const NEEDS_CHAR = ['join', 'name', 'loadout', 'claim', 'craft', 'solo0', 'solo1', 'field0', 'fg', 'fk', 'fr', 'talent', 'talent-reset', 'shop', 'item', 'mail-send', 'mail-take', 'ah', 'bond'];
 const SEATS = Sim.ROSTER;       // tank, heal, dps, dps
 const FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
@@ -40,7 +40,7 @@ const cleanId = s => typeof s === 'string' && /^[a-f0-9]{16}$/.test(s) ? s : '';
  * skills) belongs to a character; friends belong to the account. rec.name mirrors the name of the character in use. */
 const MAX_CHARS = 4;
 const pc = r => r.chars[r.cur] || null;        // the character this account is playing
-const charProfile = c => ({ name: c.name, cls: c.cls, lvl: c.lvl, cl: c.cl, xp: c.xp, gear: c.gear, eq: c.eq, bag: c.bag, dl: c.dl, best: c.best, runs: c.runs, inv: c.inv, q: c.q, loadout: c.loadout, coin: c.coin, talents: c.talents });
+const charProfile = c => ({ name: c.name, cls: c.cls, lvl: c.lvl, cl: c.cl, xp: c.xp, gear: c.gear, eq: c.eq, bag: c.bag, dl: c.dl, best: c.best, runs: c.runs, inv: c.inv, q: c.q, loadout: c.loadout, coin: c.coin, talents: c.talents, bond: c.bond });
 const profileOf = r => { const c = pc(r); return c ? charProfile(c) : null; };
 const rosterOf = r => r.chars.map(c => ({ name: c.name, cls: c.cls, cl: c.cl, lvl: c.lvl, ilvl: Sim.ilvlOf(c.gear) }));
 const charName = s => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, 8) : '';
@@ -59,7 +59,7 @@ function normChar(b) {
   // a backup from before there was an off hand carries none: the rules then give it one as good as its weapon
   const c = { name: cleanName(b.name), cls: SEATS.includes(b.cls) ? b.cls : 'dps', made: clampInt(b.made, 0, 9e15), lvl: clampInt(b.lvl, 1, 50), cl: clampInt(b.cl, 1, Sim.MAX_LEVEL), xp: clampInt(b.xp, 0, 1e9),
     gear: Object.assign({ w: clampInt(g.w, 10, 999), a: clampInt(g.a, 10, 999), t: clampInt(g.t, 10, 999) }, g.o >= 10 ? { o: clampInt(g.o, 10, 999) } : null), best: {}, runs: clampInt(b.runs, 0, 1e9),
-    inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) }, q: b.q, loadout: b.loadout, coin: clampInt(b.coin, 0, 9999999), talents: b.talents, eq: b.eq, bag: b.bag, dl: b.dl };
+    inv: { scrap: clampInt(v.scrap, 0, 9999), salt: clampInt(v.salt, 0, 9999), shard: clampInt(v.shard, 0, 9999), herb: clampInt(v.herb, 0, 9999), potion: clampInt(v.potion, 0, Sim.POTION_CAP) }, q: b.q, loadout: b.loadout, coin: clampInt(b.coin, 0, 9999999), talents: b.talents, eq: b.eq, bag: b.bag, dl: b.dl, bond: b.bond };
   if (b.best && typeof b.best === 'object') for (const k of Object.keys(b.best).slice(0, 60)) { const n = Number(b.best[k]); if (/^([a-z][a-z0-9]{1,11}:)?\d+$/.test(k) && Number.isFinite(n)) c.best[k] = n; }
   return Sim.fixProfile(c);
 }
@@ -329,7 +329,7 @@ function start(opts) {
       if (!room) { if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'err', msg: '伺服器滿了，晚點再試。' }); room = mkRoom('q:' + (++publicN), '', true, did); }
       idx = freeSeat(room);
     }
-    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: Sim.floorOf(c, room.did), cl: c.cl, pow: Sim.charPower(c), mods: Sim.modsFor(c, cls), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), held: Sim.heldOf(c), ws, ready: false };   // level and power come from the account, never from the client
+    room.slots[idx] = { id: rec.id, ci: rec.cur, name: c.name, cls, lvl: Sim.floorOf(c, room.did), cl: c.cl, pow: Sim.charPower(c), mods: Sim.modsFor(c, cls), potions: c.inv.potion > 0 ? 1 : 0, skills: Sim.loadoutOf(c, cls), held: Sim.heldOf(c), team: Sim.bondTeam(c), ws, ready: false };   // level and power come from the account, never from the client
     ws.lobby = { room, idx }; if (room.leader < 0 || !room.slots[room.leader]) room.leader = idx;      // whoever is first leads
     if (code) for (const fr of rooms.values()) if (fr.kind === 'field' && fr.party === code) for (const o of fr.slots) if (o && o.ws && o.ws !== ws) send(o.ws, { t: 'invited', from: { id: rec.id, name: c.name }, code, gate: true });      // the rest of the party is still out in the field, on whatever map: tell them
     const wr = ws.info && ws.info.room;      // still inside a tower they just cleared together: ask the others along
@@ -348,7 +348,7 @@ function start(opts) {
   function startRoom(room) {
     const lvl = Math.min.apply(null, humans(room).map(s => s.lvl));
     if (!Sim.DUNGEONS[room.did]) room.did = 'tower';      // the dungeon was removed while they waited
-    room.G = Sim.createRun({ dungeon: room.did, lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.cl, pow: s.pow, mods: s.mods, id: s.id, potions: s.potions, skills: s.skills, held: s.held })) });
+    room.G = Sim.createRun({ dungeon: room.did, lvl, grace: 12, players: humans(room).map(s => ({ cls: s.cls, name: s.name, lvl: s.cl, pow: s.pow, mods: s.mods, id: s.id, potions: s.potions, skills: s.skills, held: s.held, team: s.team })) });
     // seats and actors share the same order, so slot i drives actor i
     room.slots.forEach((s, i) => { if (s) { if (room.G.actors[i].pid !== s.id) throw new Error('seat mismatch'); seats.set(s.id, { room, idx: i }); if (s.ws) { leaveWorld(s.ws); s.ws.lobby = null; s.ws.info = { room, idx: i }; } } });      // the group is taken out of wherever each of them stood
     room.state = 'run'; room.acc = 0; room.n = 0; room.clock = 0; room.goneSince = 0; room.last = Date.now();
@@ -625,6 +625,13 @@ function start(opts) {
         case 'ah': return onAuction(ws, m);
         case 'field0': case 'fg': case 'fk': case 'fr': return onField(ws, m);
         case 'loadout': { const r = Sim.setLoadout(pc(ws.acc), pc(ws.acc).cls, m.skills); if (r.ok) { store.put(ws.acc); refit(ws); } return send(ws, { t: 'loadout', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
+        case 'bond': {      // talk to, give to, or mark a scene seen with someone at the camp who keeps a bond
+          const c = pc(ws.acc), who = String(m.who), now = Date.now(), op = m.op === 'talk' || m.op === 'gift' ? m.op : 'seen'; if (!Object.prototype.hasOwnProperty.call(Sim.BONDS, who)) return;
+          if (op === 'gift' && seats.has(ws.acc.id)) return send(ws, { t: 'bond', op, who, r: { ok: false, msg: '副本裡不能送禮。' } });
+          const r = op === 'talk' ? Sim.bondTalk(c, who, now) : op === 'gift' ? Sim.bondGift(c, who, typeof m.key === 'string' ? { key: m.key } : { i: clampInt(m.i, 0, 999) }, now) : Sim.bondSeen(c, who, clampInt(m.tier, 0, 9), now);
+          if (r.ok) { store.put(ws.acc); later(ws); if (r.up) refit(ws); }
+          return send(ws, { t: 'bond', op, who, r, profile: profileOf(ws.acc) });
+        }
         case 'claim': { const r = Sim.questClaim(pc(ws.acc), String(m.id), Date.now()); if (r.ok) store.put(ws.acc); return send(ws, { t: 'claimed', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
         case 'craft': { const r = Sim.craft(pc(ws.acc), String(m.id)); if (r.ok) { Sim.questEvent(pc(ws.acc), { type: 'craft', kind: r.kind }, Date.now()); store.put(ws.acc); } return send(ws, { t: 'crafted', ok: r.ok, msg: r.msg, profile: profileOf(ws.acc), bk: store.pack(ws.acc) }); }
       }
