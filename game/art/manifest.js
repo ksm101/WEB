@@ -31,7 +31,7 @@ window.ART_MANIFEST = Object.assign({
   brute: { cell: 96, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   boss: { cell: 128, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   kol: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'serious'] },
-  mira: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['serious', 'blank', 'shy', 'dark', 'darkflat', 'fake', 'smile', 'sad'], looks: { shawl: ['dark', 'darkflat', 'smile', 'shy'] } },      // darkgrin and darkside are left out until they come out right; their lines use the dark face
+  mira: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['serious', 'blank', 'shy', 'dark', 'darkflat', 'darkside', 'fake', 'smile', 'sad'], looks: { shawl: ['dark', 'darkflat', 'darkside', 'smile', 'shy'] } },      // darkgrin is left out until it comes out right; its lines use the dark face
   jin: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['angry', 'serious', 'shy', 'laugh', 'panic', 'smug', 'teary', 'smile'], looks: { bun: ['smug', 'shy', 'teary'] } },
   wu: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'surprised', 'worried'] },
   mog: { portrait: true, anims: [] },
