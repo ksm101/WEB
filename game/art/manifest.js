@@ -31,7 +31,7 @@ window.ART_MANIFEST = Object.assign({
   brute: { cell: 96, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   boss: { cell: 128, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   kol: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'serious'] },
-  mira: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['serious', 'blank', 'shy', 'dark', 'darkflat', 'fake', 'smile', 'sad'] },      // darkgrin, darkside and the shawl look are being redrawn; until then those lines use the dark face, and the shawl is not offered
+  mira: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['serious', 'blank', 'shy', 'dark', 'darkflat', 'darkgrin', 'darkside', 'fake', 'smile', 'sad'], looks: { shawl: ['dark', 'darkflat', 'darkgrin', 'darkside', 'smile', 'shy'] } },
   jin: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['angry', 'serious', 'shy', 'laugh', 'panic', 'smug', 'teary', 'smile'], looks: { bun: ['smug', 'shy', 'teary'] } },
   wu: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'surprised', 'worried'] },
   mog: { portrait: true, anims: [] },
