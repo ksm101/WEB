@@ -31,8 +31,8 @@ window.ART_MANIFEST = Object.assign({
   brute: { cell: 96, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   boss: { cell: 128, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'] },
   kol: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'serious'] },
-  mira: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['serious', 'blank', 'shy', 'dark', 'darkflat', 'darkgrin', 'darkside', 'fake', 'smile', 'sad'], looks: { shawl: ['dark', 'darkflat', 'darkgrin', 'darkside', 'smile', 'shy'] } },
-  jin: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['angry', 'serious', 'shy', 'laugh', 'panic', 'smug', 'teary', 'smile'], looks: { bun: ['smug', 'shy', 'teary'] } },
+  mira: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: [], looks: { shawl: [] } },      // faces off for now (being touched up by hand): every line shows her plain picture. They were: moods 'serious', 'blank', 'shy', 'dark', 'darkflat', 'darkgrin', 'darkside', 'fake', 'smile', 'sad'; shawl 'dark', 'darkflat', 'darkgrin', 'darkside', 'smile', 'shy'
+  jin: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: [], looks: { bun: [] } },      // faces off for now (being touched up by hand): every line shows her plain picture. They were: moods 'angry', 'serious', 'shy', 'laugh', 'panic', 'smug', 'teary', 'smile'; bun 'smug', 'shy', 'teary'
   wu: { cell: 64, scale: 0.5, foot: 8, dirs: ['down', 'side', 'up'], anims: ['idle'], portrait: true, moods: ['smile', 'surprised', 'worried'] },
   mog: { portrait: true, anims: [] },
   _weapons: ['sword', 'hammer', 'maul', 'spear', 'hook', 'xbow', 'bow', 'staff', 'bell', 'shield', 'tome', 'quiver'],      // the bow has no string in its picture: the game draws the string
